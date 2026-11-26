@@ -155,7 +155,7 @@ function(zms_add_layer_target name)
     endif ()
     target_compile_definitions(${name} PRIVATE ${ZMS_LAYER_DEFS})
     target_link_libraries(${name} PRIVATE
-        znet libmpeg libflv libhls librtp libsdp libmov libmkv libdash zmedia_core)
+        znet zbase libmpeg libflv libhls librtp libsdp libmov libmkv libdash zmedia_core)
     if (ZMS_ENABLE_WEBRTC AND ZMS_HAVE_ZICE)
         target_link_libraries(${name} PRIVATE zice)
     endif ()
@@ -178,6 +178,7 @@ zms_add_layer_target(zms_protocol ${ZMS_PROTOCOL_SOURCES})
 zms_add_layer_target(zms_session ${ZMS_SESSION_SOURCES})
 zms_add_layer_target(zms_roles ${ZMS_ROLE_SOURCES})
 zms_add_layer_target(zms_egress ${ZMS_EGRESS_SOURCES})
+zms_add_layer_target(zms_storage ${ZMS_STORAGE_SOURCES})
 zms_add_layer_target(zms_ops ${ZMS_OPS_SOURCES})
 zms_add_layer_target(zms_util ${ZMS_UTIL_SOURCES})
 zms_add_layer_target(zms_device ${ZMS_DEVICE_SOURCES})
@@ -190,6 +191,7 @@ set(ZMS_OBJECTS
     $<TARGET_OBJECTS:zms_session>
     $<TARGET_OBJECTS:zms_roles>
     $<TARGET_OBJECTS:zms_egress>
+    $<TARGET_OBJECTS:zms_storage>
     $<TARGET_OBJECTS:zms_ops>
     $<TARGET_OBJECTS:zms_util>
     $<TARGET_OBJECTS:zms_device>)

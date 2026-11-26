@@ -45,6 +45,9 @@ Testing/
 /test.mp4
 /*.mp4
 
+# 测试输出目录
+/test_zstorage_slot/
+
 # Runtime logs
 zms_media_server.log
 

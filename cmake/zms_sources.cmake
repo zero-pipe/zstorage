@@ -195,6 +195,13 @@ set(ZMS_EGRESS_SOURCES
     src/egress/pacing/egress_clock.c
 )
 
+# 云存储：预分配槽位（PS 落盘 + 关键帧索引 + 崩溃恢复）。
+# 本层是 zstorage 相对 ZMS 的新增部分，不依赖会话/协议层。
+set(ZMS_STORAGE_SOURCES
+    src/storage/zs_clock.c
+    src/storage/zs_slot.c
+)
+
 set(ZMS_OPS_SOURCES
     src/ops/server/module_registry.c
     src/ops/config/config.c
