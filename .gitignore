@@ -1,0 +1,80 @@
+# Build output (CMake / IDE opened directories)
+build/
+scripts/
+build-*/
+build_win/
+build_zm/
+build-scan/
+out/
+cmake-build-*/
+generated/
+
+# clangd / IntelliSense (generated; keep .clangd tracked)
+compile_commands.json
+.cache/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.docstates
+.idea/
+
+# Compiled
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+*.pdb
+*.ilk
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+Testing/
+
+# Local test media
+/test.mp4
+/*.mp4
+
+# Runtime logs
+zms_media_server.log
+
+# Local config overrides
+config_a.ini
+config_b.ini
+cmake/build.local.cmake
+conf/*.bak
+conf/config.local.ini
+conf/config.*.local.ini
+
+# 运行配置含 [api] secret 等本地口令，只入库模板
+conf/config.ini
+
+# Runtime media root (record/VOD/HLS cache; create locally per conf/config.ini)
+www/
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+# .clang-format / .editorconfig 是团队共享约定，必须入库（CI 依赖）。
+# 仅下列本地工具配置不入库：
+.gitattributes
+.clangd
+# Local tools / stress scripts (keep on disk, do not commit)
+tools/
+__pycache__
+
+# 本地 AI 引导文件，不入库（保留本地）
+Claude.md
+CLAUDE.md

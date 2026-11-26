@@ -1,0 +1,65 @@
+# ZMS 代码风格（clang-format）
+#
+# 用途：CI 上以 --dry-run 做「格式漂移检查」，不强制本地格式化。
+# 规则与现有代码保持一致（抽样统计：4 空格缩进、int *x、Allman 与 K&R 混合、
+# 列宽 ~100），目的是防止风格在多人协作中继续退化。
+#
+# 本地检查：clang-format --dry-run --Werror <file>
+# 本地修复：clang-format -i <file>
+
+Language: Cpp
+BasedOnStyle: LLVM
+
+# ── 缩进与行宽 ──────────────────────────────────────────────────────────────
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+# ── 大括号：函数定义换行，控制语句同行（与现有代码一致）────────────────────
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterStruct: false
+  AfterUnion: false
+  BeforeElse: false
+  IndentBraces: false
+
+# ── 指针与引用 ──────────────────────────────────────────────────────────────
+PointerAlignment: Right      # int *x（现有代码 3338:0 压倒性一致）
+DerivePointerAlignment: false
+
+# ── 对齐 ────────────────────────────────────────────────────────────────────
+AlignAfterOpenBracket: Align
+AlignConsecutiveMacros: false
+AlignConsecutiveAssignments: false
+AlignEscapedNewlines: Left
+AlignTrailingComments: false
+
+# ── 空行 ────────────────────────────────────────────────────────────────────
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# ── 语句与调用 ──────────────────────────────────────────────────────────────
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AlwaysBreakAfterReturnType: None
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+
+# ── include 排序：业务头文件在前，系统头文件在后 ────────────────────────────
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+
+# ── 其他 ────────────────────────────────────────────────────────────────────
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: false
+Cpp11BracedListStyle: true
+Standard: Cpp03   # 按 C 语义处理（CLANG-FORMAT 对 C 走 Cpp 解析器）

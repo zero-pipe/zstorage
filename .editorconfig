@@ -1,0 +1,21 @@
+root = true
+
+# 与 .clang-format 保持一致的基础编辑器设置
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+# 第三方子模块/厂商代码不强制本仓库风格
+[3rdpart/**]
+indent_style = unset
+indent_size = unset

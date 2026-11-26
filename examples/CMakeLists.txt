@@ -1,0 +1,27 @@
+set(ZMS_DEMO_SERVER_RUNTIME demo_server_runtime.c)
+
+function(zms_add_demo name)
+    add_executable(${name} ${name}.c)
+    # ZMS is static on MSVC: executables must link znet for symbols used inside ZMS (e.g. zn_info)
+    target_link_libraries(${name} PRIVATE zms znet)
+    if(MSVC)
+        target_compile_definitions(${name} PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+endfunction()
+
+function(zms_add_server_demo name)
+    add_executable(${name} ${name}.c ${ZMS_DEMO_SERVER_RUNTIME})
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(${name} PRIVATE zms znet)
+    if(MSVC)
+        target_compile_definitions(${name} PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+endfunction()
+
+zms_add_demo(demo_onvif_probe)
+zms_add_server_demo(demo_media_server)
+zms_add_server_demo(demo_gb28181_device)
+
+if (ZMS_HAVE_SRT AND WIN32)
+    zms_copy_srt_dll(demo_media_server)
+endif()

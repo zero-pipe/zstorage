@@ -1,0 +1,445 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# ZMS 媒体服务器配置
+#
+# 语法：INI 子集。[section] 分节，key=value 赋值；# 与 ; 开头为注释。
+#   值按「原样文本」解析，不做行内注释剥离 —— 不要把注释写在值的同一行。
+#   未知的 section/key 会在启动日志里告警（拼写错误不会被静默忽略）。
+#
+# 端口总览（改之前先确认没被别的服务占用）：
+#   RTMP 1935 / RTSP 8554 / HTTP(API+HLS/FLV) 8080 / SRT 9000 / WebRTC UDP 50000-60000
+#
+# 最小可用：只改 [general] externIP。其余保持默认即可单机跑通
+#   RTMP 推流 → HTTP-FLV / HLS / RTSP / WebRTC 播放。
+#
+# 常见场景：
+#   1) 局域网/单机测试      —— 保持默认，externIP 填本机内网 IP
+#   2) 公网 WebRTC 观看     —— 填 externIP + STUN/TURN（NAT 后必需 TURN）
+#   3) 云端页面看监控画面   —— 开 signaling_*（设备作为 master 连云端信令）
+#   4) 接入 GB28181 上级平台 / 作为 GB28181 平台端 —— 见文件末尾两节
+#   5) 注册到 ONVIF NVR     —— [onvif] server_enable=1
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+[general]
+# ── 进程与日志 ─────────────────────────────────────────────────────────────
+# 日志文件（相对进程工作目录）；路径含目录时需目录已存在
+log_file=zms_media_server.log
+# 日志级别：trace / debug / info / warn / error（数字 0-3 亦可）。
+#   生产用 info；排查问题临时调 debug，量很大不要长期开
+log_level=info
+# 单文件上限（MB）；0=不轮转（不推荐，日志会无限增长）
+log_max_mb=128
+# 轮转保留份数；0=不删旧文件
+log_keep_count=5
+
+# ── 线程与缓冲 ─────────────────────────────────────────────────────────────
+# IO poller 线程数。经验值：4-8（单机几十路以内）。所有协议监听与连接都跑在这组线程上
+poller_threads=8
+# 小对象缓冲池开关；1=开启，减少频繁 malloc/free
+buf_pool_enable=1
+# 缓冲池模式：global（全局单池）/ per_poller（每 poller 独立，无锁）/ hybrid（混合）。
+#   hybrid 兼顾吞吐与内存，默认即可
+buf_pool_mode=hybrid
+# 每个尺寸桶缓存的对象数上限；0 用编译默认（128）
+buf_pool_max=128
+# 点播磁盘阻塞任务线程数；0=I/O poller 线程上同步执行（会阻塞其它连接，不推荐）。
+#   点播并发多时调大（2-4）
+vod_work_threads=2
+
+# ── 网络与身份 ─────────────────────────────────────────────────────────────
+# 所有 TCP 服务的监听地址；0.0.0.0=所有网卡，填具体 IP 可限定单网卡
+listen_host=0.0.0.0
+# 对外公布 IP。影响：WebRTC ICE candidate、RTSP/RTMP SDP 里的 c= 地址、WebAPI 返回的播放地址。
+#   局域网测试填内网 IP；云服务器/公网访问填公网 IP。填错会导致播放器连不上
+#   **必填本机真实地址**：启动时会校验它是否在本机网卡上，填了别人的 IP 会告警
+#   （WebRTC 表现为"信令成功、画面黑屏"）。
+externIP=192.168.1.4
+# 1 = 按 URL 的 vhost 参数 / Host 头区分多租户；0 = 全部归一为默认 vhost。单机用 0
+enableVhost=0
+# 上报给 webhook 的服务器标识（配合 [hook] 使用，用于多实例区分）
+media_server_id=1
+
+# ── 流缓存（GOP ring）──────────────────────────────────────────────────────
+# 每个流缓存多少 GOP。越大：新观众首屏更快、但内存占用更高。
+#   经验：1-3 秒一个 GOP 时取 3；有 B 帧/GOP 长时适当加大
+gop_target_gops=3
+# GOP 缓存时间窗（秒）。0=只按 gop_target_gops 裁剪。超过该时长丢最旧 GOP（至少保留 1 个）
+gop_cache_sec=5
+# 每路 GOP 缓存字节上限；0=用编译默认 8MB。为防止异常大 GOP 撑爆内存
+gop_max_bytes=0
+
+# ── 断流行为 ───────────────────────────────────────────────────────────────
+# 无观众后保留流多久（毫秒）再销毁。点播/直播重连时可避免反复建流。
+#   0=立即销毁；默认 20000（20 秒）
+stream_none_reader_delay_ms=20000
+
+
+[auth]
+# 推流/播放鉴权：业务侧（web 后台）签发 token，ZMS 本地验签。
+#   enable=1 时推/拉流 URL 必须带 token 参数；未注入验签实现则一律拒绝（fail-closed）。
+#   验签实现由集成方通过 zms_auth_set_verifier() 注入，本文件只提供参数名与密钥占位。
+# 0=关闭（默认，内网/测试）；1=开启（公网必须）
+enable=0
+# URL 查询参数名，如 ?token=xxx
+token_param=token
+# 验签密钥占位（具体算法由注入的 verifier 决定）
+secret=
+
+
+[hook]
+# 事件通知（单向 HTTP POST，不参与鉴权 —— 鉴权见 [auth]）。
+#   事件：on_stream_changed / on_stream_none_reader / on_play_stop /
+#         on_server_started / on_record_mp4
+# 0=关闭；1=开启。接入自己的业务后台时打开
+enable=1
+# 单次 HTTP 超时（秒）
+timeout_sec=10
+# 失败重试次数；0=不重试
+retry=1
+# 重试间隔（秒）
+retry_delay=3
+# 各事件回调地址（留空=该事件不通知）
+on_stream_changed=http://127.0.0.1:18080/index/hook/on_stream_changed
+on_stream_none_reader=http://127.0.0.1:18080/index/hook/on_stream_none_reader
+on_play_stop=http://127.0.0.1:18080/index/hook/on_play_stop
+on_server_started=http://127.0.0.1:18080/index/hook/on_server_started
+on_server_keepalive=http://127.0.0.1:18080/index/hook/on_server_keepalive
+keepalive_interval_sec=30
+on_record_mp4=http://127.0.0.1:18080/index/hook/on_record_mp4
+# 哪些推流来源触发 on_stream_changed（斜杠分隔）
+stream_changed_schemas=rtsp/rtmp/srt/rtp-ps/webrtc
+
+
+# ═══ 协议监听 ══════════════════════════════════════════════════════════════
+# 各协议的「监听端口」。[protocol] 里的 enable_* 控制「协议能力是否装载」，
+# 两处都要满足才会真正 listen。
+
+[rtmp]
+# RTMP 端口（推流/播放）。1888/1936 常被其它软件占用
+port=1935
+# RTMPS 端口；0=不监听 RTMPS（需要 [ssl] 配证书）
+sslport=0
+
+[rtsp]
+# RTSP 端口。默认 8554（554 需要管理员权限）
+port=8554
+# RTSPS 端口；0=不监听（需要 [ssl] 配证书）
+sslport=0
+# 访问鉴权：两者都非空才生效（Digest）。空=不鉴权，适合内网；公网务必设置
+auth_user=
+auth_pass=
+# 仅测试用：1=对 SETUP 一律返回 461，验证客户端容错。生产用 0
+test_reject_tcp_setup=0
+# 强制 RTP 传输方式：-1=遵循客户端请求 / 0=仅 TCP / 1=仅 UDP / 2=组播。
+#   UDP 丢包严重时设 0 强制 TCP
+rtpTransportType=-1
+# RTSP 组播出流：地址 / 起始端口（0=关闭组播）/ TTL
+multicast_addr=239.255.42.99
+multicast_port_base=0
+multicast_ttl=16
+# 1 = 低延迟模式：不按播放时钟 pacing，读到即发（会牺牲平滑度）
+low_latency=0
+
+[http]
+# HTTP 端口：WebAPI(/index/api/*) + HLS/DASH 切片 + HTTP-FLV 都走这里
+port=8080
+# HTTPS/WSS 端口；0=不监听（需要 [ssl] 配证书）
+sslport=0
+
+[srt]
+# SRT 端口（推流/播放）。需要构建时开启 ZMS_ENABLE_SRT
+port=9000
+# 对端空闲超时（秒）
+timeoutSec=5
+# 延迟倍数：基础 50ms × latencyMul。越大越抗丢包，延迟越高（公网常见 4-8）
+latencyMul=4
+# 包缓冲大小（换算为 RCVBUF/SNDBUF）
+pktBufSize=8192
+# 加密口令；空=不加密。非空时推/播端需携带相同 passphrase（10-79 字符）
+passPhrase=
+
+
+[webrtc]
+# WebRTC 需要构建时开启 ZMS_ENABLE_WEBRTC（否则本节的配置会被忽略，
+#   启动日志会提示 "enable_srt/enable_webrtc but binary built without ..."）
+# 1=启用 WebRTC（WHEP 播放 / WHIP 推流 / 信令客户端）
+enable=1
+# ICE 媒体 UDP 端口范围。**NAT/防火墙只放通固定区间时必配**：
+#   会话优先在此范围内绑定；无空闲端口时回退系统临时端口（日志会告警）。
+#   公网部署建议在安全组放通该 UDP 区间
+port_min=50000
+port_max=60000
+# 并发 WHEP/WHIP 会话上限（全局，不分 app/stream）。默认 64，编译期硬上限 1024。
+#   一个 4×4 宫格 = 16 个会话；多人同时看要按「操作员数 × 每屏路数」估算。
+#   每会话常驻约 100KB（RTP 队列 + NACK 缓存），调大时留意内存。
+#   超出上限的播放请求会被拒绝（日志 "[webrtc] session registry full"）。
+max_sessions=64
+# STUN 服务器（可选）。格式 host:port，可带 stun: 前缀
+#   例：stun:114.55.94.148:3478
+stun_server=
+# TURN 服务器（可选但对 NAT 后设备几乎必需）。格式 host:port，可带 turn: 前缀；
+#   协议只支持 UDP（?transport=udp 可写可不写，tcp/tls 会告警并跳过）
+#   例：turn:114.55.94.148:3478?transport=udp
+turn_server=
+# TURN 凭据（长凭据模式用户名/密码）
+turn_user=
+turn_pass=
+# ── 外部信令（设备作为 master，浏览器 viewer 发 offer）────────────────────
+# 典型用途：本机推流 → 云端页面通过 WebRTC 观看
+# 1=连接云端信令服务
+signaling_enable=0
+# 信令 WebSocket 地址，如 ws://host:8089/ws
+signaling_url=ws://127.0.0.1:8089/ws
+# 房间名（云端页面按房间找设备）
+signaling_room=door-1
+# 信令鉴权 token；空=不带
+signaling_token=
+# 房间内对外提供哪一路本地流（必须与本机推流的 app/stream 一致，否则 viewer 拉不到）
+signaling_app=live
+signaling_stream=cam1
+# ── 主动客户端（可选）─────────────────────────────────────────────────────
+# 注：advertise_host 是 [general] externIP 的兼容别名，请统一用 externIP，勿两处都填
+# advertise_host=
+# WHEP：主动去别人那儿拉流（本机作为播放端）。URL 留空=不启用
+whep_client_url=
+whep_client_app=live
+whep_client_stream=
+whep_client_token=
+# WHIP：主动往别人那儿推流（本机作为推流端）。URL 留空=不启用
+whip_client_url=
+whip_client_app=live
+whip_client_stream=
+whip_client_token=
+
+
+[api]
+# WebAPI（/index/api/*）访问密钥。
+#   空=只接受本机访问（安全默认）；公网调用必须设置，并随请求带 ?secret=
+secret=
+
+
+[protocol]
+# 协议能力开关（与上面各节端口配合）
+enable_rtmp=1
+enable_rtsp=1
+enable_srt=1
+enable_hls=1
+# 1 = HLS 强制 fMP4 切片（H.264/H.265 也走 fMP4）；0 = 仅 VP8/VP9/AV1/H266 自动 fMP4
+enable_hls_fmp4=0
+# 1 = 不随推流预建切片器，首个请求时才创建（省 CPU/内存，首个请求稍慢）
+hls_demand=0
+# DASH 同上
+dash_demand=0
+# 非空时把直播 HLS 切片落盘到 {path}/{app}/{stream}/（做 CDN 回源/留档时用）
+hls_save_path=
+# 0=整体关闭音频（只留视频）
+enable_audio=1
+# 1 = 视频流没有音轨时补静音 AAC（部分播放器要求有音轨才出声画同步）
+add_mute_audio=1
+# 推流断开后保留流/GOP 的时长（毫秒）；0=立即清理
+continue_push_ms=15000
+# 时间戳策略：0=用源时间戳 1=用接收系统时间（相对首帧，单调平滑，抗源抖动）
+#   源时间戳乱跳/回退导致播放卡顿时改 1
+modify_stamp=0
+# TCP 会话首包超时（秒），0=关闭。防半开连接/慢速攻击长期占用 fd
+handshake_timeout_sec=10
+# TCP 会话空闲超时（秒），0=关闭
+idle_timeout_sec=60
+# 单服务最大并发会话数，0=不限（RTMP/RTSP/HTTP 各自独立计）
+max_sessions=0
+# 单 IP 最大并发会话数，0=不限。公网建议设置，防单点刷连接
+max_sessions_per_ip=0
+
+
+[record]
+# 本地 MP4 录像（推流时是否录像由推流 URL 的 enable_mp4 参数决定）
+# 录像落在 {root}/{stream}/{YYYY-MM-DD}/{YYYYMMDDHHMMSS}.mp4
+# 录制 app 名（点播/文件访问使用的 app，默认 vod）
+app=vod
+# 录像根目录（相对进程工作目录）
+root=./www/record
+# 1 = 循环播放同一个文件（点播循环）；0=播完停止
+file_repeat=0
+# 单个录像文件最大时长（秒），到时自动切新文件
+mp4_max_second=180
+# 录像根目录总大小上限（MB），0=不限；超出时删除最旧文件
+max_total_mb=0
+# 低于该剩余磁盘（MB）暂停录制；0=不检查
+free_space_check_mb=0
+
+
+[hls]
+# HLS 切片参数
+# 单切片时长（秒）。越小延迟越低、请求越多。直播常用 1-4
+seg_dur=2
+# 播放列表保留切片数（窗口大小）。越大回看缓冲越长
+seg_num=3
+
+
+[play]
+# ── 播放侧 pacing（影响延迟、卡顿与首屏速度）──────────────────────────────
+# 以下 «_lag» 均为「帧数」；«_ms» 为毫秒；«budget» 为每轮最多发送帧数。
+# 调优顺序：先调 ring_max_lag / pace_lead_ms，再动 budget。
+#
+# 观众落后超过该帧数就跳帧追到最新（直播）。小=延迟低但更容易卡；大=抗卡但延迟高
+ring_max_lag=240
+# 追赶过程中，落后降到该值以内视为「追上」，恢复正常发送节奏
+catchup_lag=16
+# 稳定播放时，每轮 IO 最多发送的帧数（限制单次突发）
+frame_budget_live=8
+# 追赶/seek 时每轮最多发送帧数（越大追得越快，但可能挤占其它会话）
+frame_budget_catchup=96
+# 首屏/追赶初期允许的一次性突发帧数
+burst_budget=96
+# HTTP-FLV 直播每轮最多打包的 tag 数
+flv_budget_live=48
+# HTTP-FLV 点播每轮最多打包的 tag 数
+flv_budget_vod=8
+# 提前发送量（毫秒）：允许比音频时钟超前发送，吸收网络抖动。太大=延迟增加
+pace_lead_ms=350
+# 落后超过 ring_max_lag + resync_lag 时触发强制重新对齐（重发关键帧）
+resync_lag=16
+# 重同步的绝对上限（帧）；当前版本作为 slow_consumer_kick_lag 的默认换算依据
+resync_lag_max=960
+# 两次重同步最小间隔（毫秒），防止抖动时反复重同步
+resync_cooldown_ms=3000
+# 观众落后超过该帧数直接踢掉该连接（0=不踢）。防慢消费者拖垮服务器
+slow_consumer_kick_lag=960
+# 点播起播时预追赶帧数（越大首屏越快、起播瞬间突发越大）
+vod_catchup_start=96
+# 点播 seek 后预追赶帧数
+vod_catchup_seek=32
+# 点播预填充水位（帧）：读不到该量就先等待，避免起播即卡
+vod_prefill_lag=32
+
+
+[proxy]
+# 启动时自动从远端拉一路流转发到本地（拉流代理）。
+# pull URL 留空=不启用。支持 rtsp/rtmp/srt/http-flv
+proxy_pull=
+# 本地暴露的 app/stream（留空=沿用远端流的 app/stream）
+proxy_app=live
+proxy_stream=
+# 相对远端 URL 的前缀（多段转发时用）
+proxy_prefix=
+# 断线重连次数；-1=无限重连
+retry_count=-1
+# 重连间隔（毫秒）
+reconnect_delay_ms=2000
+
+
+[ssl]
+# 服务端证书（PEM）。与各协议 sslport 配合使用：
+#   [rtmp] sslport / [rtsp] sslport / [http] sslport 非 0 时才加载
+# 空=不启用 TLS 监听
+cert_file=
+key_file=
+# 客户端校验用 CA（推流拉流走 TLS 时校验对端证书）
+ca_file=
+# 1 = 校验对端证书（生产建议 1；自签测试可 0）
+verify_peer=1
+# 需要双向认证时的客户端证书/私钥（一般留空）
+client_cert=
+client_key=
+
+
+[onvif]
+# ONVIF 支持。/index/api/onvif/* 始终可用；下面控制能力与设备端。
+# 1 = 启用 ONVIF 客户端能力（发现/取流）
+enable=0
+# 1 = 作为 ONVIF 设备端（WS-Discovery + /onvif/* 服务），可被 NVR/VMS 发现
+server_enable=0
+# 设备端在发现响应里显示的名称
+server_name=ZMS
+# 设备端 UUID；空=按启动时间自动生成 urn:uuid:...
+server_uuid=
+# 设备端对外呈现的流：vhost（空=默认 vhost）/ app
+default_vhost=
+default_app=onvif
+# 访问被控摄像机的默认凭据（API 未显式传时使用）
+auth_user=
+auth_pass=
+# 单次 SOAP / GetStreamUri 超时（毫秒）
+timeout_ms=5000
+# 拉流断线重连次数；-1=无限
+retry_count=-1
+# 重连间隔（毫秒）
+reconnect_delay_ms=3000
+
+
+[gb28181]
+# GB28181「设备端」：本机作为 IPC 注册到上级平台并推送 PS/RTP 流。
+# 与 [gb28181_platform]（本机作为平台端接收设备注册）二选一使用。
+# 1=启用设备端
+enable=0
+# ── 上级平台身份 ──────────────────────────────────────────────────────────
+# 上级平台 20 位 SIP 域 ID（平台编码），如 34020000002000000001
+platform_id=34020000002000000001
+# SIP 域（前 10 位），Digest 认证的 realm
+platform_domain=3402000000
+# 平台 SIP 地址与端口（设备主动连这里）
+platform_ip=
+platform_port=5060
+# ── 本机设备身份 ──────────────────────────────────────────────────────────
+# 20 位设备编码（第 11-13 位须为 132，如 34020000001320000001）
+device_id=34020000001320000001
+device_name=ZMS-IPC
+manufacturer=Zero
+model=ZMS
+firmware=0.5.0
+# Digest 用户名（空=使用 device_id）/ 密码 —— 必须与平台侧登记一致
+username=
+password=
+# ── 本机 SIP 监听 ─────────────────────────────────────────────────────────
+# 本地 IP；空=按平台地址自动探测。NAT 环境填对外 IP
+local_ip=
+local_port=5060
+# 传输方式：udp（监听 local_port）/ tcp / tls（后两者由设备主动连平台）
+#   注意：tcp/tls 模式下 Contact 用实际本地端口，local_port 仅对 udp 生效
+sip_transport=udp
+# client=设备连平台（默认）/ server=平台连设备（仅 tcp/tls）
+sip_mode=client
+# TLS：客户端填平台 CA（空=不校验）；服务端模式必须填 cert/key
+tls_ca=
+tls_cert=
+tls_key=
+# 1 = 校验对端证书
+tls_verify_peer=0
+# 注册有效期（秒）
+register_expires=3600
+# 心跳间隔（秒）
+keepalive_interval=60
+# 通道映射：<通道ID>:<vhost>/<app>/<stream>，分号分隔；vhost 可省略。
+# 示例：channels=34020000001320000001:__defaultVhost__/live/cam1;34020000001320000002:live/cam2
+channels=
+# 录像根目录（RecordInfo/回放用）；空=沿用 [record] root
+record_root=
+
+
+[gb28181_platform]
+# GB28181「平台端」：本机作为平台接收下级设备的 REGISTER/心跳/目录/取流。
+# 与 [gb28181] 设备端互斥，一般不同时开启。
+# 1=启用平台端
+enable=0
+# 本平台 20 位 SIP ID / 10 位域
+id=34020000002000000001
+domain=3402000000
+# 设备注册 Digest 密码；空=不校验（仅测试可用，生产务必设置）
+password=
+# 对外公布的 IP（写进响应 Contact/SDP）；空=按设备地址自动探测
+advertise_ip=
+# SIP 监听端口
+listen_port=5060
+# 传输方式：udp / tcp / tls（tcp/tls 为服务端，设备连入）
+transport=udp
+# TLS 证书（transport=tls 时必填）
+tls_cert=
+tls_key=
+tls_ca=
+# 1 = 校验设备证书
+tls_verify_peer=0
+# 心跳超时（秒）：超时未收到心跳视为离线
+keepalive_timeout_sec=180
+# INVITE 取流后写入的 vhost/app（stream=通道 ID，可被 API 覆盖）
+media_vhost=
+media_app=gb28181

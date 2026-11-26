@@ -1,0 +1,4 @@
+DESCRIBE rtsp://h/live/s0 RTSP/1.0
+CSeq: 1
+Content-Length: 0
+

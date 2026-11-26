@@ -1,0 +1,15 @@
+# logrotate for ZMS (systemd / 直接运行)
+# 安装：/etc/logrotate.d/zms
+/var/log/zms/zms.log {
+    daily
+    rotate 7
+    size 128M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    # 服务用 SIGHUP 重新打开日志文件（对应 zms.service 的 ExecReload）
+    postrotate
+        systemctl reload zms >/dev/null 2>&1 || true
+    endscript
+}

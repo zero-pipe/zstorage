@@ -1,0 +1,8 @@
+build
+build-*
+.git
+docs
+*.log
+record
+logs
+zms_test_rec_async
