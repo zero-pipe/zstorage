@@ -128,6 +128,14 @@ size_t webapi_handle_seek_record(const zms_webapi_query_map *q, char *body, size
 size_t webapi_handle_record_speed(const zms_webapi_query_map *q, char *body, size_t body_cap,
                                   int *http_status);
 
+size_t webapi_handle_zs_record_start(const zms_webapi_query_map *q, char *body, size_t body_cap,
+                                     int *http_status);
+size_t webapi_handle_zs_record_stop(const zms_webapi_query_map *q, char *body, size_t body_cap,
+                                    int *http_status);
+size_t webapi_handle_zs_record_list(zms_webapi_json_buf *jb);
+size_t webapi_handle_zs_record_query(const zms_webapi_query_map *q, char *body, size_t body_cap,
+                                     int *http_status);
+
 size_t webapi_handle_health(char *body, size_t body_cap, int *http_status);
 size_t webapi_handle_statistic(char *body, size_t body_cap, int *http_status);
 size_t webapi_handle_buf_pool_stats(char *body, size_t body_cap, int *http_status);

@@ -201,6 +201,33 @@ static void zs_pool_scan(zs_pool *p)
 #endif
 }
 
+/* 逐级创建目录（./www/zstorage 这类两级路径，父目录可能不存在）。 */
+static void zs_pool_mkdir_p(const char *dir)
+{
+    char tmp[ZS_POOL_PATH_MAX];
+    char *p;
+    size_t n;
+
+    if (!dir || !dir[0]) {
+        return;
+    }
+    n = strlen(dir);
+    if (n >= sizeof(tmp)) {
+        return;
+    }
+    memcpy(tmp, dir, n + 1u);
+    for (p = tmp + 1; *p; ++p) {
+        if (*p == '/' || *p == '\\') {
+            char c = *p;
+
+            *p = '\0';
+            (void)ZS_POOL_MKDIR(tmp);
+            *p = c;
+        }
+    }
+    (void)ZS_POOL_MKDIR(tmp);
+}
+
 zs_pool *zs_pool_open(const zs_pool_opts *opts)
 {
     zs_pool *p;
@@ -244,7 +271,7 @@ zs_pool *zs_pool_open(const zs_pool_opts *opts)
         return NULL;
     }
 
-    (void)ZS_POOL_MKDIR(p->dir); /* 已存在时忽略 */
+    zs_pool_mkdir_p(p->dir); /* 父目录不存在时补齐 */
     zs_pool_scan(p);
     return p;
 }

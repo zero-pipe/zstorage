@@ -17,6 +17,7 @@ set(ZMS_CORE_SOURCES
 )
 
 set(ZMS_MEDIA_SOURCES
+    src/media/container/zslot/zslot_demuxer.c
     src/media/container/flv/flv_index.c
     src/media/container/mp4/mov_file_buffer.c
     src/media/wire/amf.c
@@ -187,6 +188,7 @@ set(ZMS_EGRESS_SOURCES
     src/egress/recorder/egress_segment_recorder.c
     src/egress/recorder/egress_mp4_recorder.c
     src/egress/recorder/egress_zs_recorder.c
+    src/egress/recorder/egress_zs_record_task.c
     src/egress/rtp/rtp_muxer.c
     src/egress/rtp/rtp_muxer_paramsets.c
     src/egress/mpegts/mpegts_egress.c
@@ -204,6 +206,7 @@ set(ZMS_STORAGE_SOURCES
     src/storage/zs_pool.c
     src/storage/zs_writer.c
     src/storage/zs_config.c
+    src/storage/zs_playback.c
 )
 
 set(ZMS_OPS_SOURCES
@@ -218,6 +221,7 @@ set(ZMS_OPS_SOURCES
     src/ops/api/webapi/webapi_rtp.c
     src/ops/api/webapi/webapi_proxy.c
     src/ops/api/webapi/webapi_record.c
+    src/ops/api/webapi/webapi_zs_record.c
     src/ops/api/webapi/webapi_webrtc.c
     src/ops/api/webapi/onvif_api.c
     src/ops/api/webapi/gb28181_api.c

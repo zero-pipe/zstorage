@@ -33,8 +33,12 @@ extern "C" {
  */
 ZMS_API void zms_zs_recorder_configure(const zms_storage_config *cfg);
 
-/** 是否为某一路启动云存储录制（幂等；未启用时直接返回 OK）。 */
-ZMS_API zn_err_t zms_zs_recorder_start(zms_media_source *src);
+/**
+ * 为某一路媒体源启动云存储录制（幂等；未启用时直接返回 OK）。
+ * @param channel_key 业务主键（设备内码_通道内码），写入槽位头作为回放检索键；
+ *                    为 NULL/空 时回落到 "<app>/<stream>"。
+ */
+ZMS_API zn_err_t zms_zs_recorder_start(zms_media_source *src, const char *channel_key);
 
 /** 停止某一路的录制：刷盘 + 封口 + 释放。幂等。 */
 ZMS_API void zms_zs_recorder_stop(zms_media_source *src);
@@ -49,6 +53,13 @@ ZMS_API int zms_zs_recorder_enabled(void);
  */
 ZMS_API void zms_zs_recorder_stats(uint32_t *slots, uint32_t *free_slots, uint64_t *used_bytes,
                                    uint64_t *capacity);
+
+/** 取槽位池句柄（借用，供录像查询层按 stream+时间检索）；未就绪返回 NULL。 */
+struct zs_pool;
+ZMS_API struct zs_pool *zms_zs_recorder_pool(void);
+
+/** 取当前存储配置（借用只读指针；供任务层拼兜底拉流 URL）。 */
+ZMS_API const zms_storage_config *zms_zs_recorder_config(void);
 
 #ifdef __cplusplus
 }

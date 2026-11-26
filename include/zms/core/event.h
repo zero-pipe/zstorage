@@ -88,12 +88,6 @@ ZMS_API void zms_media_events_set(zn_poller *poller, const zms_media_events *eve
 /** 取注册事件时带入的 poller（无观众延迟定时器的宿主）。 */
 ZMS_API zn_poller *zms_media_events_poller(void);
 
-/**
- * 推流开始时触发的录制钩子（如云存储）。core 不认识 egress 实现，
- * 由录制器在配置阶段注册；传 NULL 取消。
- */
-typedef void (*zms_media_source_started_cb)(zms_media_source *src);
-ZMS_API void zms_media_events_set_recorder_autostart(zms_media_source_started_cb cb);
 /** 断流后保留源的时长（ms）；0 表示立即清理。 */
 ZMS_API void zms_media_events_set_continue_push_ms(int ms);
 /** 取当前断流保留时长（ms）；0 表示不保留。 */

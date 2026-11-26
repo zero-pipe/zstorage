@@ -295,6 +295,10 @@ flush_ms=1000
 slot_max_second=900
 # 槽位剩余空间低于该值（MB）时提前封口
 seal_margin_mb=4
+# 拉流兜底主机/端口：录制任务只给 channel_key 不给 URL 时，按
+# rtsp://<pull_host>:<pull_port>/live/<channel_key> 拼装取流地址
+pull_host=127.0.0.1
+pull_port=554
 
 
 [hls]

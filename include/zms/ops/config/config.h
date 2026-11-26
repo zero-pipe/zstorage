@@ -229,6 +229,13 @@ typedef struct zms_storage_config {
     int slot_max_second;
     /** 数据区剩余低于该值提前封口（MB），默认 4。 */
     int seal_margin_mb;
+    /**
+     * 拉流兜底主机（设备->ZMS 的取流地址主机）；调用方只给 channel_key 不给 URL
+     * 时按 "rtsp://<pull_host>:<pull_port>/live/<channel_key>" 拼装。
+     */
+    char pull_host[128];
+    /** 拉流兜底 RTSP 端口，默认 554。 */
+    int pull_port;
 } zms_storage_config;
 
 /**

@@ -419,6 +419,10 @@ static size_t handle_get_api_list(char *body, size_t body_cap)
                             "\"/index/api/record/delete\","
                             "\"/index/api/record/seek\","
                             "\"/index/api/record/speed\","
+                            "\"/index/api/zstorage/record/start\","
+                            "\"/index/api/zstorage/record/stop\","
+                            "\"/index/api/zstorage/record/list\","
+                            "\"/index/api/zstorage/record/query\","
                             "\"/index/api/onvif/discover\","
                             "\"/index/api/onvif/probe\","
                             "\"/index/api/onvif/add\","
@@ -753,6 +757,29 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
         *http_status = 200;
         return webapi_respond_json(ZMS_API_OTHER_FAILED, "use http handler for download", NULL, body,
                             body_cap);
+    }
+
+    if (strcmp(path, "/index/api/zstorage/record/start") == 0) {
+        return webapi_handle_zs_record_start(&q, body, body_cap, http_status);
+    }
+
+    if (strcmp(path, "/index/api/zstorage/record/stop") == 0) {
+        return webapi_handle_zs_record_stop(&q, body, body_cap, http_status);
+    }
+
+    if (strcmp(path, "/index/api/zstorage/record/query") == 0) {
+        return webapi_handle_zs_record_query(&q, body, body_cap, http_status);
+    }
+
+    if (strcmp(path, "/index/api/zstorage/record/list") == 0) {
+        zms_webapi_json_buf jb = {body, body_cap, 0};
+        size_t n = webapi_handle_zs_record_list(&jb);
+        if (n == 0) {
+            *http_status = 500;
+            return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+        }
+        *http_status = 200;
+        return n;
     }
 
     *http_status = 404;

@@ -958,6 +958,9 @@ static zms_container_id file_container_id(const char *path)
             return ZMS_CONTAINER_MP4;
         }
     }
+    if (n >= 6 && zms_file_stricmp(path + n - 6, ".zslot") == 0) {
+        return ZMS_CONTAINER_ZSLOT;
+    }
     return ZMS_CONTAINER_MP4;
 }
 
@@ -1013,6 +1016,8 @@ zms_vod_file_reader *zms_vod_file_reader_open(const zms_vod_file_reader_opts *op
         zms_container_demux_mkv_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
     } else if (cid == ZMS_CONTAINER_FLV_FILE) {
         zms_container_demux_flv_file_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
+    } else if (cid == ZMS_CONTAINER_ZSLOT) {
+        zms_container_demux_zslot_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
     } else {
         zms_container_demux_mp4_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
     }

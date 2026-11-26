@@ -12,6 +12,7 @@
 #include "zms/core/event.h"
 #include "zms/core/gop/queue.h"
 #include "zms/media/codec/h264/h264_es.h"
+#include "zms/media/codec/h264/h264_over_rtmp.h"
 #include "zms/media/codec/h265/h265_es.h"
 #include "zms/media/codec/param_sets.h"
 #include "zms/media/clock.h"
@@ -109,6 +110,36 @@ static void rec_refresh_params(zs_recorder *r, const zms_gop_slot *slot)
     }
 }
 
+/*
+ * 从 GOP 队列的视频配置（FLV 风格 avcC/hvcC，全量参数集）补参数集。
+ * RTSP 拉流场景下 SPS/PPS 作为独立配置帧上报，关键帧 ES 里不带内联参数集，
+ * 只靠 rec_refresh_params 会永远拿不到参数集、PS 里就缺 SPS/PPS 导致回放黑屏。
+ * 这里在关键帧缺参数集时，从队列配置兜底提取。
+ */
+static void rec_refresh_params_from_gop(zs_recorder *r)
+{
+    const uint8_t *cfg;
+    size_t clen = 0;
+    const uint8_t *sps = NULL;
+    const uint8_t *pps = NULL;
+    size_t sps_len = 0;
+    size_t pps_len = 0;
+
+    if (!r->src || !r->src->gop_queue) {
+        return;
+    }
+    cfg = zms_gop_queue_video_config(r->src->gop_queue, &clen);
+    if (!cfg || clen < 2) {
+        return;
+    }
+    if (r->src->video.codec == ZMS_CODEC_H264) {
+        if (zms_rtmp_avc_extract_sps_pps(cfg, clen, &sps, &sps_len, &pps, &pps_len)) {
+            rec_params_store(r, NULL, 0, sps, sps_len, pps, pps_len);
+        }
+    }
+    /* H265 由 rec_refresh_params 内联提取即可；此处只补 H264 拉流常见缺口。 */
+}
+
 static int rec_reserve_au(zs_recorder *r, size_t need)
 {
     uint8_t *p;
@@ -141,6 +172,10 @@ static const uint8_t *rec_prepare_video(zs_recorder *r, const zms_gop_slot *slot
     if (slot->codec == ZMS_CODEC_H264) {
         size_t n = 0;
 
+        if (!r->params.sps || !r->params.pps) {
+            /* 关键帧未内联参数集（RTSP 拉流常见）：从 GOP 队列配置兜底补一次。 */
+            rec_refresh_params_from_gop(r);
+        }
         if (!r->params.sps || !r->params.pps) {
             return slot->data;
         }
@@ -353,12 +388,13 @@ static zs_pool *zs_pool_get(void)
 
 /* ── 生命周期 ───────────────────────────────────────────────────────────── */
 
-zn_err_t zms_zs_recorder_start(zms_media_source *src)
+zn_err_t zms_zs_recorder_start(zms_media_source *src, const char *channel_key)
 {
     zs_recorder *r;
     zs_pool *pool;
     zs_writer_opts wo;
     zn_poller *pol;
+    const char *key;
 
     if (!src || !src->gop_queue || !g_zs.enabled) {
         return ZN_ERR_INVALID;
@@ -384,7 +420,14 @@ zn_err_t zms_zs_recorder_start(zms_media_source *src)
     r->mu = zb_mutex_create(0);
     r->clock = zs_clock_create(NULL);
     zms_codec_param_sets_init(&r->params);
-    snprintf(r->stream, sizeof(r->stream), "%s/%s", src->app[0] ? src->app : "live", src->stream);
+    /* 槽位头里存 channel_key（业务主键）作为回放检索键；缺省回落到 app/stream。 */
+    key = (channel_key && channel_key[0]) ? channel_key : NULL;
+    if (key) {
+        snprintf(r->stream, sizeof(r->stream), "%s", key);
+    } else {
+        snprintf(r->stream, sizeof(r->stream), "%s/%s", src->app[0] ? src->app : "live",
+                 src->stream);
+    }
 
     if (!r->mu || !r->clock) {
         goto fail;
@@ -493,11 +536,6 @@ void zms_zs_recorder_stop(zms_media_source *src)
 
 /* ── 配置与查询 ─────────────────────────────────────────────────────────── */
 
-static void zs_autostart(zms_media_source *src)
-{
-    (void)zms_zs_recorder_start(src);
-}
-
 void zms_zs_recorder_configure(const zms_storage_config *cfg)
 {
     if (!cfg) {
@@ -507,21 +545,13 @@ void zms_zs_recorder_configure(const zms_storage_config *cfg)
     if (!g_zs.mu) {
         g_zs.mu = zb_mutex_create(0);
     }
-    if (g_zs.enabled && !cfg->enable) {
-        g_zs.enabled = 0;
-        zms_media_events_set_recorder_autostart(NULL);
-        return;
-    }
     g_zs.enabled = cfg->enable ? 1 : 0;
     if (g_zs.enabled) {
-        zms_media_events_set_recorder_autostart(zs_autostart);
         zn_info("[zs] 云存储已启用 dir=%s capacity=%dGB retention=%dd", cfg->dir, cfg->capacity_gb,
                 cfg->retention_days);
         /* 启动即打开池：扫描目录、恢复上次未封口的槽位、按保留期回收，
-         * 不必等到第一路推流才开始自愈。 */
+         * 不必等到第一路录制才开始自愈。 */
         (void)zs_pool_get();
-    } else {
-        zms_media_events_set_recorder_autostart(NULL);
     }
 }
 
@@ -547,4 +577,14 @@ void zms_zs_recorder_stats(uint32_t *slots, uint32_t *free_slots, uint64_t *used
     if (capacity) {
         *capacity = p ? zs_pool_capacity_bytes(p) : 0;
     }
+}
+
+zs_pool *zms_zs_recorder_pool(void)
+{
+    return g_zs.pool;
+}
+
+const zms_storage_config *zms_zs_recorder_config(void)
+{
+    return &g_zs.cfg;
 }

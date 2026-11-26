@@ -22,6 +22,7 @@ extern const zms_container_demuxer_ops zms_container_flv_file_ops;
 extern const zms_container_demuxer_ops zms_container_mp4_ops;
 extern const zms_container_demuxer_ops zms_container_mkv_ops;
 extern const zms_container_demuxer_ops zms_container_mpegts_demuxer_ops;
+extern const zms_container_demuxer_ops zms_container_zslot_ops;
 extern const zms_container_muxer_ops zms_container_mpegts_muxer_ops;
 
 /* 按容器 ID 索引的 vtable 指针表 */
@@ -96,13 +97,14 @@ void zms_container_register_all(void)
         return;
     }
     registered = 1;
-    /* Demuxer：RTSP interleaved、FLV（流/文件）、MP4、MKV、MPEG-TS */
+    /* Demuxer：RTSP interleaved、FLV（流/文件）、MP4、MKV、MPEG-TS、zslot */
     zms_container_register_demuxer(&zms_container_rtsp_interleaved_ops);
     zms_container_register_demuxer(&zms_container_flv_tag_ops);
     zms_container_register_demuxer(&zms_container_flv_file_ops);
     zms_container_register_demuxer(&zms_container_mp4_ops);
     zms_container_register_demuxer(&zms_container_mkv_ops);
     zms_container_register_demuxer(&zms_container_mpegts_demuxer_ops);
+    zms_container_register_demuxer(&zms_container_zslot_ops);
     /* Muxer：MPEG-TS（HLS 分片） */
     zms_container_register_muxer(&zms_container_mpegts_muxer_ops);
 }

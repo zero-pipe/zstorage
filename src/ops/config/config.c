@@ -312,6 +312,8 @@ static const zms_cfg_field k_storage[] = {
     {"flush_ms", "flushMs", ZMS_CFG_F_INT, OFF(storage, flush_ms), 0, NULL},
     {"slot_max_second", "slotMaxSecond", ZMS_CFG_F_INT, OFF(storage, slot_max_second), 0, NULL},
     {"seal_margin_mb", "sealMarginMb", ZMS_CFG_F_INT, OFF(storage, seal_margin_mb), 0, NULL},
+    {"pull_host", "pullHost", ZMS_CFG_F_STR, OFF(storage, pull_host), STSZ(storage, pull_host), NULL},
+    {"pull_port", "pullPort", ZMS_CFG_F_INT, OFF(storage, pull_port), 0, NULL},
     {NULL, NULL, ZMS_CFG_F_STR, 0, 0, NULL}};
 
 /* [play] 所有字段属于 play.pacing */
@@ -617,6 +619,8 @@ void zms_config_default(zms_config *cfg)
     cfg->storage.flush_ms = 1000;
     cfg->storage.slot_max_second = 900;
     cfg->storage.seal_margin_mb = 4;
+    strncpy(cfg->storage.pull_host, "127.0.0.1", sizeof(cfg->storage.pull_host) - 1);
+    cfg->storage.pull_port = 554;
 
     /* [ssl] */
     cfg->ssl.verify_peer = 1;

@@ -38,6 +38,7 @@ typedef enum zms_container_id {
     ZMS_CONTAINER_MP4,              /**< ISO BMFF / MP4 文件 */
     ZMS_CONTAINER_MKV,              /**< Matroska / WebM 文件 */
     ZMS_CONTAINER_FLV_FILE,         /**< FLV 文件（VOD） */
+    ZMS_CONTAINER_ZSLOT,            /**< zstorage 预分配槽位（内含 MPEG-PS） */
 } zms_container_id;
 
 /** 容器包的类型标签，用于 zms_container_packet.kind */
@@ -223,6 +224,10 @@ ZMS_API void zms_container_demux_flv_file_codecs(void *ctx, zms_codec_id *video,
 
 /** 只读探测 FLV 文件总时长（毫秒）；失败返回 0 */
 ZMS_API uint64_t zms_container_flv_file_duration_ms(const char *path);
+
+/** 获取已打开的 .zslot demuxer ctx 的视频/音频 codec（open_file 后有效） */
+ZMS_API void zms_container_demux_zslot_codecs(void *ctx, zms_codec_id *video,
+                                               zms_codec_id *audio);
 
 #ifdef __cplusplus
 }
