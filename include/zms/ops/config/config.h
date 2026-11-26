@@ -200,6 +200,38 @@ typedef struct zms_record_config {
 } zms_record_config;
 
 /**
+ * [storage] 中心视频云存储（zstorage）参数。
+ *
+ * 容量与保留天数同时生效，先到者回收：盘写满按最旧录像回收，超过保留天数
+ * 也回收。槽位大小固定、总数 = capacity / slot_size，因此磁盘是"一次预分配、
+ * 循环使用"，删除旧录像不释放磁盘。
+ */
+typedef struct zms_storage_config {
+    /** 是否启用云存储写入；0 表示只用原有 MP4 录制。 */
+    int enable;
+    /** 槽位目录（建议挂独立盘）。 */
+    char dir[ZMS_CFG_PATH_MAX];
+    /** 存储池总容量（GB），默认 2048（2TB）。 */
+    int capacity_gb;
+    /** 录像保留天数，默认 7。 */
+    int retention_days;
+    /** 单个槽位文件大小（MB），默认 256。 */
+    int slot_size_mb;
+    /** 槽位关键帧索引区大小（KB），默认 1024（约 32640 条）。 */
+    int index_kb;
+    /** 空闲槽位低于该百分比时提前回收，默认 5。 */
+    int free_watermark_pct;
+    /** 聚合写阈值（KB），默认 512。 */
+    int flush_kb;
+    /** 最大刷盘延迟（ms），默认 1000。 */
+    int flush_ms;
+    /** 单槽位最长时长（秒），默认 900（15 分钟）。 */
+    int slot_max_second;
+    /** 数据区剩余低于该值提前封口（MB），默认 4。 */
+    int seal_margin_mb;
+} zms_storage_config;
+
+/**
  * [play] 包装 zms_egress_pacing，保持 pacing 成员名一致。
  * 调用方可直接 &cfg->play.pacing 传给 zms_egress_pacing_init()。
  */
@@ -340,6 +372,7 @@ typedef struct zms_config {
     zms_hls_config hls;
     zms_proxy_config proxy;
     zms_record_config record;
+    zms_storage_config storage;
     zms_play_config play;
     zms_auth_config auth;
     zms_hook_config hook;

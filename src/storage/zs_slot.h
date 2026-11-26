@@ -110,6 +110,15 @@ int zs_slot_add_keyframe(zs_slot *s, uint64_t utc_ms, int64_t pts_90k, uint64_t 
 /** 封口：写回头（state=SEALED），之后不允许再写。 */
 int zs_slot_seal(zs_slot *s);
 
+/**
+ * 回收为 FREE：清空索引计数与写指针，state=FREE。
+ * 槽位文件保持预分配大小（不删除、不 unlink），由池在下一次申请时复用。
+ */
+int zs_slot_reset(zs_slot *s);
+
+/** 把 FREE 槽位切回 WRITING 并绑定通道（复用时调用）。 */
+int zs_slot_begin(zs_slot *s, uint32_t channel_id);
+
 /** 把 stdio 缓冲刷到 OS（不 fsync，恢复不依赖 fsync）。 */
 int zs_slot_flush(zs_slot *s);
 

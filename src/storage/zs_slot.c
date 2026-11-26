@@ -492,6 +492,42 @@ int zs_slot_seal(zs_slot *s)
     return zs_header_write(s);
 }
 
+int zs_slot_reset(zs_slot *s)
+{
+    if (!s || !s->fp) {
+        return -1;
+    }
+    if (fflush(s->fp) != 0) {
+        return -1;
+    }
+    s->h.state = ZS_SLOT_FREE;
+    s->h.channel_id = 0;
+    s->h.keyframe_count = 0;
+    s->h.index_crc = 0;
+    s->h.data_write_off = s->h.data_start_off;
+    s->h.seg_start_utc_ms = 0;
+    s->h.seg_end_utc_ms = 0;
+    return zs_header_write(s);
+}
+
+int zs_slot_begin(zs_slot *s, uint32_t channel_id)
+{
+    if (!s || !s->fp) {
+        return -1;
+    }
+    if (s->h.state != ZS_SLOT_FREE && s->h.state != ZS_SLOT_WRITING) {
+        return -1;
+    }
+    s->h.state = ZS_SLOT_WRITING;
+    s->h.channel_id = channel_id;
+    s->h.keyframe_count = 0;
+    s->h.index_crc = 0;
+    s->h.data_write_off = s->h.data_start_off;
+    s->h.seg_start_utc_ms = 0;
+    s->h.seg_end_utc_ms = 0;
+    return zs_header_write(s);
+}
+
 int zs_slot_flush(zs_slot *s)
 {
     if (!s || !s->fp) {

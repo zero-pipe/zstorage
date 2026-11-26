@@ -47,6 +47,7 @@ Testing/
 
 # 测试输出目录
 /test_zstorage_slot/
+/test_zstorage_pool/
 
 # Runtime logs
 zms_media_server.log

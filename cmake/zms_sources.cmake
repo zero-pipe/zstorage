@@ -200,6 +200,9 @@ set(ZMS_EGRESS_SOURCES
 set(ZMS_STORAGE_SOURCES
     src/storage/zs_clock.c
     src/storage/zs_slot.c
+    src/storage/zs_pool.c
+    src/storage/zs_writer.c
+    src/storage/zs_config.c
 )
 
 set(ZMS_OPS_SOURCES

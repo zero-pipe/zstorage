@@ -268,6 +268,35 @@ max_total_mb=0
 free_space_check_mb=0
 
 
+[storage]
+# 中心视频云存储（zstorage）：按预分配槽位写标准 MPEG-PS，断电可恢复。
+# 磁盘是"一次预分配、循环使用"：删除旧录像不释放磁盘，槽位回收后复用。
+# 容量与保留天数同时生效，哪个先到就按哪个回收。
+# 是否启用云存储写入；0=只用上面的 MP4 录制
+enable=0
+# 槽位目录（建议挂独立盘）
+dir=./www/zstorage
+# 存储池总容量（GB），默认 2048 = 2TB
+capacity_gb=2048
+# 录像保留天数
+retention_days=7
+# 单个槽位文件大小（MB）。槽位总数 = capacity_gb / slot_size_mb。
+# 估算：4Mbps 一路约 1.8GB/小时，7 天约 302GB
+slot_size_mb=256
+# 槽位关键帧索引区（KB）。每条约 32 字节，1024KB 约存 32640 条
+index_kb=1024
+# 空闲槽位低于该百分比时提前回收最旧录像
+free_watermark_pct=5
+# 聚合写阈值（KB）：攒够再落盘，减少系统调用
+flush_kb=512
+# 最大刷盘延迟（ms）：低码率通道靠它兜底
+flush_ms=1000
+# 单个槽位最长时长（秒），到期在关键帧处切下一个槽位
+slot_max_second=900
+# 槽位剩余空间低于该值（MB）时提前封口
+seal_margin_mb=4
+
+
 [hls]
 # HLS 切片参数
 # 单切片时长（秒）。越小延迟越低、请求越多。直播常用 1-4

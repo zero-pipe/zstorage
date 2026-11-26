@@ -298,6 +298,22 @@ static const zms_cfg_field k_record[] = {
      NULL},
     {NULL, NULL, ZMS_CFG_F_STR, 0, 0, NULL}};
 
+/* [storage] 中心云存储 */
+static const zms_cfg_field k_storage[] = {
+    {"enable", "storageEnable", ZMS_CFG_F_BOOL, OFF(storage, enable), 0, NULL},
+    {"dir", "storageDir", ZMS_CFG_F_STR, OFF(storage, dir), STSZ(storage, dir), NULL},
+    {"capacity_gb", "capacityGb", ZMS_CFG_F_INT, OFF(storage, capacity_gb), 0, NULL},
+    {"retention_days", "retentionDays", ZMS_CFG_F_INT, OFF(storage, retention_days), 0, NULL},
+    {"slot_size_mb", "slotSizeMb", ZMS_CFG_F_INT, OFF(storage, slot_size_mb), 0, NULL},
+    {"index_kb", "indexKb", ZMS_CFG_F_INT, OFF(storage, index_kb), 0, NULL},
+    {"free_watermark_pct", "freeWatermarkPct", ZMS_CFG_F_INT, OFF(storage, free_watermark_pct), 0,
+     NULL},
+    {"flush_kb", "flushKb", ZMS_CFG_F_INT, OFF(storage, flush_kb), 0, NULL},
+    {"flush_ms", "flushMs", ZMS_CFG_F_INT, OFF(storage, flush_ms), 0, NULL},
+    {"slot_max_second", "slotMaxSecond", ZMS_CFG_F_INT, OFF(storage, slot_max_second), 0, NULL},
+    {"seal_margin_mb", "sealMarginMb", ZMS_CFG_F_INT, OFF(storage, seal_margin_mb), 0, NULL},
+    {NULL, NULL, ZMS_CFG_F_STR, 0, 0, NULL}};
+
 /* [play] 所有字段属于 play.pacing */
 #define POFF(field) offsetof(zms_config, play.pacing.field)
 static const zms_cfg_field k_play[] = {
@@ -469,6 +485,7 @@ static const zms_section_map k_sections[] = {
     {"api", k_api},         {"srt", k_srt},     {"webrtc", k_webrtc}, {"protocol", k_protocol},
     {"hls", k_hls},         {"proxy", k_proxy}, {"record", k_record}, {"play", k_play},
     {"hook", k_hook},       {"auth", k_auth},   {"ssl", k_ssl},       {"onvif", k_onvif},
+    {"storage", k_storage},
     {"gb28181", k_gb28181},
     {"gb28181_platform", k_gb28181_platform},   {NULL, NULL}};
 
@@ -587,6 +604,19 @@ void zms_config_default(zms_config *cfg)
     cfg->record.mp4_max_second = 180;
     cfg->record.max_total_mb = 0;
     cfg->record.free_space_check_mb = 0;
+
+    /* [storage] */
+    cfg->storage.enable = 0;
+    strncpy(cfg->storage.dir, "./www/zstorage", sizeof(cfg->storage.dir) - 1);
+    cfg->storage.capacity_gb = 2048;
+    cfg->storage.retention_days = 7;
+    cfg->storage.slot_size_mb = 256;
+    cfg->storage.index_kb = 1024;
+    cfg->storage.free_watermark_pct = 5;
+    cfg->storage.flush_kb = 512;
+    cfg->storage.flush_ms = 1000;
+    cfg->storage.slot_max_second = 900;
+    cfg->storage.seal_margin_mb = 4;
 
     /* [ssl] */
     cfg->ssl.verify_peer = 1;
