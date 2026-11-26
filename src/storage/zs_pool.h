@@ -47,6 +47,7 @@ typedef struct zs_pool_info {
     uint32_t ref_count; /**< 回放钉住计数，>0 时不可回收 */
     uint64_t seg_start_ms;
     uint64_t seg_end_ms;
+    char stream[ZS_SLOT_STREAM_MAX];
 } zs_pool_info;
 
 typedef struct zs_pool_lease {
@@ -59,9 +60,12 @@ void zs_pool_close(zs_pool *p);
 
 /**
  * 申请一个可写槽位：优先 FREE，其次新建，最后回收最旧的 SEALED（ref_count==0）。
+ * @param channel_id 数字标签（可 0）
+ * @param stream     流标识（写入槽位头，回放按它检索）
  * @return 0 成功；-1 无可用槽位/IO 错误
  */
-int zs_pool_acquire(zs_pool *p, uint32_t channel_id, uint64_t now_ms, zs_pool_lease *out);
+int zs_pool_acquire(zs_pool *p, uint32_t channel_id, const char *stream, uint64_t now_ms,
+                    zs_pool_lease *out);
 
 /** 归还槽位：有数据则封口为 SEALED，空槽位直接回 FREE。 */
 int zs_pool_release(zs_pool *p, zs_pool_lease *lease);
@@ -92,6 +96,10 @@ int zs_pool_get_info_by_id(const zs_pool *p, uint32_t id, zs_pool_info *out);
  */
 uint32_t zs_pool_find_range(const zs_pool *p, uint64_t from_ms, uint64_t to_ms, uint32_t *ids,
                             uint32_t max);
+
+/** 同上，但只返回指定流的槽位；stream 为 NULL/空串表示不筛选。 */
+uint32_t zs_pool_find_range_stream(const zs_pool *p, const char *stream, uint64_t from_ms,
+                                   uint64_t to_ms, uint32_t *ids, uint32_t max);
 
 /** 打开槽位用于回放（调用方负责 zs_slot_close）。 */
 zs_slot *zs_pool_open_slot(zs_pool *p, uint32_t id);

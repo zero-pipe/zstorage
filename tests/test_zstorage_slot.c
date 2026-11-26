@@ -246,6 +246,7 @@ static int test_slot_recover(void)
     CHECK(zs_slot_add_keyframe(r, 1700000103000ULL, 3 * 90000, at, 0) == 0);
     CHECK(zs_slot_keyframe_count(r) == 4);
     CHECK(zs_slot_recover(r, 1) == 0);
+    CHECK(zs_slot_write_offset(r) == expect + n);
     CHECK(zs_slot_state(r) == ZS_SLOT_SEALED);
     CHECK(zs_slot_keyframe_count(r) == 4);
     zs_slot_close(r);
@@ -274,16 +275,49 @@ static int test_slot_reject_bad_header(void)
     return 0;
 }
 
+/* 只写一个 PES（不含 pack 头），用于构造"一个 pack 内多个 PES"。 */
+static size_t make_pes(uint8_t *b, size_t payload_len, unsigned char fill)
+{
+    size_t len = payload_len + 3;
+
+    b[0] = 0x00;
+    b[1] = 0x00;
+    b[2] = 0x01;
+    b[3] = 0xE0;
+    b[4] = (uint8_t)(len >> 8);
+    b[5] = (uint8_t)(len & 0xFF);
+    b[6] = 0x80;
+    b[7] = 0x00;
+    b[8] = 0x00;
+    memset(b + 9, fill, payload_len);
+    return 6 + len;
+}
+
 static int test_ps_pack_len(void)
 {
-    uint8_t buf[2048];
+    uint8_t buf[4096];
     size_t n = make_ps_pack(buf, 100, 'C');
+    size_t pes1;
+    size_t pes2;
 
     CHECK(zs_ps_pack_len(buf, n) == (long)n);
     CHECK(zs_ps_pack_len(buf, n - 1) == -1); /* 不完整返回不可判定 */
     CHECK(zs_ps_pack_len(buf, 13) == -1);
     buf[3] = 0xBB;
     CHECK(zs_ps_pack_len(buf, n) == -1);
+
+    /* 现实场景 1：pack 后面紧跟未写入区域（全零），长度必须仍然正确 */
+    n = make_ps_pack(buf, 100, 'C');
+    memset(buf + n, 0, 512);
+    CHECK(zs_ps_pack_len(buf, n + 512) == (long)n);
+
+    /* 现实场景 2：一个 pack 内含两个 PES（大帧被 libmpeg 切成多段） */
+    n = make_ps_pack(buf, 100, 'D');
+    pes1 = make_pes(buf + n, 300, 'E');
+    pes2 = make_pes(buf + n + pes1, 200, 'F');
+    CHECK(zs_ps_pack_len(buf, n + pes1 + pes2) == (long)(n + pes1 + pes2));
+    /* 第二个 PES 被截断时整体不可判定 */
+    CHECK(zs_ps_pack_len(buf, n + pes1 + pes2 - 1) == -1);
     return 0;
 }
 

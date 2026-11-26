@@ -186,6 +186,7 @@ set(ZMS_EGRESS_SOURCES
     src/egress/source/egress_source.c
     src/egress/recorder/egress_segment_recorder.c
     src/egress/recorder/egress_mp4_recorder.c
+    src/egress/recorder/egress_zs_recorder.c
     src/egress/rtp/rtp_muxer.c
     src/egress/rtp/rtp_muxer_paramsets.c
     src/egress/mpegts/mpegts_egress.c

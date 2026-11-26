@@ -15,6 +15,7 @@
 struct zs_writer {
     zs_pool *pool;
     uint32_t channel_id;
+    char stream[ZS_SLOT_STREAM_MAX];
     uint32_t flush_bytes;
     uint32_t flush_ms;
     uint32_t slot_max_ms;
@@ -41,7 +42,7 @@ zs_writer *zs_writer_create(const zs_writer_opts *opts)
     zs_writer *w;
     uint32_t flush_bytes;
 
-    if (!opts || !opts->pool || opts->channel_id == 0) {
+    if (!opts || !opts->pool || !opts->stream || !opts->stream[0]) {
         return NULL;
     }
     flush_bytes = opts->flush_bytes ? opts->flush_bytes : ZS_WRITER_FLUSH_BYTES_DEF;
@@ -56,6 +57,7 @@ zs_writer *zs_writer_create(const zs_writer_opts *opts)
     }
     w->pool = opts->pool;
     w->channel_id = opts->channel_id;
+    strncpy(w->stream, opts->stream, sizeof(w->stream) - 1u);
     w->flush_bytes = flush_bytes;
     w->flush_ms = opts->flush_ms ? opts->flush_ms : ZS_WRITER_FLUSH_MS_DEF;
     w->slot_max_ms = opts->slot_max_ms ? opts->slot_max_ms : ZS_WRITER_SLOT_MAX_MS_DEF;
@@ -101,7 +103,7 @@ static int zs_writer_rotate(zs_writer *w, uint64_t now_ms)
         w->slot_start_ms = 0;
     }
     w->stalled = 0;
-    if (zs_pool_acquire(w->pool, w->channel_id, now_ms, &w->lease) != 0) {
+    if (zs_pool_acquire(w->pool, w->channel_id, w->stream, now_ms, &w->lease) != 0) {
         return -1;
     }
     w->slot_start_ms = now_ms;

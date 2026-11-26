@@ -60,6 +60,10 @@ typedef struct zms_media_source {
     void *mp4_recorder;
     /** 录制器 attach 时注册的停止回调；core 停推时无需认识 egress 头 */
     void (*mp4_recorder_stop)(zms_media_source *src);
+    /** 云存储录制器（egress_zs_recorder）；断流时封口 */
+    void *zs_recorder;
+    /** 云存储录制器的停止回调（同上，core 不认识存储层） */
+    void (*zs_recorder_stop)(zms_media_source *src);
 } zms_media_source;
 
 typedef struct zms_media_source_filter {

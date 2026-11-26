@@ -34,7 +34,7 @@ void zs_pool_opts_from_config(zs_pool_opts *out, const zms_storage_config *cfg)
 }
 
 void zs_writer_opts_from_config(zs_writer_opts *out, const zms_storage_config *cfg, zs_pool *pool,
-                                uint32_t channel_id)
+                                uint32_t channel_id, const char *stream)
 {
     if (!out) {
         return;
@@ -42,6 +42,7 @@ void zs_writer_opts_from_config(zs_writer_opts *out, const zms_storage_config *c
     memset(out, 0, sizeof(*out));
     out->pool = pool;
     out->channel_id = channel_id;
+    out->stream = stream;
     if (!cfg) {
         return; /* 全 0 让 writer 用内置默认 */
     }

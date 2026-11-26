@@ -15,6 +15,7 @@
 #include "zms/pull/proxy.h"
 #include "zms/ops/api/webhook/webhook_client.h"
 #include "zms/egress/recorder/egress_mp4_recorder.h"
+#include "zms/egress/recorder/egress_zs_recorder.h"
 #include "zms/ops/config/pull_ssl.h"
 #include "zms/session/http/http_server.h"
 #include "zms/session/rtmp/rtmp_server.h"
@@ -163,6 +164,7 @@ static zn_err_t server_runtime_boot(zms_server *s, const char *log_override)
     zms_vhost_set_enabled(s->cfg.general.enable_vhost);
     zms_vod_config_apply(&s->cfg);
     zms_mp4_recorder_configure(&s->cfg.record);
+    zms_zs_recorder_configure(&s->cfg.storage);
     zms_buf_pool_init(&s->cfg);
     /* 0 会让所有异步 IO 退化到 poller 线程上同步执行：强制至少 1 个线程。 */
     zms_vod_thread_pool_init(s->cfg.general.vod_work_threads > 0 ? s->cfg.general.vod_work_threads

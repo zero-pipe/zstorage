@@ -86,7 +86,7 @@ static int write_one_slot(zs_pool *p, uint32_t channel, uint64_t utc_ms, uint32_
     uint8_t pack[2048];
     size_t n;
 
-    if (zs_pool_acquire(p, channel, utc_ms, &lease) != 0) {
+    if (zs_pool_acquire(p, channel, "cam", utc_ms, &lease) != 0) {
         return -1;
     }
     n = make_ps_pack(pack, 600, 'X');
@@ -149,7 +149,7 @@ static int test_pool_evict_and_pin(void)
             CHECK(zs_pool_get_info(p, i, &info) == 0);
             (void)zs_pool_pin(p, info.id);
         }
-        CHECK(zs_pool_acquire(p, 100, 1700000030000ULL, &l) != 0);
+        CHECK(zs_pool_acquire(p, 100, "cam", 1700000030000ULL, &l) != 0);
 
         for (i = 0; i < n; ++i) {
             zs_pool_info info;
@@ -158,7 +158,7 @@ static int test_pool_evict_and_pin(void)
             (void)zs_pool_unpin(p, info.id);
         }
     }
-    CHECK(zs_pool_acquire(p, 100, 1700000030000ULL, &l) == 0);
+    CHECK(zs_pool_acquire(p, 100, "cam", 1700000030000ULL, &l) == 0);
     CHECK(zs_pool_release(p, &l) == 0);
     zs_pool_close(p);
     return 0;
@@ -233,6 +233,7 @@ static int test_writer_rotate(void)
     memset(&wo, 0, sizeof(wo));
     wo.pool = p;
     wo.channel_id = 42;
+    wo.stream = "live/1001_0001";
     wo.flush_bytes = 4096;
     wo.flush_ms = 1000;
     wo.slot_max_ms = 1000;
@@ -300,6 +301,7 @@ static int test_writer_waits_keyframe(void)
     memset(&wo, 0, sizeof(wo));
     wo.pool = p;
     wo.channel_id = 7;
+    wo.stream = "live/1001_0002";
     w = zs_writer_create(&wo);
     CHECK(w != NULL);
     pl = make_ps_pack(pack, 300, 'Z');
@@ -336,7 +338,7 @@ static int test_config_bridge(void)
     CHECK(po.slot_bytes == 256ULL * ZS_MB);
     CHECK(po.index_bytes == 1024u * 1024u);
 
-    zs_writer_opts_from_config(&wo, &cfg.storage, NULL, 9);
+    zs_writer_opts_from_config(&wo, &cfg.storage, NULL, 9, "cam1");
     CHECK(wo.channel_id == 9);
     CHECK(wo.flush_bytes == 512u * 1024u);
     CHECK(wo.flush_ms == 1000u);

@@ -28,10 +28,12 @@ typedef struct zms_media_event_ctx {
     int continue_push_ms;
     zms_media_server_ports server_ports;
     int has_server_ports;
+    /** 推流开始的录制钩子（云存储等外部 egress 注册） */
+    zms_media_source_started_cb recorder_autostart;
 } zms_media_event_ctx;
 
 static zms_media_event_ctx g_ctx = {
-    {NULL, NULL, NULL, NULL, NULL, NULL, NULL}, NULL, 20000, 15000, {0, 0, 0, 0}, 0};
+    {NULL, NULL, NULL, NULL, NULL, NULL, NULL}, NULL, 20000, 15000, {0, 0, 0, 0}, 0, NULL};
 
 ZMS_API const char *zms_media_origin_str(zms_media_origin origin)
 {
@@ -86,6 +88,11 @@ void zms_media_events_set(zn_poller *poller, const zms_media_events *events,
 zn_poller *zms_media_events_poller(void)
 {
     return g_ctx.poller;
+}
+
+void zms_media_events_set_recorder_autostart(zms_media_source_started_cb cb)
+{
+    g_ctx.recorder_autostart = cb;
 }
 
 void zms_media_tuple_from_source(const zms_media_source *src, zms_media_tuple *tuple)
@@ -407,6 +414,9 @@ int zms_media_source_linger(zms_media_source *src, zms_media_origin origin)
     if (src->mp4_recorder_stop) {
         src->mp4_recorder_stop(src); /* 录像在断流时收尾，不跟随 linger 延迟 */
     }
+    if (src->zs_recorder_stop) {
+        src->zs_recorder_stop(src); /* 云存储同样在断流时封口 */
+    }
     zn_info("[event] linger app=%s stream=%s ms=%d origin=%s", ctx->tuple.app, ctx->tuple.stream,
              g_ctx.continue_push_ms, zms_media_origin_str(origin));
     return 1;
@@ -436,6 +446,9 @@ void zms_media_event_publish(zms_media_source *src, zms_media_origin origin)
     if (g_ctx.events.on_media_publish) {
         g_ctx.events.on_media_publish(&tuple, origin, g_ctx.events.user);
     }
+    if (g_ctx.recorder_autostart) {
+        g_ctx.recorder_autostart(src);
+    }
     zms_webhook_on_stream_register(src, origin);
 }
 
@@ -449,6 +462,9 @@ void zms_media_event_publish_fini(zms_media_source *src, zms_media_origin origin
      * 提前返回，避免向 webhook 重复发 unregister。 */
     if (src->mp4_recorder_stop) {
         src->mp4_recorder_stop(src);
+    }
+    if (src->zs_recorder_stop) {
+        src->zs_recorder_stop(src);
     }
     zms_media_source_registry_lock();
     if (!src->publishing) {

@@ -31,6 +31,8 @@ extern "C" {
 #define ZS_SLOT_MAGIC 0x544C535Au /* "ZSLT" */
 #define ZS_SLOT_VERSION 1u
 #define ZS_KEYFRAME_ENTRY_BYTES 32u
+/** 流标识最大长度（含结尾 0）。 */
+#define ZS_SLOT_STREAM_MAX 64u
 /** Zone B 默认 1MB -> 32640 条关键帧（1 秒 1 个 I 帧约 9 小时）。 */
 #define ZS_SLOT_DEFAULT_INDEX_BYTES (1024u * 1024u)
 
@@ -58,7 +60,9 @@ typedef struct zs_slot_header {
     uint32_t index_bytes;
     uint32_t index_crc;  /**< 仅对有效条目范围计算 */
     uint32_t header_crc; /**< 对本结构前 4 字节以外的部分计算 */
-    uint8_t reserved[ZS_SLOT_HEADER_BYTES - 84u];
+    /** 流标识（如 <设备内码>_<通道内码>），回放侧按它检索，槽位自描述。 */
+    char stream[ZS_SLOT_STREAM_MAX];
+    uint8_t reserved[ZS_SLOT_HEADER_BYTES - 148u];
 } zs_slot_header;
 
 /** 关键帧索引项，固定 32 字节。 */
@@ -75,6 +79,7 @@ typedef struct zs_slot zs_slot;
 typedef struct zs_slot_opts {
     uint32_t channel_id;
     uint32_t slot_seq;
+    const char *stream;   /**< 流标识（可 NULL），槽位头里存一份供回放检索 */
     uint64_t slot_bytes;  /**< 文件总大小（需 > ZONE_A + index_bytes + 64KB） */
     uint32_t index_bytes; /**< Zone B 大小，0 取默认 1MB */
 } zs_slot_opts;
@@ -116,8 +121,8 @@ int zs_slot_seal(zs_slot *s);
  */
 int zs_slot_reset(zs_slot *s);
 
-/** 把 FREE 槽位切回 WRITING 并绑定通道（复用时调用）。 */
-int zs_slot_begin(zs_slot *s, uint32_t channel_id);
+/** 把 FREE 槽位切回 WRITING 并绑定通道/流（复用时调用）。 */
+int zs_slot_begin(zs_slot *s, uint32_t channel_id, const char *stream);
 
 /** 把 stdio 缓冲刷到 OS（不 fsync，恢复不依赖 fsync）。 */
 int zs_slot_flush(zs_slot *s);
@@ -141,6 +146,8 @@ uint32_t zs_slot_keyframe_count(const zs_slot *s);
 uint32_t zs_slot_index_capacity(const zs_slot *s);
 uint32_t zs_slot_state(const zs_slot *s);
 uint32_t zs_slot_channel_id(const zs_slot *s);
+/** 槽位头里的流标识（可能为空串）。 */
+const char *zs_slot_stream(const zs_slot *s);
 /** Zone C 剩余可写字节。 */
 uint64_t zs_slot_remaining(const zs_slot *s);
 

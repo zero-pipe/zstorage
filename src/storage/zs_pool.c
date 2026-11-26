@@ -4,6 +4,8 @@
  */
 #include "storage/zs_pool.h"
 
+#include "zb/os/sync.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +32,7 @@ typedef struct zs_entry {
     uint32_t ref_count;
     uint64_t seg_start_ms;
     uint64_t seg_end_ms;
+    char stream[ZS_SLOT_STREAM_MAX];
     char path[ZS_POOL_PATH_MAX];
 } zs_entry;
 
@@ -46,7 +49,13 @@ struct zs_pool {
     zs_entry *entries;
     uint32_t count;
     uint32_t cap;
+    /** 池可被录制线程与 webapi 查询线程同时访问，所有公开入口都持锁。 */
+    zb_mutex *mu;
 };
+
+#define ZS_POOL_LOCK(p)                                                                                 do {                                                                                                   if ((p) && (p)->mu) {                                                                                  zb_mutex_lock((p)->mu);                                                                        }                                                                                              } while (0)
+
+#define ZS_POOL_UNLOCK(p)                                                                              do {                                                                                                   if ((p) && (p)->mu) {                                                                                  zb_mutex_unlock((p)->mu);                                                                      }                                                                                              } while (0)
 
 void zs_pool_opts_default(zs_pool_opts *opts)
 {
@@ -107,6 +116,7 @@ static void zs_pool_entry_from_slot(zs_entry *e, zs_slot *s)
     e->state = zs_slot_state(s);
     e->seg_start_ms = zs_slot_segment_start_ms(s);
     e->seg_end_ms = zs_slot_segment_end_ms(s);
+    snprintf(e->stream, sizeof(e->stream), "%s", zs_slot_stream(s));
 }
 
 /* 把一个已存在的槽位文件读进元数据表；上次未封口的先恢复再封口。 */
@@ -228,6 +238,11 @@ zs_pool *zs_pool_open(const zs_pool_opts *opts)
     p->watermark_pct = opts->free_watermark_pct ? opts->free_watermark_pct : def.free_watermark_pct;
     p->max_slots = (uint32_t)max_slots;
     p->next_id = 1u;
+    p->mu = zb_mutex_create(0);
+    if (!p->mu) {
+        free(p);
+        return NULL;
+    }
 
     (void)ZS_POOL_MKDIR(p->dir); /* 已存在时忽略 */
     zs_pool_scan(p);
@@ -239,18 +254,21 @@ void zs_pool_close(zs_pool *p)
     if (!p) {
         return;
     }
+    if (p->mu) {
+        zb_mutex_destroy(p->mu);
+    }
     free(p->entries);
     free(p);
 }
 
-static int zs_pool_reuse(zs_pool *p, zs_entry *e, uint32_t channel_id)
+static int zs_pool_reuse(zs_pool *p, zs_entry *e, uint32_t channel_id, const char *stream)
 {
     zs_slot *s = zs_slot_open(e->path);
 
     if (!s) {
         return -1;
     }
-    if (zs_slot_reset(s) != 0 || zs_slot_begin(s, channel_id) != 0) {
+    if (zs_slot_reset(s) != 0 || zs_slot_begin(s, channel_id, stream) != 0) {
         zs_slot_close(s);
         return -1;
     }
@@ -259,11 +277,12 @@ static int zs_pool_reuse(zs_pool *p, zs_entry *e, uint32_t channel_id)
     e->ref_count = 0;
     e->seg_start_ms = 0;
     e->seg_end_ms = 0;
+    snprintf(e->stream, sizeof(e->stream), "%s", stream ? stream : "");
     zs_slot_close(s);
     return 0;
 }
 
-static int zs_pool_create_new(zs_pool *p, uint32_t channel_id, zs_entry *e)
+static int zs_pool_create_new(zs_pool *p, uint32_t channel_id, const char *stream, zs_entry *e)
 {
     zs_slot_opts o;
     zs_slot *s;
@@ -275,6 +294,7 @@ static int zs_pool_create_new(zs_pool *p, uint32_t channel_id, zs_entry *e)
     memset(&o, 0, sizeof(o));
     o.channel_id = channel_id;
     o.slot_seq = id;
+    o.stream = stream;
     o.slot_bytes = p->slot_bytes;
     o.index_bytes = p->index_bytes;
     s = zs_slot_create(e->path, &o);
@@ -288,6 +308,7 @@ static int zs_pool_create_new(zs_pool *p, uint32_t channel_id, zs_entry *e)
     e->ref_count = 0;
     e->seg_start_ms = 0;
     e->seg_end_ms = 0;
+    snprintf(e->stream, sizeof(e->stream), "%s", stream ? stream : "");
     return 0;
 }
 
@@ -310,7 +331,8 @@ static zs_entry *zs_pool_oldest_evictable(zs_pool *p)
     return best;
 }
 
-int zs_pool_acquire(zs_pool *p, uint32_t channel_id, uint64_t now_ms, zs_pool_lease *out)
+static int zs_pool_acquire_nolock(zs_pool *p, uint32_t channel_id, const char *stream,
+                                  uint64_t now_ms, zs_pool_lease *out)
 {
     zs_entry *e = NULL;
     uint32_t i;
@@ -329,7 +351,7 @@ int zs_pool_acquire(zs_pool *p, uint32_t channel_id, uint64_t now_ms, zs_pool_le
         }
     }
     if (e) {
-        if (zs_pool_reuse(p, e, channel_id) != 0) {
+        if (zs_pool_reuse(p, e, channel_id, stream) != 0) {
             return -1;
         }
     } else if (p->count < p->max_slots) {
@@ -338,13 +360,13 @@ int zs_pool_acquire(zs_pool *p, uint32_t channel_id, uint64_t now_ms, zs_pool_le
         }
         e = &p->entries[p->count];
         memset(e, 0, sizeof(*e));
-        if (zs_pool_create_new(p, channel_id, e) != 0) {
+        if (zs_pool_create_new(p, channel_id, stream, e) != 0) {
             return -1;
         }
         p->count++;
     } else {
         e = zs_pool_oldest_evictable(p);
-        if (!e || zs_pool_reuse(p, e, channel_id) != 0) {
+        if (!e || zs_pool_reuse(p, e, channel_id, stream) != 0) {
             return -1;
         }
     }
@@ -354,8 +376,8 @@ int zs_pool_acquire(zs_pool *p, uint32_t channel_id, uint64_t now_ms, zs_pool_le
         return -1;
     }
     /* 新建路径已是 WRITING；复用路径刚 begin 过，这里统一把通道绑一次 */
-    if (zs_slot_channel_id(s) != channel_id) {
-        if (zs_slot_begin(s, channel_id) != 0) {
+    if (zs_slot_channel_id(s) != channel_id || strcmp(zs_slot_stream(s), stream ? stream : "") != 0) {
+        if (zs_slot_begin(s, channel_id, stream) != 0) {
             zs_slot_close(s);
             return -1;
         }
@@ -365,7 +387,18 @@ int zs_pool_acquire(zs_pool *p, uint32_t channel_id, uint64_t now_ms, zs_pool_le
     return 0;
 }
 
-int zs_pool_release(zs_pool *p, zs_pool_lease *lease)
+int zs_pool_acquire(zs_pool *p, uint32_t channel_id, const char *stream, uint64_t now_ms,
+                    zs_pool_lease *out)
+{
+    int rc;
+
+    ZS_POOL_LOCK(p);
+    rc = zs_pool_acquire_nolock(p, channel_id, stream, now_ms, out);
+    ZS_POOL_UNLOCK(p);
+    return rc;
+}
+
+static int zs_pool_release_nolock(zs_pool *p, zs_pool_lease *lease)
 {
     zs_entry *e;
 
@@ -391,42 +424,67 @@ int zs_pool_release(zs_pool *p, zs_pool_lease *lease)
     return 0;
 }
 
+int zs_pool_release(zs_pool *p, zs_pool_lease *lease)
+{
+    int rc;
+
+    ZS_POOL_LOCK(p);
+    rc = zs_pool_release_nolock(p, lease);
+    ZS_POOL_UNLOCK(p);
+    return rc;
+}
+
+#define ZS_LOCK_C(p) ZS_POOL_LOCK((zs_pool *)(uintptr_t)(p))
+#define ZS_UNLOCK_C(p) ZS_POOL_UNLOCK((zs_pool *)(uintptr_t)(p))
+
 int zs_pool_sync(zs_pool *p, zs_pool_lease *lease)
 {
     zs_entry *e;
+    int rc = 0;
 
     if (!p || !lease || !lease->slot) {
         return -1;
     }
     (void)zs_slot_flush(lease->slot);
+    ZS_POOL_LOCK(p);
     e = zs_pool_find_id(p, lease->id);
-    if (!e) {
-        return -1;
+    if (e) {
+        zs_pool_entry_from_slot(e, lease->slot);
+    } else {
+        rc = -1;
     }
-    zs_pool_entry_from_slot(e, lease->slot);
-    return 0;
+    ZS_POOL_UNLOCK(p);
+    return rc;
 }
 
 int zs_pool_pin(zs_pool *p, uint32_t id)
 {
-    zs_entry *e = p ? zs_pool_find_id(p, id) : NULL;
+    zs_entry *e;
+    int rc = -1;
 
-    if (!e) {
-        return -1;
+    ZS_POOL_LOCK(p);
+    e = p ? zs_pool_find_id(p, id) : NULL;
+    if (e) {
+        e->ref_count++;
+        rc = 0;
     }
-    e->ref_count++;
-    return 0;
+    ZS_POOL_UNLOCK(p);
+    return rc;
 }
 
 int zs_pool_unpin(zs_pool *p, uint32_t id)
 {
-    zs_entry *e = p ? zs_pool_find_id(p, id) : NULL;
+    zs_entry *e;
+    int rc = -1;
 
-    if (!e || e->ref_count == 0) {
-        return -1;
+    ZS_POOL_LOCK(p);
+    e = p ? zs_pool_find_id(p, id) : NULL;
+    if (e && e->ref_count > 0) {
+        e->ref_count--;
+        rc = 0;
     }
-    e->ref_count--;
-    return 0;
+    ZS_POOL_UNLOCK(p);
+    return rc;
 }
 
 uint32_t zs_pool_expire(zs_pool *p, uint64_t now_ms)
@@ -439,6 +497,7 @@ uint32_t zs_pool_expire(zs_pool *p, uint64_t now_ms)
         return 0;
     }
     retention_ms = (uint64_t)p->retention_days * ZS_DAY_MS;
+    ZS_POOL_LOCK(p);
     for (i = 0; i < p->count; ++i) {
         zs_entry *e = &p->entries[i];
         zs_slot *s;
@@ -456,16 +515,23 @@ uint32_t zs_pool_expire(zs_pool *p, uint64_t now_ms)
         }
         e->state = ZS_SLOT_FREE;
         e->channel_id = 0;
+        e->stream[0] = '\0';
         e->seg_start_ms = 0;
         e->seg_end_ms = 0;
         n++;
     }
+    ZS_POOL_UNLOCK(p);
     return n;
 }
 
 uint32_t zs_pool_count(const zs_pool *p)
 {
-    return p ? p->count : 0;
+    uint32_t n;
+
+    ZS_LOCK_C(p);
+    n = p ? p->count : 0;
+    ZS_UNLOCK_C(p);
+    return n;
 }
 
 uint32_t zs_pool_free_count(const zs_pool *p)
@@ -473,14 +539,13 @@ uint32_t zs_pool_free_count(const zs_pool *p)
     uint32_t i;
     uint32_t n = 0;
 
-    if (!p) {
-        return 0;
-    }
-    for (i = 0; i < p->count; ++i) {
+    ZS_LOCK_C(p);
+    for (i = 0; p && i < p->count; ++i) {
         if (p->entries[i].state == ZS_SLOT_FREE) {
             n++;
         }
     }
+    ZS_UNLOCK_C(p);
     return n;
 }
 
@@ -497,11 +562,13 @@ uint32_t zs_pool_channel_count(const zs_pool *p, uint32_t channel_id)
     if (!p || channel_id == 0) {
         return 0;
     }
+    ZS_LOCK_C(p);
     for (i = 0; i < p->count; ++i) {
         if (p->entries[i].channel_id == channel_id && p->entries[i].state != ZS_SLOT_FREE) {
             n++;
         }
     }
+    ZS_UNLOCK_C(p);
     return n;
 }
 
@@ -513,11 +580,13 @@ uint64_t zs_pool_used_bytes(const zs_pool *p)
     if (!p) {
         return 0;
     }
+    ZS_LOCK_C(p);
     for (i = 0; i < p->count; ++i) {
         if (p->entries[i].state != ZS_SLOT_FREE) {
             n += p->slot_bytes;
         }
     }
+    ZS_UNLOCK_C(p);
     return n;
 }
 
@@ -528,38 +597,60 @@ uint64_t zs_pool_capacity_bytes(const zs_pool *p)
 
 int zs_pool_get_info(const zs_pool *p, uint32_t idx, zs_pool_info *out)
 {
-    const zs_entry *e;
+    int rc = -1;
 
-    if (!p || !out || idx >= p->count) {
-        return -1;
+    ZS_LOCK_C(p);
+    if (p && out && idx < p->count) {
+        const zs_entry *e = &p->entries[idx];
+
+        out->id = e->id;
+        out->channel_id = e->channel_id;
+        out->state = e->state;
+        out->ref_count = e->ref_count;
+        out->seg_start_ms = e->seg_start_ms;
+        out->seg_end_ms = e->seg_end_ms;
+        snprintf(out->stream, sizeof(out->stream), "%s", e->stream);
+        rc = 0;
     }
-    e = &p->entries[idx];
-    out->id = e->id;
-    out->channel_id = e->channel_id;
-    out->state = e->state;
-    out->ref_count = e->ref_count;
-    out->seg_start_ms = e->seg_start_ms;
-    out->seg_end_ms = e->seg_end_ms;
-    return 0;
+    ZS_UNLOCK_C(p);
+    return rc;
 }
 
 int zs_pool_get_info_by_id(const zs_pool *p, uint32_t id, zs_pool_info *out)
 {
     uint32_t i;
+    int rc = -1;
 
-    if (!p || !out) {
-        return -1;
-    }
-    for (i = 0; i < p->count; ++i) {
+    ZS_LOCK_C(p);
+    for (i = 0; p && i < p->count; ++i) {
         if (p->entries[i].id == id) {
-            return zs_pool_get_info(p, i, out);
+            const zs_entry *e = &p->entries[i];
+
+            if (out) {
+                out->id = e->id;
+                out->channel_id = e->channel_id;
+                out->state = e->state;
+                out->ref_count = e->ref_count;
+                out->seg_start_ms = e->seg_start_ms;
+                out->seg_end_ms = e->seg_end_ms;
+                snprintf(out->stream, sizeof(out->stream), "%s", e->stream);
+                rc = 0;
+            }
+            break;
         }
     }
-    return -1;
+    ZS_UNLOCK_C(p);
+    return rc;
 }
 
 uint32_t zs_pool_find_range(const zs_pool *p, uint64_t from_ms, uint64_t to_ms, uint32_t *ids,
                             uint32_t max)
+{
+    return zs_pool_find_range_stream(p, NULL, from_ms, to_ms, ids, max);
+}
+
+uint32_t zs_pool_find_range_stream(const zs_pool *p, const char *stream, uint64_t from_ms,
+                                   uint64_t to_ms, uint32_t *ids, uint32_t max)
 {
     const zs_entry **tmp;
     uint32_t i;
@@ -572,10 +663,14 @@ uint32_t zs_pool_find_range(const zs_pool *p, uint64_t from_ms, uint64_t to_ms, 
     if (!tmp) {
         return 0;
     }
+    ZS_LOCK_C(p);
     for (i = 0; i < p->count && n < max; ++i) {
         const zs_entry *e = &p->entries[i];
 
         if (e->state == ZS_SLOT_FREE || e->seg_end_ms == 0) {
+            continue;
+        }
+        if (stream && stream[0] && strcmp(e->stream, stream) != 0) {
             continue;
         }
         if (e->seg_start_ms > to_ms || e->seg_end_ms < from_ms) {
@@ -583,6 +678,8 @@ uint32_t zs_pool_find_range(const zs_pool *p, uint64_t from_ms, uint64_t to_ms, 
         }
         tmp[n++] = e;
     }
+    ZS_UNLOCK_C(p);
+
     /* 按 seg_start 升序插入排序（n 通常很小） */
     for (i = 1; i < n; ++i) {
         const zs_entry *key = tmp[i];
@@ -604,13 +701,17 @@ uint32_t zs_pool_find_range(const zs_pool *p, uint64_t from_ms, uint64_t to_ms, 
 zs_slot *zs_pool_open_slot(zs_pool *p, uint32_t id)
 {
     char path[ZS_POOL_PATH_MAX];
-    zs_entry *e = p ? zs_pool_find_id(p, id) : NULL;
+    zs_entry *e;
+    int ok = 0;
 
-    if (!e) {
+    if (!p) {
         return NULL;
     }
-    if (zs_pool_path(path, sizeof(path), p->dir, id) != 0) {
-        return NULL;
+    ZS_POOL_LOCK(p);
+    e = zs_pool_find_id(p, id);
+    if (e && zs_pool_path(path, sizeof(path), p->dir, id) == 0) {
+        ok = 1;
     }
-    return zs_slot_open(path);
+    ZS_POOL_UNLOCK(p);
+    return ok ? zs_slot_open(path) : NULL;
 }

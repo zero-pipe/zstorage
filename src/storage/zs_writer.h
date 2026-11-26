@@ -32,6 +32,7 @@ typedef struct zs_writer zs_writer;
 typedef struct zs_writer_opts {
     zs_pool *pool;
     uint32_t channel_id;
+    const char *stream;        /**< 流标识，写进槽位头供回放检索（必填） */
     uint32_t flush_bytes;      /**< 聚合写阈值，0 取 512KB */
     uint32_t flush_ms;         /**< 最大刷盘延迟，0 取 1000ms */
     uint32_t slot_max_ms;      /**< 单槽位最长时长，0 取 15 分钟 */

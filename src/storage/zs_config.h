@@ -25,7 +25,7 @@ void zs_pool_opts_from_config(zs_pool_opts *out, const zms_storage_config *cfg);
 
 /** [storage] -> zs_writer_opts，绑定到一个通道。 */
 void zs_writer_opts_from_config(zs_writer_opts *out, const zms_storage_config *cfg, zs_pool *pool,
-                                uint32_t channel_id);
+                                uint32_t channel_id, const char *stream);
 
 #ifdef __cplusplus
 }
