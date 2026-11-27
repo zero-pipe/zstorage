@@ -222,6 +222,7 @@ set(ZMS_OPS_SOURCES
     src/ops/api/webapi/webapi_proxy.c
     src/ops/api/webapi/webapi_record.c
     src/ops/api/webapi/webapi_zs_record.c
+    src/ops/api/webapi/webapi_zs_playback.c
     src/ops/api/webapi/webapi_webrtc.c
     src/ops/api/webapi/onvif_api.c
     src/ops/api/webapi/gb28181_api.c

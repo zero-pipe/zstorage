@@ -440,3 +440,13 @@ void zms_zs_record_node_status(uint32_t *slots, uint32_t *free_slots, uint64_t *
         *cap_bytes = zs_pool_capacity_bytes(pool);
     }
 }
+
+int zms_zs_record_slot_path(uint32_t slot, char *out, size_t cap)
+{
+    zs_pool *pool = zms_zs_recorder_pool();
+
+    if (!pool) {
+        return -1;
+    }
+    return zs_pool_slot_path(pool, slot, out, cap);
+}

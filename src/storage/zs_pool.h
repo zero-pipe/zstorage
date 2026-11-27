@@ -86,6 +86,9 @@ uint32_t zs_pool_expire(zs_pool *p, uint64_t now_ms);
  */
 int zs_pool_delete_by_id(zs_pool *p, uint32_t id);
 
+/** 取某槽位的绝对文件路径（回放定位用）。@return 0 成功；-1 失败 */
+int zs_pool_slot_path(const zs_pool *p, uint32_t id, char *out, size_t cap);
+
 uint32_t zs_pool_count(const zs_pool *p);
 uint32_t zs_pool_free_count(const zs_pool *p);
 uint32_t zs_pool_max_slots(const zs_pool *p);

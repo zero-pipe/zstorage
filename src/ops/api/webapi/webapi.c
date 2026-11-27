@@ -187,6 +187,8 @@ static void parse_query(const char *query, zms_webapi_query_map *m)
             strncpy(m->end, val, sizeof(m->end) - 1);
         } else if (strcmp(key, "slots") == 0) {
             strncpy(m->slots, val, sizeof(m->slots) - 1);
+        } else if (strcmp(key, "slot") == 0) {
+            strncpy(m->slot, val, sizeof(m->slot) - 1);
         } else if (strcmp(key, "pan") == 0) {
             strncpy(m->pan, val, sizeof(m->pan) - 1);
         } else if (strcmp(key, "tilt") == 0) {
@@ -427,6 +429,9 @@ static size_t handle_get_api_list(char *body, size_t body_cap)
                             "\"/index/api/zstorage/record/query\","
                             "\"/index/api/zstorage/record/delete\","
                             "\"/index/api/zstorage/node/status\","
+                            "\"/index/api/zstorage/playback/start\","
+                            "\"/index/api/zstorage/playback/seek\","
+                            "\"/index/api/zstorage/playback/stop\","
                             "\"/index/api/onvif/discover\","
                             "\"/index/api/onvif/probe\","
                             "\"/index/api/onvif/add\","
@@ -781,6 +786,18 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
 
     if (strcmp(path, "/index/api/zstorage/node/status") == 0) {
         return webapi_handle_zs_node_status(body, body_cap, http_status);
+    }
+
+    if (strcmp(path, "/index/api/zstorage/playback/start") == 0) {
+        return webapi_handle_zs_playback_start(&q, body, body_cap, http_status);
+    }
+
+    if (strcmp(path, "/index/api/zstorage/playback/seek") == 0) {
+        return webapi_handle_zs_playback_seek(&q, body, body_cap, http_status);
+    }
+
+    if (strcmp(path, "/index/api/zstorage/playback/stop") == 0) {
+        return webapi_handle_zs_playback_stop(&q, body, body_cap, http_status);
     }
 
     if (strcmp(path, "/index/api/zstorage/record/list") == 0) {

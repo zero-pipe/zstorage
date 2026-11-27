@@ -88,6 +88,9 @@ ZMS_API uint32_t zms_zs_record_delete(const uint32_t *slots, uint32_t n_slots);
 ZMS_API void zms_zs_record_node_status(uint32_t *slots, uint32_t *free_slots, uint64_t *used_bytes,
                                        uint64_t *cap_bytes);
 
+/** 取某槽位的绝对文件路径（回放定位用）。@return 0 成功；-1 失败 */
+ZMS_API int zms_zs_record_slot_path(uint32_t slot, char *out, size_t cap);
+
 #ifdef __cplusplus
 }
 #endif

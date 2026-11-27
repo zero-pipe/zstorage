@@ -551,6 +551,14 @@ uint32_t zs_pool_expire(zs_pool *p, uint64_t now_ms)
     return n;
 }
 
+int zs_pool_slot_path(const zs_pool *p, uint32_t id, char *out, size_t cap)
+{
+    if (!p || !out || cap == 0) {
+        return -1;
+    }
+    return zs_pool_path(out, cap, p->dir, id);
+}
+
 int zs_pool_delete_by_id(zs_pool *p, uint32_t id)
 {
     zs_entry *e;
