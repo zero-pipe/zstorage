@@ -70,11 +70,23 @@ typedef struct zs_record_segment {
     char channel_key[ZS_CHANNEL_KEY_MAX];
     uint64_t start_ms; /**< 段起始绝对时间（UTC 毫秒） */
     uint64_t end_ms;   /**< 段结束绝对时间 */
+    uint64_t bytes;    /**< 段数据字节数（PS 数据区实际写入量） */
 } zs_record_segment;
 
 /** @return 写入 out 的条数（可能被 max 截断） */
 ZMS_API uint32_t zms_zs_record_query(const char *channel_key, uint64_t from_ms, uint64_t to_ms,
                                      zs_record_segment *out, uint32_t max);
+
+/**
+ * 按槽位号删除录像（幂等：已 FREE/不存在算成功）。仅删除 SEALED 且未被回放钉住的槽位。
+ * @param slots 槽位号数组
+ * @return 删除的槽位数
+ */
+ZMS_API uint32_t zms_zs_record_delete(const uint32_t *slots, uint32_t n_slots);
+
+/** 存储节点容量统计（容量/已用/槽位/空闲），供 node/status 使用。 */
+ZMS_API void zms_zs_record_node_status(uint32_t *slots, uint32_t *free_slots, uint64_t *used_bytes,
+                                       uint64_t *cap_bytes);
 
 #ifdef __cplusplus
 }

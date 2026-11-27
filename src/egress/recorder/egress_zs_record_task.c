@@ -375,7 +375,68 @@ uint32_t zms_zs_record_query(const char *channel_key, uint64_t from_ms, uint64_t
         snprintf(out[written].channel_key, sizeof(out[written].channel_key), "%s", info.stream);
         out[written].start_ms = info.seg_start_ms;
         out[written].end_ms = info.seg_end_ms;
+        out[written].bytes = 0;
+        {
+            zs_slot *s = zs_pool_open_slot(pool, info.id);
+            if (s) {
+                uint64_t off = zs_slot_write_offset(s);
+                uint64_t ds = zs_slot_data_start(s);
+                out[written].bytes = off > ds ? off - ds : 0;
+                zs_slot_close(s);
+            }
+        }
         written++;
     }
     return written;
+}
+
+uint32_t zms_zs_record_delete(const uint32_t *slots, uint32_t n_slots)
+{
+    zs_pool *pool = zms_zs_recorder_pool();
+    uint32_t i;
+    uint32_t n = 0;
+
+    if (!pool || !slots) {
+        return 0;
+    }
+    for (i = 0; i < n_slots; ++i) {
+        if (zs_pool_delete_by_id(pool, slots[i]) == 0) {
+            n++;
+        }
+    }
+    return n;
+}
+
+void zms_zs_record_node_status(uint32_t *slots, uint32_t *free_slots, uint64_t *used_bytes,
+                               uint64_t *cap_bytes)
+{
+    zs_pool *pool = zms_zs_recorder_pool();
+
+    if (slots) {
+        *slots = 0;
+    }
+    if (free_slots) {
+        *free_slots = 0;
+    }
+    if (used_bytes) {
+        *used_bytes = 0;
+    }
+    if (cap_bytes) {
+        *cap_bytes = 0;
+    }
+    if (!pool) {
+        return;
+    }
+    if (slots) {
+        *slots = zs_pool_count(pool);
+    }
+    if (free_slots) {
+        *free_slots = zs_pool_free_count(pool);
+    }
+    if (used_bytes) {
+        *used_bytes = zs_pool_used_bytes(pool);
+    }
+    if (cap_bytes) {
+        *cap_bytes = zs_pool_capacity_bytes(pool);
+    }
 }

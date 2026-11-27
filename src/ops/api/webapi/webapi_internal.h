@@ -59,12 +59,14 @@ typedef struct zms_webapi_query_map {
     char stop[8];
     char timeout[16];
     /* GB28181 */
-    char channel[32];
+    char channel[128];
     char device[32];
     char cmd[32];
     char call_id[96];
     char start[32];
     char end[32];
+    /** 删除录像用的槽位号列表（CSV，如 "1,2,3"）。 */
+    char slots[512];
     char pan[16];
     char tilt[16];
     char zoom[16];
@@ -135,6 +137,9 @@ size_t webapi_handle_zs_record_stop(const zms_webapi_query_map *q, char *body, s
 size_t webapi_handle_zs_record_list(zms_webapi_json_buf *jb);
 size_t webapi_handle_zs_record_query(const zms_webapi_query_map *q, char *body, size_t body_cap,
                                      int *http_status);
+size_t webapi_handle_zs_record_delete(const zms_webapi_query_map *q, char *body, size_t body_cap,
+                                      int *http_status);
+size_t webapi_handle_zs_node_status(char *body, size_t body_cap, int *http_status);
 
 size_t webapi_handle_health(char *body, size_t body_cap, int *http_status);
 size_t webapi_handle_statistic(char *body, size_t body_cap, int *http_status);

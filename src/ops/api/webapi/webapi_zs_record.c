@@ -104,10 +104,11 @@ size_t webapi_handle_zs_record_query(const zms_webapi_query_map *q, char *body, 
                            n);
     for (i = 0; i < n && off < body_cap; ++i) {
         int w = snprintf(body + off, body_cap - off,
-                         "%s{\"channel\":\"%s\",\"slot\":%u,\"start\":%llu,\"end\":%llu}",
+                         "%s{\"channel\":\"%s\",\"slot\":%u,\"start\":%llu,\"end\":%llu,\"size\":%llu}",
                          i == 0 ? "" : ",", segs[i].channel_key, segs[i].slot_id,
                          (unsigned long long)segs[i].start_ms,
-                         (unsigned long long)segs[i].end_ms);
+                         (unsigned long long)segs[i].end_ms,
+                         (unsigned long long)segs[i].bytes);
         if (w < 0 || (size_t)w >= body_cap - off) {
             *http_status = 500;
             return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body,
@@ -123,4 +124,64 @@ size_t webapi_handle_zs_record_query(const zms_webapi_query_map *q, char *body, 
         }
     }
     return off;
+}
+
+size_t webapi_handle_zs_record_delete(const zms_webapi_query_map *q, char *body, size_t body_cap,
+                                      int *http_status)
+{
+    uint32_t slots[256];
+    uint32_t n = 0;
+    uint32_t deleted;
+    const char *p;
+
+    *http_status = 200;
+    if (!q->slots[0]) {
+        return webapi_respond_json(ZMS_API_INVALID_ARGS, "missing slots", NULL, body, body_cap);
+    }
+    /* 解析 CSV 槽位号。 */
+    p = q->slots;
+    while (*p && n < (uint32_t)(sizeof(slots) / sizeof(slots[0]))) {
+        char *end = NULL;
+        unsigned long v = strtoul(p, &end, 10);
+
+        if (end == p) {
+            break;
+        }
+        slots[n++] = (uint32_t)v;
+        p = (*end == ',') ? end + 1 : end;
+        if (*end == '\0') {
+            break;
+        }
+    }
+    deleted = zms_zs_record_delete(slots, n);
+    {
+        char data[64];
+
+        snprintf(data, sizeof(data), "{\"deleted\":%u,\"requested\":%u}", deleted, n);
+        return webapi_respond_json(ZMS_API_SUCCESS, "success", data, body, body_cap);
+    }
+}
+
+size_t webapi_handle_zs_node_status(char *body, size_t body_cap, int *http_status)
+{
+    uint32_t slots = 0;
+    uint32_t free_slots = 0;
+    uint64_t used_bytes = 0;
+    uint64_t cap_bytes = 0;
+    int w;
+
+    *http_status = 200;
+    zms_zs_record_node_status(&slots, &free_slots, &used_bytes, &cap_bytes);
+    w = snprintf(body, body_cap,
+                 "{\"code\":0,\"msg\":\"success\",\"data\":{\"slots\":%u,\"freeSlots\":%u,"
+                 "\"usedGb\":%llu,\"capacityGb\":%llu,\"recordingTasks\":%u}}",
+                 slots, free_slots,
+                 (unsigned long long)(used_bytes / (1024ull * 1024ull * 1024ull)),
+                 (unsigned long long)(cap_bytes / (1024ull * 1024ull * 1024ull)),
+                 zs_record_task_count());
+    if (w < 0 || (size_t)w >= body_cap) {
+        *http_status = 500;
+        return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+    }
+    return (size_t)w;
 }

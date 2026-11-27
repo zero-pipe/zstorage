@@ -551,6 +551,33 @@ uint32_t zs_pool_expire(zs_pool *p, uint64_t now_ms)
     return n;
 }
 
+int zs_pool_delete_by_id(zs_pool *p, uint32_t id)
+{
+    zs_entry *e;
+    int rc = -1;
+
+    if (!p) {
+        return -1;
+    }
+    ZS_POOL_LOCK(p);
+    e = zs_pool_find_id(p, id);
+    if (e && e->state == ZS_SLOT_SEALED && e->ref_count == 0) {
+        zs_slot *s = zs_slot_open(e->path);
+        if (s) {
+            (void)zs_slot_reset(s);
+            zs_slot_close(s);
+        }
+        e->state = ZS_SLOT_FREE;
+        e->channel_id = 0;
+        e->stream[0] = '\0';
+        e->seg_start_ms = 0;
+        e->seg_end_ms = 0;
+        rc = 0;
+    }
+    ZS_POOL_UNLOCK(p);
+    return rc;
+}
+
 uint32_t zs_pool_count(const zs_pool *p)
 {
     uint32_t n;

@@ -80,6 +80,12 @@ int zs_pool_unpin(zs_pool *p, uint32_t id);
 /** 回收超过保留期的封口槽位，返回回收数量。 */
 uint32_t zs_pool_expire(zs_pool *p, uint64_t now_ms);
 
+/**
+ * 按 id 删除（回收为 FREE）一个封口槽位；仅当 SEALED 且 ref_count==0 时生效。
+ * @return 0 成功；-1 不可删（不存在/非封口/被钉住）
+ */
+int zs_pool_delete_by_id(zs_pool *p, uint32_t id);
+
 uint32_t zs_pool_count(const zs_pool *p);
 uint32_t zs_pool_free_count(const zs_pool *p);
 uint32_t zs_pool_max_slots(const zs_pool *p);
