@@ -619,6 +619,9 @@ static zn_err_t server_start_services(zms_server *s)
         server_fill_ports(s, &ports);
         zms_webhook_server_started(cfg, &ports);
         zms_webhook_start_keepalive(cfg, &ports);
+        /* 云存储节点独立自注册与心跳（与取流节点分离，供平台登记独立存储节点）。 */
+        zms_webhook_storage_started(cfg, &ports);
+        zms_webhook_start_storage_keepalive(cfg, &ports);
     }
 
     return ZN_OK;

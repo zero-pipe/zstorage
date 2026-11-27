@@ -278,6 +278,12 @@ typedef struct zms_hook_config {
     int keepalive_interval_sec;
     /** 直播 MP4 切片落盘通知（对齐 ZLM on_record_mp4） */
     char on_record_mp4[ZMS_CFG_HOOK_URL_MAX];
+    /* ── 云存储节点自注册（zstorage 作为独立存储节点接平台，与取流 ZMS 节点分离）──
+     * 留空则不发；载荷带容量/已用，平台落独立表 zws_storage_node。 */
+    char on_storage_started[ZMS_CFG_HOOK_URL_MAX];
+    char on_storage_keepalive[ZMS_CFG_HOOK_URL_MAX];
+    /** PS 槽位封口完成通知（平台据此登记 zws_cloud_record） */
+    char on_record_ps[ZMS_CFG_HOOK_URL_MAX];
     /** 留空表示不过滤；rtsp/rtmp */
     char stream_changed_schemas[ZMS_CFG_SCHEMA_FILTER_MAX];
 } zms_hook_config;

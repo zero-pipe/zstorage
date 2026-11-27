@@ -106,6 +106,12 @@ on_server_started=http://127.0.0.1:18080/index/hook/on_server_started
 on_server_keepalive=http://127.0.0.1:18080/index/hook/on_server_keepalive
 keepalive_interval_sec=30
 on_record_mp4=http://127.0.0.1:18080/index/hook/on_record_mp4
+# 云存储节点自注册/心跳（与取流 ZMS 节点分离，平台落独立表登记存储节点）。
+# 留空=不当存储节点上报。载荷含 type=zstorage、容量/已用。
+on_storage_started=http://127.0.0.1:18080/index/hook/on_storage_started
+on_storage_keepalive=http://127.0.0.1:18080/index/hook/on_storage_keepalive
+# PS 槽位封口完成通知：平台据此登记 zws_cloud_record（回放时间轴数据源）
+on_record_ps=http://127.0.0.1:18080/index/hook/on_record_ps
 # 哪些推流来源触发 on_stream_changed（斜杠分隔）
 stream_changed_schemas=rtsp/rtmp/srt/rtp-ps/webrtc
 

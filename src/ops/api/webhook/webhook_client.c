@@ -12,6 +12,7 @@
 #include "zms/ops/api/webhook/webhook_client.h"
 #include "zms/ops/api/json/media_json.h"
 #include "zms/core/stream/hub.h"
+#include "zms/egress/recorder/egress_zs_recorder.h"
 #include "zms/version.h"
 #include "zn/net/tcp_client.h"
 #include "zn/platform.h"
@@ -54,6 +55,9 @@ static const zms_config *g_kp_cfg;
 static zms_media_server_ports g_kp_ports;
 static int g_kp_enabled;
 static zn_poller_timer *g_kp_timer;
+/* 存储节点心跳独立状态（可与 ZMS 节点心跳并行，各自定时器与开关）。 */
+static int g_kp_storage_enabled;
+static zn_poller_timer *g_kp_storage_timer;
 
 /** init 阶段解析好的「主机名 → IP」，poller 上只按表连接。 */
 typedef struct zms_hook_host {
@@ -63,6 +67,9 @@ typedef struct zms_hook_host {
 
 static zms_hook_host g_hosts[ZMS_HOOK_HOST_MAX];
 static int g_host_count;
+
+/* 前置声明：定义在文件后部的 JSON 转义（多处在拼包时先于其定义使用）。 */
+static void json_escape_path(const char *in, char *out, size_t out_cap);
 
 /* ── JSON 拼装 ───────────────────────────────────────────────────────────── */
 
@@ -700,6 +707,166 @@ void zms_webhook_server_started(const zms_config *cfg, const zms_media_server_po
     hook_queue(g_hook.on_server_started, body, NULL, 0);
 }
 
+/* ── 云存储节点自注册 ───────────────────────────────────────────────────── */
+
+/* 构造存储节点注册体：地址/端口/secret + 容量/已用（来自录制器统计）。 */
+static int build_storage_info(char *body, size_t cap, const zms_config *cfg,
+                              const zms_media_server_ports *ports)
+{
+    const char *ip;
+    const char *secret;
+    uint64_t used_bytes = 0;
+    uint64_t cap_bytes = 0;
+    uint32_t slots = 0;
+    uint32_t free_slots = 0;
+    int n;
+
+    if (!body || !cfg || !ports) {
+        return -1;
+    }
+    ip = cfg->general.extern_ip[0] ? cfg->general.extern_ip : "127.0.0.1";
+    secret = cfg->http.api_secret ? cfg->http.api_secret : "";
+    if (cfg->storage.enable) {
+        zms_zs_recorder_stats(&slots, &free_slots, &used_bytes, &cap_bytes);
+    }
+    n = snprintf(
+        body, cap,
+        "{\"version\":\"%s\",\"type\":\"zstorage\",\"ip\":\"%s\",\"hookIp\":\"%s\","
+        "\"streamIp\":\"%s\",\"secret\":\"%s\",\"httpPort\":%u,\"rtspPort\":%u,"
+        "\"capacityGb\":%llu,\"usedGb\":%llu,\"slots\":%u,\"freeSlots\":%u",
+        ZMS_VERSION_STRING, ip, ip, ip, secret, ports->http, ports->rtsp,
+        (unsigned long long)(cap_bytes / (1024ull * 1024ull * 1024ull)),
+        (unsigned long long)(used_bytes / (1024ull * 1024ull * 1024ull)), slots, free_slots);
+    if (n < 0 || (size_t)n >= cap) {
+        return -1;
+    }
+    return 0;
+}
+
+void zms_webhook_storage_started(const zms_config *cfg, const zms_media_server_ports *ports)
+{
+    char *body;
+    size_t len;
+
+    if (!g_webhook_initialized || !g_hook.on_storage_started[0] || !cfg || !ports) {
+        return;
+    }
+    body = body_alloc();
+    if (!body) {
+        return;
+    }
+    if (build_storage_info(body, ZMS_HOOK_BODY_MAX - 192, cfg, ports) != 0) {
+        free(body);
+        return;
+    }
+    len = strlen(body);
+    if (json_append_common(body, ZMS_HOOK_BODY_MAX, &len, ",") != 0 ||
+        (size_t)snprintf(body + len, ZMS_HOOK_BODY_MAX - len, "}") >= ZMS_HOOK_BODY_MAX - len) {
+        free(body);
+        return;
+    }
+    zn_info("[hook] on_storage_started -> %s (http=%u rtsp=%u)", g_hook.on_storage_started,
+            ports->http, ports->rtsp);
+    hook_queue(g_hook.on_storage_started, body, NULL, 0);
+}
+
+/* 存储节点心跳定时回调：重发注册体（顺带刷新容量/已用）。 */
+static uint64_t storage_keepalive_tick(void *user)
+{
+    char *body;
+    size_t len;
+    int interval;
+
+    (void)user;
+    if (!g_kp_storage_enabled || !g_webhook_initialized || !g_hook.on_storage_keepalive[0] ||
+        !g_kp_cfg) {
+        return 0;
+    }
+    body = body_alloc();
+    if (body) {
+        if (build_storage_info(body, ZMS_HOOK_BODY_MAX - 192, g_kp_cfg, &g_kp_ports) == 0) {
+            len = strlen(body);
+            if (json_append_common(body, ZMS_HOOK_BODY_MAX, &len, ",") == 0 &&
+                (size_t)snprintf(body + len, ZMS_HOOK_BODY_MAX - len, "}") <
+                    ZMS_HOOK_BODY_MAX - len) {
+                hook_queue(g_hook.on_storage_keepalive, body, NULL, 0);
+            } else {
+                free(body);
+            }
+        } else {
+            free(body);
+        }
+    }
+    interval = g_hook.keepalive_interval_sec > 0 ? g_hook.keepalive_interval_sec : 30;
+    return (uint64_t)interval * 1000u;
+}
+
+static void storage_keepalive_arm(void *user)
+{
+    int interval;
+
+    (void)user;
+    if (!g_kp_storage_enabled || !g_poller) {
+        return;
+    }
+    interval = g_hook.keepalive_interval_sec > 0 ? g_hook.keepalive_interval_sec : 30;
+    g_kp_storage_timer =
+        zn_poller_do_delay(g_poller, (uint64_t)interval * 1000u, storage_keepalive_tick, NULL);
+}
+
+void zms_webhook_start_storage_keepalive(const zms_config *cfg,
+                                         const zms_media_server_ports *ports)
+{
+    if (!g_webhook_initialized || !cfg || !ports || !g_hook.on_storage_keepalive[0]) {
+        return;
+    }
+    g_kp_cfg = cfg;
+    g_kp_ports = *ports;
+    g_kp_storage_enabled = 1;
+    if (g_poller) {
+        (void)zn_poller_async(g_poller, storage_keepalive_arm, NULL, 1);
+    }
+    zn_info("[hook] storage keepalive started -> %s interval=%ds", g_hook.on_storage_keepalive,
+            g_hook.keepalive_interval_sec > 0 ? g_hook.keepalive_interval_sec : 30);
+}
+
+void zms_webhook_on_record_ps(const char *channel, uint32_t slot, int64_t start_ms,
+                              int64_t end_ms, int64_t duration_ms, int64_t file_size,
+                              const char *file_path, int status)
+{
+    char *body;
+    char esc_ch[160];
+    char esc_path[ZMS_CFG_PATH_MAX];
+    size_t len = 0;
+    int n;
+
+    if (!g_webhook_initialized || !g_hook.on_record_ps[0] || !channel) {
+        return;
+    }
+    body = body_alloc();
+    if (!body) {
+        return;
+    }
+    json_escape_path(channel, esc_ch, sizeof(esc_ch));
+    json_escape_path(file_path ? file_path : "", esc_path, sizeof(esc_path));
+    n = snprintf(body, ZMS_HOOK_BODY_MAX,
+                 "{\"channel\":\"%s\",\"slot\":%u,\"startTime\":%lld,\"endTime\":%lld,"
+                 "\"durationMs\":%lld,\"fileSize\":%lld,\"filePath\":\"%s\",\"status\":%d",
+                 esc_ch, slot, (long long)start_ms, (long long)end_ms, (long long)duration_ms,
+                 (long long)file_size, esc_path, status);
+    if (n < 0 || (size_t)n >= ZMS_HOOK_BODY_MAX) {
+        free(body);
+        return;
+    }
+    len = (size_t)n;
+    if (json_append_common(body, ZMS_HOOK_BODY_MAX, &len, ",") != 0 ||
+        (size_t)snprintf(body + len, ZMS_HOOK_BODY_MAX - len, "}") >= ZMS_HOOK_BODY_MAX - len) {
+        free(body);
+        return;
+    }
+    hook_queue(g_hook.on_record_ps, body, NULL, 0);
+}
+
 /* 心跳定时回调：发一次注册体并返回下次间隔（毫秒）；关闭后返回 0 自动终止。 */
 static uint64_t keepalive_tick(void *user)
 {
@@ -983,7 +1150,7 @@ void zms_webhook_on_record_mp4(const char *app, const char *stream, const char *
 /** 在 init 线程把每个已配置钩子 URL 的主机名解析成 IP（poller 上不再 DNS）。 */
 static void resolve_hook_hosts(void)
 {
-    const char *urls[6];
+    const char *urls[9];
     int n = 0;
 
     urls[n++] = g_hook.on_stream_changed;
@@ -992,6 +1159,9 @@ static void resolve_hook_hosts(void)
     urls[n++] = g_hook.on_server_started;
     urls[n++] = g_hook.on_server_keepalive;
     urls[n++] = g_hook.on_record_mp4;
+    urls[n++] = g_hook.on_storage_started;
+    urls[n++] = g_hook.on_storage_keepalive;
+    urls[n++] = g_hook.on_record_ps;
 
     g_host_count = 0;
     for (int i = 0; i < n; ++i) {

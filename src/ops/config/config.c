@@ -359,6 +359,11 @@ static const zms_cfg_field k_hook[] = {
      HSSZ(on_stream_none_reader), NULL},
     {"on_play_stop", NULL, ZMS_CFG_F_STR, HOFF(on_play_stop), HSSZ(on_play_stop), NULL},
     {"on_record_mp4", NULL, ZMS_CFG_F_STR, HOFF(on_record_mp4), HSSZ(on_record_mp4), NULL},
+    {"on_storage_started", NULL, ZMS_CFG_F_STR, HOFF(on_storage_started),
+     HSSZ(on_storage_started), NULL},
+    {"on_storage_keepalive", NULL, ZMS_CFG_F_STR, HOFF(on_storage_keepalive),
+     HSSZ(on_storage_keepalive), NULL},
+    {"on_record_ps", NULL, ZMS_CFG_F_STR, HOFF(on_record_ps), HSSZ(on_record_ps), NULL},
     {"stream_changed_schemas", NULL, ZMS_CFG_F_STR, HOFF(stream_changed_schemas),
      HSSZ(stream_changed_schemas), NULL},
     {NULL, NULL, ZMS_CFG_F_STR, 0, 0, NULL}};

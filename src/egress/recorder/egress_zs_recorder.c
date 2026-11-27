@@ -11,6 +11,7 @@
 #include "storage/zs_writer.h"
 #include "zms/core/event.h"
 #include "zms/core/gop/queue.h"
+#include "zms/ops/api/webhook/webhook_client.h"
 #include "zms/media/codec/h264/h264_es.h"
 #include "zms/media/codec/h264/h264_over_rtmp.h"
 #include "zms/media/codec/h265/h265_es.h"
@@ -49,6 +50,7 @@ typedef struct zs_recorder {
     uint8_t *au;
     size_t au_cap;
     char stream[ZS_SLOT_STREAM_MAX];
+    uint32_t last_slot_id; /* 已上报封口的槽位号，用于检测切槽并回调 on_record_ps */
 } zs_recorder;
 
 static struct {
@@ -329,10 +331,40 @@ static void zs_gc_tick(void)
     }
 }
 
+/* 槽位封口上报：查池内该槽位的段信息 + 文件有效字节，回调 on_record_ps。
+ * 切槽与停止（收尾）时调用，平台据此登记 zws_cloud_record。槽位号已不存在则跳过。 */
+static void rec_report_sealed(uint32_t slot_id)
+{
+    zs_pool *pool = zms_zs_recorder_pool();
+    zs_pool_info info;
+    zs_slot *s;
+    uint64_t bytes = 0;
+
+    if (slot_id == 0 || !pool || !g_zs.cfg.enable) {
+        return;
+    }
+    if (zs_pool_get_info_by_id(pool, slot_id, &info) != 0 || info.seg_end_ms == 0) {
+        return;
+    }
+    s = zs_pool_open_slot(pool, slot_id);
+    if (s) {
+        uint64_t off = zs_slot_write_offset(s);
+        uint64_t start = zs_slot_data_start(s);
+
+        bytes = off > start ? off - start : 0;
+        zs_slot_close(s);
+    }
+    zms_webhook_on_record_ps(info.stream, slot_id, (int64_t)info.seg_start_ms,
+                             (int64_t)info.seg_end_ms,
+                             (int64_t)(info.seg_end_ms - info.seg_start_ms), (int64_t)bytes,
+                             "", 2);
+}
+
 static void rec_pump(zs_recorder *r)
 {
     zms_gop_slot slot;
     unsigned n;
+    uint32_t cur_slot;
 
     if (!r->reader || !r->writer) {
         return;
@@ -341,6 +373,12 @@ static void rec_pump(zs_recorder *r)
         rec_feed(r, &slot);
     }
     (void)zs_writer_tick(r->writer, zn_monotonic_ms());
+    /* 切槽检测：当前槽位号变了，说明上一个槽位已封口 -> 回调 on_record_ps 登记。 */
+    cur_slot = zs_writer_slot_id(r->writer);
+    if (r->last_slot_id != 0 && cur_slot != r->last_slot_id) {
+        rec_report_sealed(r->last_slot_id);
+    }
+    r->last_slot_id = cur_slot;
     zs_gc_tick();
 }
 
@@ -520,6 +558,8 @@ void zms_zs_recorder_stop(zms_media_source *src)
         zs_writer_destroy(r->writer);
         r->writer = NULL;
     }
+    /* 收尾封口后上报最后一个槽位（切槽回调只在运行期触发，末段要单独发）。 */
+    rec_report_sealed(r->last_slot_id);
     if (r->ps_mux) {
         zms_zm_ps_muxer_destroy(r->ps_mux);
         r->ps_mux = NULL;

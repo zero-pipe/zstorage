@@ -64,6 +64,25 @@ ZMS_API void zms_webhook_on_record_mp4(const char *app, const char *stream, cons
                                        const char *file_path, const char *folder, int64_t file_size,
                                        int64_t start_time, float time_len);
 
+/* ── 云存储节点自注册（与取流 ZMS 节点分离，平台落独立表）────────────── */
+
+/**
+ * 存储节点自注册（on_storage_started）：上报节点地址、HTTP/RTSP 端口、secret 与
+ * 容量/已用（来自 [storage] 与录制器统计）。留空地址则不发。启动时调用一次。
+ */
+ZMS_API void zms_webhook_storage_started(const zms_config *cfg, const zms_media_server_ports *ports);
+/**
+ * 开启存储节点心跳（on_storage_keepalive）：按 [hook] keepalive_interval_sec 周期
+ * 重发同样的注册体，顺带刷新容量/已用。可与 ZMS 节点心跳并行。
+ */
+ZMS_API void zms_webhook_start_storage_keepalive(const zms_config *cfg,
+                                                 const zms_media_server_ports *ports);
+
+/** PS 槽位封口完成通知（on_record_ps）：平台据此登记 zws_cloud_record。 */
+ZMS_API void zms_webhook_on_record_ps(const char *channel, uint32_t slot, int64_t start_ms,
+                                      int64_t end_ms, int64_t duration_ms, int64_t file_size,
+                                      const char *file_path, int status);
+
 /** 是否配置了 on_stream_none_reader（供 media_events 调度） */
 ZMS_API int zms_webhook_none_reader_configured(void);
 
