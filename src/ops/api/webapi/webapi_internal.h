@@ -12,7 +12,6 @@
 #include "zcs/ops/config/config.h"
 #include "zcs/core/auth.h"
 #include "zcs/core/event.h"
-#include "zcs/device/onvif/onvif.h"
 #include "zn/util/buf.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -48,31 +47,14 @@ typedef struct zcs_webapi_query_map {
     char file_path[ZCS_CFG_PATH_MAX];
     char stamp[32];
     char speed[16];
-    /* ONVIF */
-    char addr[ZCS_ONVIF_XADDR_MAX];
-    char user[64];
-    char pass[128];
-    char profile[64];
-    char x[16];
-    char y[16];
-    char z[16];
-    char stop[8];
-    char timeout[16];
-    /* GB28181 */
+    /* 录像通道与时间段 */
     char channel[128];
-    char device[32];
-    char cmd[32];
-    char call_id[96];
     char start[32];
     char end[32];
     /** 删除录像用的槽位号列表（CSV，如 "1,2,3"）。 */
     char slots[512];
     /** 单个槽位号（回放定位）。 */
     char slot[16];
-    char pan[16];
-    char tilt[16];
-    char zoom[16];
-    char tcp[8];
     char priority[8];
     char method[8];
     char description[256];

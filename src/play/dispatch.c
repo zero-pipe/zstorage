@@ -16,13 +16,7 @@ static int g_session_dispatch_all_registered;
 void zcs_rtmp_register(void);
 void zcs_rtsp_register(void);
 void zcs_http_register(void);
-#if defined(ZCS_ENABLE_WEBRTC)
-void zcs_webrtc_register(void);
-#endif
 void zcs_rtp_ps_register(void);
-#if defined(ZCS_HAVE_SRT)
-void zcs_srt_register(void);
-#endif
 
 void zcs_session_dispatch_register(const zcs_session_dispatch_ops *ops)
 {
@@ -52,13 +46,7 @@ void zcs_session_dispatch_register_all(void)
     zcs_rtmp_register();
     zcs_rtsp_register();
     zcs_http_register();
-#if defined(ZCS_ENABLE_WEBRTC)
-    zcs_webrtc_register();
-#endif
     zcs_rtp_ps_register();
-#if defined(ZCS_HAVE_SRT)
-    zcs_srt_register();
-#endif
 }
 
 const zcs_session_dispatch_ops *zcs_session_dispatch_find(const char *name)

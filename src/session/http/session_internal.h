@@ -96,9 +96,6 @@ struct zcs_http_server {
     zn_poller *poller;
     zn_poller_pool *poller_pool;
     const struct zcs_config *cfg;
-#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
-    struct zcs_webrtc_server *webrtc;
-#endif
 };
 
 extern struct zcs_http_server *g_http_service_instance;

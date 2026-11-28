@@ -38,9 +38,6 @@
 #define ZCS_SERVER_SHUTDOWN_DRAIN_MS 200u
 #endif
 
-#ifdef ZCS_HAVE_SRT
-#include "zcs/protocol/srt/srt_server.h"
-#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -68,9 +65,6 @@ struct zcs_server {
     zcs_http_server *http;
     zn_ssl_ctx *ssl_ctx;
     zcs_rtsp_server *rtsp;
-#ifdef ZCS_HAVE_SRT
-    zcs_srt_server *srt;
-#endif
     zcs_live_pull_proxy *proxy;
 
     int started;
@@ -233,9 +227,6 @@ static void server_fill_ports(const zcs_server *s, zcs_media_server_ports *ports
     ports->rtmp = s->rtmp ? (unsigned)zcs_rtmp_server_port(s->rtmp) : s->cfg.rtmp.port;
     ports->rtsp = s->rtsp ? (unsigned)zcs_rtsp_server_port(s->rtsp) : s->cfg.rtsp.port;
     ports->http = s->http ? (unsigned)zcs_http_server_port(s->http) : s->cfg.http.port;
-#ifdef ZCS_HAVE_SRT
-    ports->srt = s->srt ? (unsigned)zcs_srt_server_port(s->srt) : s->cfg.srt.port;
-#endif
 }
 
 static void print_play_urls(const zcs_media_server_ports *ports, const zcs_media_source *src)
@@ -270,24 +261,6 @@ static void print_generic_play_urls(const zcs_media_server_ports *ports, const z
     printf("      HTTP-DASH: http://127.0.0.1:%u/live/{stream}.mpd\r\n", ports->http);
     printf("      RTSP     : rtsp://127.0.0.1:%u/live/{stream}\r\n", ports->rtsp);
     printf("      RTMP     : rtmp://127.0.0.1:%u/live/{stream}\r\n", ports->rtmp);
-#ifdef ZCS_HAVE_SRT
-    if (ports->srt) {
-        printf("      SRT      : srt://127.0.0.1:%u?streamid=#!::r=live/{stream},m=request\r\n",
-               ports->srt);
-    }
-#endif
-#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
-    if (!cfg || cfg->webrtc.enable) {
-        printf(
-            "      WHEP     : POST http://127.0.0.1:%u/index/api/whep?app=live&stream={stream}\r\n",
-            ports->http);
-        printf(
-            "      WHIP     : POST http://127.0.0.1:%u/index/api/whip?app=live&stream={stream}\r\n",
-            ports->http);
-    }
-#else
-    (void)cfg;
-#endif
 }
 
 /**
@@ -435,28 +408,6 @@ static zn_err_t server_start_services(zcs_server *s)
         }
     }
 
-#ifdef ZCS_HAVE_SRT
-    if (cfg->protocol.enable_srt) {
-        zcs_srt_server_opts srtopts = {
-            .poller = s->main_poller,
-            .host = lhost,
-            .port = (uint16_t)(cfg->srt.port ? cfg->srt.port : 9000),
-            .timeout_sec = cfg->srt.timeout_sec,
-            .latency_mul = cfg->srt.latency_mul,
-            .pkt_buf_size = cfg->srt.pkt_buf_size,
-            .passphrase = cfg->srt.passphrase,
-        };
-        s->srt = zcs_srt_server_create(&srtopts);
-        if (!s->srt) {
-            zn_error("SRT service create failed");
-            return ZN_ERR_IO;
-        }
-    }
-#else
-    if (cfg->protocol.enable_srt) {
-        zn_warn("enable_srt=1 but binary built without ZCS_ENABLE_SRT");
-    }
-#endif
 
     if (s->rtmp) {
         err = zcs_rtmp_server_start(s->rtmp);
@@ -496,15 +447,6 @@ static zn_err_t server_start_services(zcs_server *s)
         }
     }
 
-#ifdef ZCS_HAVE_SRT
-    if (s->srt) {
-        err = zcs_srt_server_start(s->srt);
-        if (err != ZN_OK) {
-            zn_error("SRT listen failed port=%u: %s", cfg->srt.port, zn_strerror(err));
-            return err;
-        }
-    }
-#endif
 
     /* 所有监听已就绪、端口确定，向 web 平台自注册并开启心跳续注册。 */
     {
@@ -573,13 +515,6 @@ static void server_stop_services(zcs_server *s)
         s->rtsp = NULL;
     }
     zcs_rtsp_udp_registry_fini();
-#ifdef ZCS_HAVE_SRT
-    if (s->srt) {
-        zcs_srt_server_stop(s->srt);
-        zcs_srt_server_destroy(s->srt);
-        s->srt = NULL;
-    }
-#endif
     if (s->http) {
         zcs_http_server_stop(s->http);
         zcs_http_server_destroy(s->http);
@@ -718,11 +653,6 @@ zn_err_t zcs_server_start(zcs_server *s)
         zn_info("process pid=%lu", (unsigned long)GetCurrentProcessId());
 #endif
         zn_info("Listen RTMP=%u RTSP=%u HTTP=%u", ports.rtmp, ports.rtsp, ports.http);
-#ifdef ZCS_HAVE_SRT
-        if (s->srt) {
-            zn_info("Listen SRT=%u", ports.srt);
-        }
-#endif
         zcs_media_events_set_server_ports(&ports);
         zcs_media_source_log_registry(&ports);
     }
@@ -830,13 +760,6 @@ void zcs_server_print_endpoints(const zcs_server *s)
                    "rtmp://127.0.0.1:%u/live/{stream}\r\n",
                    ports.rtmp);
         }
-#ifdef ZCS_HAVE_SRT
-        if (s->srt) {
-            printf("      ffmpeg -re -i {file}.mp4 -c copy -f mpegts "
-                   "'srt://127.0.0.1:%u?streamid=#!::r=live/{stream},m=publish'\r\n",
-                   ports.srt);
-        }
-#endif
     }
     printf("  [2] Play:\r\n");
     if (s->proxy) {

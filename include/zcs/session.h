@@ -13,7 +13,5 @@
 #include "zcs/session/rtmp/session.h"
 #include "zcs/session/rtsp/rtsp_server.h"
 #include "zcs/session/rtsp/session_auth.h"
-#include "zcs/session/webrtc/webrtc_server.h"
-#include "zcs/session/webrtc/whep.h"
 
 #endif /* ZCS_SESSION_H */

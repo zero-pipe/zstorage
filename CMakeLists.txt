@@ -24,7 +24,6 @@ option(ZN_ENABLE_SELECT "Use select poller backend (generic POSIX/RTOS)" ON)
 option(ZN_ALLOW_WIN32_STUB "Build Win32 stub poller (no wepoll) for IDE check" OFF)
 option(ZN_ENABLE_OPENSSL "Enable OpenSSL TLS client (zn_tls_client)" ON)
 option(ZCS_BUILD_SHARED "Build shared ZCS library" OFF)
-option(ZCS_ENABLE_SRT "Build SRT transport support (requires libsrt)" OFF)
 option(ZCS_BUILD_TESTS "Build ZCS automated tests (Stable SDK lifecycle)" OFF)
 
 # Local overrides (paths, feature toggles) — run tools/configure.ps1 or configure.sh
@@ -81,61 +80,11 @@ foreach(_zcs_3p libflv libdash libhls libmkv libmpeg librtp libsdp libmov)
 endforeach()
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/zcs_sources.cmake)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/srt.cmake)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/webrtc.cmake)
-
-# SRT service/session sources include <srt/srt.h>, so only add them when libsrt
-# was actually found (streamid.c is portable and lives in ZCS_PROTOCOL_SOURCES).
-if (ZCS_HAVE_SRT)
-    list(APPEND ZCS_PROTOCOL_SOURCES
-        src/protocol/srt/dispatch.c
-        src/protocol/srt/poller.c
-        src/protocol/srt/srt_server.c
-        src/protocol/srt/session.c
-        src/protocol/srt/session_play.c
-        src/protocol/srt/session_publish.c)
-endif ()
-
-
-if(ZCS_ENABLE_WEBRTC AND ZCS_HAVE_ZICE)
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/3rdpart/zice)
-endif()
-
-if (ZCS_ENABLE_WEBRTC)
-    foreach(_src ${ZCS_WEBRTC_SOURCES})
-        if(_src MATCHES "^src/(publish|play|vod|pull)/")
-            list(APPEND ZCS_ROLE_SOURCES ${_src})
-        else()
-            list(APPEND ZCS_PROTOCOL_SOURCES ${_src})
-        endif()
-    endforeach()
-    message(STATUS "ZCS: WebRTC WHEP enabled")
-    if(ZCS_HAVE_WEBRTC_DTLS)
-        message(STATUS "ZCS: WebRTC DTLS-SRTP enabled (OpenSSL)")
-    else()
-        message(WARNING "ZCS: WebRTC without OpenSSL — DTLS/SRTP disabled; browser play will not work")
-    endif()
-endif()
 
 # ── Per-layer object libraries ─────────────────────────────────────────────
 # The final `zcs` archive aggregates all layers. Object libraries keep the
 # build graph explicit without imposing a link order on cyclic callbacks.
 set(ZCS_LAYER_DEFS "")
-if (ZCS_HAVE_SRT)
-    list(APPEND ZCS_LAYER_DEFS ZCS_HAVE_SRT=1)
-endif ()
-if (ZCS_ENABLE_WEBRTC)
-    list(APPEND ZCS_LAYER_DEFS ZCS_ENABLE_WEBRTC=1)
-endif ()
-if (ZCS_HAVE_WEBRTC_DTLS)
-    list(APPEND ZCS_LAYER_DEFS ZCS_HAVE_WEBRTC_DTLS=1)
-endif ()
-if (ZCS_HAVE_ZICE)
-    list(APPEND ZCS_LAYER_DEFS ZCS_WEBRTC_USE_ZICE=1)
-endif ()
-if (WIN32 AND ZCS_ENABLE_WEBRTC AND ZCS_HAVE_ZICE)
-    list(APPEND ZCS_LAYER_DEFS OS_WINDOWS=1)
-endif ()
 if (ZCS_BUILD_SHARED)
     list(APPEND ZCS_LAYER_DEFS ZCS_EXPORTS)
 endif ()
@@ -148,20 +97,9 @@ function(zcs_add_layer_target name)
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${ZCS_KIT}/libmov/source)
-    if (ZCS_ENABLE_WEBRTC AND ZCS_HAVE_ZICE)
-        target_include_directories(${name} PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/3rdpart/zice/src
-            ${CMAKE_CURRENT_SOURCE_DIR}/3rdpart/zice/include)
-    endif ()
     target_compile_definitions(${name} PRIVATE ${ZCS_LAYER_DEFS})
     target_link_libraries(${name} PRIVATE
         znet zbase libmpeg libflv libhls librtp libsdp libmov libmkv libdash zmedia_core)
-    if (ZCS_ENABLE_WEBRTC AND ZCS_HAVE_ZICE)
-        target_link_libraries(${name} PRIVATE zice)
-    endif ()
-    if (ZCS_HAVE_SRT)
-        target_link_libraries(${name} PRIVATE ${ZCS_SRT_LIBS})
-    endif ()
     if (MSVC)
         target_compile_definitions(${name} PRIVATE _CRT_SECURE_NO_WARNINGS)
     endif ()
@@ -213,29 +151,6 @@ target_include_directories(zcs
 target_link_libraries(zcs PUBLIC znet zbase libmpeg libflv libhls librtp libsdp libmov libmkv libdash)
 # ZM shared model is used internally by src/bridge; keep it out of the public SDK surface.
 target_link_libraries(zcs PRIVATE zmedia_core)
-if (ZCS_HAVE_SRT)
-    target_compile_definitions(zcs PUBLIC ZCS_HAVE_SRT=1)
-    target_link_libraries(zcs PRIVATE ${ZCS_SRT_LIBS})
-endif ()
-if (ZCS_ENABLE_WEBRTC)
-    target_compile_definitions(zcs PUBLIC ZCS_ENABLE_WEBRTC=1)
-    if(ZCS_HAVE_WEBRTC_DTLS)
-        target_compile_definitions(zcs PUBLIC ZCS_HAVE_WEBRTC_DTLS=1)
-    endif()
-    if(ZCS_HAVE_ZICE)
-        target_compile_definitions(zcs PRIVATE ZCS_WEBRTC_USE_ZICE=1)
-        target_include_directories(zcs PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/3rdpart/zice/src)
-        if(WIN32)
-            target_compile_definitions(zcs PRIVATE OS_WINDOWS=1)
-        endif()
-        target_link_libraries(zcs PRIVATE zice)
-        if(UNIX)
-            # zice 的 darray 等源码使用 sqrt，静态库不会自动带上 libm。
-            target_link_libraries(zcs PRIVATE m)
-        endif()
-    endif()
-endif()
 if(WIN32)
     target_link_libraries(zcs PRIVATE ws2_32)
 endif()

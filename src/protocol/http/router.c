@@ -11,10 +11,6 @@ static const zcs_http_route_ops *g_routes[ZCS_HTTP_ROUTE_MAX];
 static int g_route_count;
 
 void zcs_webapi_http_routes_register(void);
-#if defined(ZCS_ENABLE_WEBRTC)
-void zcs_webrtc_whep_routes_register(void);
-void zcs_webrtc_whip_routes_register(void);
-#endif
 
 void zcs_http_route_register(const zcs_http_route_ops *ops)
 {
@@ -60,9 +56,5 @@ void zcs_http_routes_register_all(void)
         return;
     }
     registered = 1;
-#if defined(ZCS_ENABLE_WEBRTC)
-    zcs_webrtc_whep_routes_register();
-    zcs_webrtc_whip_routes_register();
-#endif
     zcs_webapi_http_routes_register();
 }

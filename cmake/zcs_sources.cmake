@@ -104,7 +104,6 @@ set(ZCS_PROTOCOL_SOURCES
     src/protocol/rtsp/rtp_port.c
     src/pull/player.c
     src/pull/proxy.c
-    src/protocol/srt/streamid.c
     src/protocol/rtsp/interleaved.c
     src/protocol/http/hls_client.c
     src/protocol/http/flv_client.c

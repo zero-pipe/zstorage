@@ -8,9 +8,6 @@
 #include "zcs/protocol/rtp/ps_server.h"
 #include "zcs/ops/config/config.h"
 #include "zcs/ops/config/pull_ssl.h"
-#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
-#include "zcs/session/webrtc/webrtc_server.h"
-#endif
 #include "zcs/util/buf_pool.h"
 #include "zcs/version.h"
 #include "zcs/ops/api/json/media_json.h"
@@ -148,34 +145,8 @@ static void parse_query(const char *query, zcs_webapi_query_map *m)
             strncpy(m->stamp, val, sizeof(m->stamp) - 1);
         } else if (strcmp(key, "speed") == 0) {
             strncpy(m->speed, val, sizeof(m->speed) - 1);
-        } else if (strcmp(key, "addr") == 0) {
-            strncpy(m->addr, val, sizeof(m->addr) - 1);
-        } else if (strcmp(key, "user") == 0) {
-            strncpy(m->user, val, sizeof(m->user) - 1);
-        } else if (strcmp(key, "pass") == 0) {
-            strncpy(m->pass, val, sizeof(m->pass) - 1);
-        } else if (strcmp(key, "profile") == 0) {
-            strncpy(m->profile, val, sizeof(m->profile) - 1);
-        } else if (strcmp(key, "x") == 0) {
-            strncpy(m->x, val, sizeof(m->x) - 1);
-        } else if (strcmp(key, "y") == 0) {
-            strncpy(m->y, val, sizeof(m->y) - 1);
-        } else if (strcmp(key, "z") == 0) {
-            strncpy(m->z, val, sizeof(m->z) - 1);
-        } else if (strcmp(key, "stop") == 0) {
-            strncpy(m->stop, val, sizeof(m->stop) - 1);
-        } else if (strcmp(key, "timeout") == 0) {
-            strncpy(m->timeout, val, sizeof(m->timeout) - 1);
         } else if (strcmp(key, "channel") == 0) {
             strncpy(m->channel, val, sizeof(m->channel) - 1);
-        } else if (strcmp(key, "device") == 0) {
-            strncpy(m->device, val, sizeof(m->device) - 1);
-        } else if (strcmp(key, "cmd") == 0) {
-            strncpy(m->cmd, val, sizeof(m->cmd) - 1);
-        } else if (strcmp(key, "call_id") == 0) {
-            strncpy(m->call_id, val, sizeof(m->call_id) - 1);
-        } else if (strcmp(key, "tcp") == 0) {
-            strncpy(m->tcp, val, sizeof(m->tcp) - 1);
         } else if (strcmp(key, "start") == 0) {
             strncpy(m->start, val, sizeof(m->start) - 1);
         } else if (strcmp(key, "end") == 0) {
@@ -184,18 +155,6 @@ static void parse_query(const char *query, zcs_webapi_query_map *m)
             strncpy(m->slots, val, sizeof(m->slots) - 1);
         } else if (strcmp(key, "slot") == 0) {
             strncpy(m->slot, val, sizeof(m->slot) - 1);
-        } else if (strcmp(key, "pan") == 0) {
-            strncpy(m->pan, val, sizeof(m->pan) - 1);
-        } else if (strcmp(key, "tilt") == 0) {
-            strncpy(m->tilt, val, sizeof(m->tilt) - 1);
-        } else if (strcmp(key, "zoom") == 0) {
-            strncpy(m->zoom, val, sizeof(m->zoom) - 1);
-        } else if (strcmp(key, "priority") == 0) {
-            strncpy(m->priority, val, sizeof(m->priority) - 1);
-        } else if (strcmp(key, "method") == 0) {
-            strncpy(m->method, val, sizeof(m->method) - 1);
-        } else if (strcmp(key, "description") == 0) {
-            strncpy(m->description, val, sizeof(m->description) - 1);
         }
     }
 }
@@ -444,16 +403,6 @@ static size_t handle_version(char *body, size_t body_cap, int *http_status)
                             ZCS_VERSION_STRING);
 }
 
-/* 由 webapi_webrtc.c 提供（按 ZCS_ENABLE_WEBRTC 条件编译） */
-#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
-size_t webapi_handle_webrtc_stats(char *body, size_t body_cap, int *http_status);
-size_t webapi_handle_webrtc_capabilities(char *body, size_t body_cap, int *http_status);
-size_t webapi_handle_start_webrtc_client(const zcs_webapi_query_map *q, zcs_webapi_json_buf *jb,
-                                         const zcs_config *cfg);
-size_t webapi_handle_get_webrtc_clients(zcs_webapi_json_buf *jb);
-size_t webapi_handle_stop_webrtc_client(const zcs_webapi_query_map *q, zcs_webapi_json_buf *jb);
-#endif
-
 size_t zcs_web_api_handle(zn_tcp_session *tcp, const char *method, const char *path_with_query,
                           const zcs_web_api_opts *opts, int *http_status, char *body,
                           size_t body_cap)
@@ -547,49 +496,6 @@ size_t zcs_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
         return webapi_handle_statistic(body, body_cap, http_status);
     }
 
-#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
-    if (strcmp(path, "/index/api/webrtc/stats") == 0) {
-        return webapi_handle_webrtc_stats(body, body_cap, http_status);
-    }
-
-    if (strcmp(path, "/index/api/webrtc/capabilities") == 0) {
-        return webapi_handle_webrtc_capabilities(body, body_cap, http_status);
-    }
-
-    if (strcmp(path, "/index/api/webrtc/client_start") == 0) {
-        zcs_webapi_json_buf jb = {body, body_cap, 0};
-        size_t n = webapi_handle_start_webrtc_client(&q, &jb, opts ? opts->cfg : NULL);
-        if (n == 0) {
-            *http_status = 500;
-            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
-        }
-        *http_status = 200;
-        return n;
-    }
-
-    if (strcmp(path, "/index/api/webrtc/client_list") == 0) {
-        zcs_webapi_json_buf jb = {body, body_cap, 0};
-        size_t n = webapi_handle_get_webrtc_clients(&jb);
-        if (n == 0) {
-            *http_status = 500;
-            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
-        }
-        *http_status = 200;
-        return n;
-    }
-
-    if (strcmp(path, "/index/api/webrtc/client_stop") == 0) {
-        zcs_webapi_json_buf jb = {body, body_cap, 0};
-        size_t n = webapi_handle_stop_webrtc_client(&q, &jb);
-        if (n == 0) {
-            *http_status = 500;
-            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
-        }
-        *http_status = 200;
-        return n;
-    }
-
-#endif /* ZCS_ENABLE_WEBRTC */
 
     if (strcmp(path, "/index/api/system/config") == 0) {
         return handle_get_server_config(body, body_cap, http_status);

@@ -21,7 +21,6 @@
 #include "zcs/media/codec/g711/g711_over_rtp.h"
 #include "zcs/media/codec/g711/g711_over_rtmp.h"
 #include "zcs/media/container/flv/flv_tag_framer.h"
-#include "zcs/play/http_flv/live_muxer.h"
 #include "zcs/media/container/flv/flv_tag_demuxer.h"
 
 #endif /* ZCS_LIVE_H */

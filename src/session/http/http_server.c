@@ -13,12 +13,6 @@
 #include "zcs/protocol/http/request_reader.h"
 #include "zcs/play/play_binding.h"
 #include "zcs/core/event.h"
-#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
-#include "zcs/session/webrtc/webrtc_server.h"
-#include "zcs/ops/config/pull_ssl.h"
-#include "zcs/ops/config/netcheck.h"
-#include "zcs/media/media_limits.h"
-#endif
 #include "zn/net/tcp_server.h"
 #include "zn/poller/poller_pool.h"
 #include "zn/util/log.h"
@@ -332,64 +326,6 @@ zcs_http_server *zcs_http_server_create(const zcs_http_server_opts *opts)
     srv->cfg = opts->cfg;
     g_http_service_instance = srv;
 
-#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
-    if (opts->cfg && opts->cfg->webrtc.enable) {
-        /* 并发上限必须在 server_create 之前落到会话注册表。 */
-        zcs_webrtc_session_set_limit(opts->cfg->webrtc.max_sessions);
-        zcs_webrtc_server_opts wopts = {
-            .poller = srv->poller,
-            .host = opts->host && opts->host[0] ? opts->host : "0.0.0.0",
-            .advertise_host =
-                opts->cfg->general.extern_ip[0] ? opts->cfg->general.extern_ip : "127.0.0.1",
-            .port_min = (uint16_t)(opts->cfg->webrtc.port_min ? opts->cfg->webrtc.port_min : 50000),
-            .port_max = (uint16_t)(opts->cfg->webrtc.port_max ? opts->cfg->webrtc.port_max : 60000),
-            .stun_server = opts->cfg->webrtc.stun_server,
-            .turn_server = opts->cfg->webrtc.turn_server,
-            .turn_user = opts->cfg->webrtc.turn_user,
-            .turn_pass = opts->cfg->webrtc.turn_pass,
-            .signaling_enable = opts->cfg->webrtc.signaling_enable,
-            .signaling_url = opts->cfg->webrtc.signaling_url,
-            .signaling_room = opts->cfg->webrtc.signaling_room,
-            .signaling_token = opts->cfg->webrtc.signaling_token,
-            .signaling_app = opts->cfg->webrtc.signaling_app,
-            .signaling_stream = opts->cfg->webrtc.signaling_stream,
-            .whep_client_url = opts->cfg->webrtc.whep_client_url,
-            .whep_client_app = opts->cfg->webrtc.whep_client_app,
-            .whep_client_stream = opts->cfg->webrtc.whep_client_stream,
-            .whep_client_token = opts->cfg->webrtc.whep_client_token,
-            .whip_client_url = opts->cfg->webrtc.whip_client_url,
-            .whip_client_app = opts->cfg->webrtc.whip_client_app,
-            .whip_client_stream = opts->cfg->webrtc.whip_client_stream,
-            .whip_client_token = opts->cfg->webrtc.whip_client_token,
-            .client_ssl_ctx = zcs_pull_ssl_ctx(opts->cfg),
-        };
-        srv->webrtc = zcs_webrtc_server_create(&wopts);
-        if (!srv->webrtc) {
-            zn_warn("WebRTC service create failed");
-        } else {
-            const char *adv = zcs_webrtc_server_advertise_host(srv->webrtc);
-
-            zn_info("WebRTC ICE advertise_host=%s", adv);
-            /* 回环地址只对"播放器与服务同机且走 loopback"有效；跨主机/浏览器
-             * 观看时 ICE 连通性检查无法建立，表现为答案返回但无媒体。
-             * 这里显式告警，避免把"[general] externIP 没填"误判为 WebRTC 故障。 */
-            if (!adv || !adv[0] || strcmp(adv, "127.0.0.1") == 0 || strcmp(adv, "::1") == 0) {
-                zn_warn("WebRTC ICE advertise_host is loopback (%s); remote viewers will not "
-                        "connect. Set [general] externIP to this host's LAN/public IP.",
-                        adv && adv[0] ? adv : "127.0.0.1");
-            } else if (!zcs_netcheck_host_ip_present(adv)) {
-                /* 非回环但不是本机任何网卡：多半是换了网段/搬了机器后没改配置。
-                 * 这种配置不会报错，只会让所有远端浏览器连不上。 */
-                zn_warn("WebRTC: [general] externIP=%s is not an address on this host. "
-                        "ICE candidates will point at a non-existent peer and browsers will "
-                        "fail to connect. Update it to this host's real IP.",
-                        adv);
-            }
-            zn_info("WebRTC max sessions=%u (hard cap %u)", (unsigned)zcs_webrtc_session_limit(),
-                     (unsigned)ZCS_WEBRTC_SESSION_MAX_HARD);
-        }
-    }
-#endif
 
     zn_tcp_session_ops_t ops = {on_recv, on_error, on_manager};
     zn_tcp_server_opts_t topts = {
@@ -430,12 +366,6 @@ void zcs_http_server_destroy(zcs_http_server *srv)
     if (!srv) {
         return;
     }
-#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
-    if (srv->webrtc) {
-        zcs_webrtc_server_destroy(srv->webrtc);
-        srv->webrtc = NULL;
-    }
-#endif
     if (g_http_service_instance == srv) {
         g_http_service_instance = NULL;
     }

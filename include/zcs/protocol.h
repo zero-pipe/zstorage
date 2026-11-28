@@ -24,8 +24,6 @@
 #include "zcs/protocol/http/request_reader.h"
 #include "zcs/protocol/http/flv_client.h"
 #include "zcs/protocol/http/hls_client.h"
-#include "zcs/protocol/srt/srt_server.h"
-#include "zcs/protocol/srt/streamid.h"
 
 /* 服务端会话接口（*_server.h / session.h / session_auth.h / whep.h）已归位到
  * zcs/session.h 聚合头；本头只保留纯线协议编解码。 */
