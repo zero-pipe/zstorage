@@ -205,7 +205,6 @@ zcs_media_server_ports webapi_ports_from_cfg(const zcs_config *cfg)
         p.rtmp = cfg->rtmp.port;
         p.rtsp = cfg->rtsp.port;
         p.http = cfg->http.port;
-        p.srt = cfg->srt.port;
     }
     return p;
 }
@@ -340,8 +339,7 @@ static size_t handle_get_server_config(char *body, size_t body_cap, int *http_st
                             "[\"api.apiDebug\",\"0\"],"
                             "[\"general.mediaServerId\",\"zcs\"],"
                             "[\"protocol.enable_rtmp\",\"1\"],"
-                            "[\"protocol.enable_rtsp\",\"1\"],"
-                            "[\"protocol.enable_hls\",\"1\"]"
+                            "[\"protocol.enable_rtsp\",\"1\"]"
                             "]}");
 }
 

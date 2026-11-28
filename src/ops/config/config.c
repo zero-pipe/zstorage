@@ -196,69 +196,13 @@ static const zcs_cfg_field k_api[] = {
     {NULL, NULL, ZCS_CFG_F_STR, 0, 0, NULL}};
 
 /* [srt] */
-static const zcs_cfg_field k_srt[] = {
-    {"port", NULL, ZCS_CFG_F_UINT, OFF(srt, port), 0, NULL},
-    {"timeoutSec", "timeout_sec", ZCS_CFG_F_INT, OFF(srt, timeout_sec), 0, NULL},
-    {"latencyMul", "latency_mul", ZCS_CFG_F_INT, OFF(srt, latency_mul), 0, NULL},
-    {"pktBufSize", "pkt_buf_size", ZCS_CFG_F_INT, OFF(srt, pkt_buf_size), 0, NULL},
-    {"passPhrase", "passphrase", ZCS_CFG_F_STR, OFF(srt, passphrase), STSZ(srt, passphrase), NULL},
-    {NULL, NULL, ZCS_CFG_F_STR, 0, 0, NULL}};
 
 /* [webrtc] */
-static const zcs_cfg_field k_webrtc[] = {
-    {"enable", NULL, ZCS_CFG_F_BOOL, OFF(webrtc, enable), 0, NULL},
-    {"port_min", NULL, ZCS_CFG_F_UINT, OFF(webrtc, port_min), 0, NULL},
-    {"port_max", NULL, ZCS_CFG_F_UINT, OFF(webrtc, port_max), 0, NULL},
-    {"max_sessions", "maxSessions", ZCS_CFG_F_UINT, OFF(webrtc, max_sessions), 0, NULL},
-    {"stun_server", "stunServer", ZCS_CFG_F_STR, OFF(webrtc, stun_server),
-     STSZ(webrtc, stun_server), NULL},
-    {"turn_server", "turnServer", ZCS_CFG_F_STR, OFF(webrtc, turn_server),
-     STSZ(webrtc, turn_server), NULL},
-    {"turn_user", "turnUser", ZCS_CFG_F_STR, OFF(webrtc, turn_user), STSZ(webrtc, turn_user), NULL},
-    {"turn_pass", "turnPass", ZCS_CFG_F_STR, OFF(webrtc, turn_pass), STSZ(webrtc, turn_pass), NULL},
-    {"signaling_enable", "signalingEnable", ZCS_CFG_F_BOOL, OFF(webrtc, signaling_enable), 0, NULL},
-    {"signaling_url", "signalingUrl", ZCS_CFG_F_STR, OFF(webrtc, signaling_url),
-     STSZ(webrtc, signaling_url), NULL},
-    {"signaling_room", "signalingRoom", ZCS_CFG_F_STR, OFF(webrtc, signaling_room),
-     STSZ(webrtc, signaling_room), NULL},
-    {"signaling_token", "signalingToken", ZCS_CFG_F_STR, OFF(webrtc, signaling_token),
-     STSZ(webrtc, signaling_token), NULL},
-    {"signaling_app", "signalingApp", ZCS_CFG_F_STR, OFF(webrtc, signaling_app),
-     STSZ(webrtc, signaling_app), NULL},
-    {"signaling_stream", "signalingStream", ZCS_CFG_F_STR, OFF(webrtc, signaling_stream),
-     STSZ(webrtc, signaling_stream), NULL},
-    {"whep_client_url", "whepClientUrl", ZCS_CFG_F_STR, OFF(webrtc, whep_client_url),
-     STSZ(webrtc, whep_client_url), NULL},
-    {"whep_client_app", "whepClientApp", ZCS_CFG_F_STR, OFF(webrtc, whep_client_app),
-     STSZ(webrtc, whep_client_app), NULL},
-    {"whep_client_stream", "whepClientStream", ZCS_CFG_F_STR, OFF(webrtc, whep_client_stream),
-     STSZ(webrtc, whep_client_stream), NULL},
-    {"whep_client_token", "whepClientToken", ZCS_CFG_F_STR, OFF(webrtc, whep_client_token),
-     STSZ(webrtc, whep_client_token), NULL},
-    {"whip_client_url", "whipClientUrl", ZCS_CFG_F_STR, OFF(webrtc, whip_client_url),
-     STSZ(webrtc, whip_client_url), NULL},
-    {"whip_client_app", "whipClientApp", ZCS_CFG_F_STR, OFF(webrtc, whip_client_app),
-     STSZ(webrtc, whip_client_app), NULL},
-    {"whip_client_stream", "whipClientStream", ZCS_CFG_F_STR, OFF(webrtc, whip_client_stream),
-     STSZ(webrtc, whip_client_stream), NULL},
-    {"whip_client_token", "whipClientToken", ZCS_CFG_F_STR, OFF(webrtc, whip_client_token),
-     STSZ(webrtc, whip_client_token), NULL},
-    /* advertise_host / externIP 覆盖 general.extern_ip（保持旧行为） */
-    {"advertise_host", "externIP", ZCS_CFG_F_STR, OFF(general, extern_ip), STSZ(general, extern_ip),
-     NULL},
-    {NULL, NULL, ZCS_CFG_F_STR, 0, 0, NULL}};
 
 /* [protocol] */
 static const zcs_cfg_field k_protocol[] = {
     {"enable_rtmp", NULL, ZCS_CFG_F_BOOL, OFF(protocol, enable_rtmp), 0, NULL},
     {"enable_rtsp", NULL, ZCS_CFG_F_BOOL, OFF(protocol, enable_rtsp), 0, NULL},
-    {"enable_srt", NULL, ZCS_CFG_F_BOOL, OFF(protocol, enable_srt), 0, NULL},
-    {"enable_hls", NULL, ZCS_CFG_F_BOOL, OFF(protocol, enable_hls), 0, NULL},
-    {"enable_hls_fmp4", "enableHlsFmp4", ZCS_CFG_F_BOOL, OFF(protocol, enable_hls_fmp4), 0, NULL},
-    {"hls_demand", "hlsDemand", ZCS_CFG_F_BOOL, OFF(protocol, hls_demand), 0, NULL},
-    {"dash_demand", "dashDemand", ZCS_CFG_F_BOOL, OFF(protocol, dash_demand), 0, NULL},
-    {"hls_save_path", "hlsSavePath", ZCS_CFG_F_STR, OFF(protocol, hls_save_path),
-     STSZ(protocol, hls_save_path), NULL},
     {"enable_audio", NULL, ZCS_CFG_F_BOOL, OFF(protocol, enable_audio), 0, NULL},
     {"add_mute_audio", "addMuteAudio", ZCS_CFG_F_BOOL, OFF(protocol, add_mute_audio), 0, NULL},
     {"continue_push_ms", "continuePushMs", ZCS_CFG_F_INT, OFF(protocol, continue_push_ms), 0, NULL},
@@ -272,10 +216,6 @@ static const zcs_cfg_field k_protocol[] = {
     {NULL, NULL, ZCS_CFG_F_STR, 0, 0, NULL}};
 
 /* [hls] */
-static const zcs_cfg_field k_hls[] = {
-    {"seg_dur", "segDur", ZCS_CFG_F_FLOAT, OFF(hls, segment_duration_sec), 0, NULL},
-    {"seg_num", "segNum", ZCS_CFG_F_UINT, OFF(hls, segment_count), 0, NULL},
-    {NULL, NULL, ZCS_CFG_F_STR, 0, 0, NULL}};
 
 /* [proxy] */
 static const zcs_cfg_field k_proxy[] = {
@@ -392,90 +332,10 @@ static const zcs_cfg_field k_ssl[] = {
     {NULL, NULL, ZCS_CFG_F_STR, 0, 0, NULL}};
 
 /* [onvif] */
-static const zcs_cfg_field k_onvif[] = {
-    {"enable", NULL, ZCS_CFG_F_BOOL, OFF(onvif, enable), 0, NULL},
-    {"server_enable", "serverEnable", ZCS_CFG_F_BOOL, OFF(onvif, server_enable), 0, NULL},
-    {"server_name", "serverName", ZCS_CFG_F_STR, OFF(onvif, server_name),
-     STSZ(onvif, server_name), NULL},
-    {"server_uuid", "serverUuid", ZCS_CFG_F_STR, OFF(onvif, server_uuid),
-     STSZ(onvif, server_uuid), NULL},
-    {"default_vhost", "defaultVhost", ZCS_CFG_F_STR, OFF(onvif, default_vhost),
-     STSZ(onvif, default_vhost), NULL},
-    {"default_app", "defaultApp", ZCS_CFG_F_STR, OFF(onvif, default_app),
-     STSZ(onvif, default_app), NULL},
-    {"auth_user", "authUser", ZCS_CFG_F_STR, OFF(onvif, auth_user), STSZ(onvif, auth_user), NULL},
-    {"auth_pass", "authPass", ZCS_CFG_F_STR, OFF(onvif, auth_pass), STSZ(onvif, auth_pass), NULL},
-    {"timeout_ms", "timeoutMs", ZCS_CFG_F_INT, OFF(onvif, timeout_ms), 0, NULL},
-    {"retry_count", "retryCount", ZCS_CFG_F_INT, OFF(onvif, retry_count), 0, NULL},
-    {"reconnect_delay_ms", "reconnectDelayMs", ZCS_CFG_F_INT, OFF(onvif, reconnect_delay_ms), 0,
-     NULL},
-    {NULL, NULL, ZCS_CFG_F_STR, 0, 0, NULL}};
 
 /* [gb28181] */
-static const zcs_cfg_field k_gb28181[] = {
-    {"enable", NULL, ZCS_CFG_F_BOOL, OFF(gb28181, enable), 0, NULL},
-    {"platform_id", "platformId", ZCS_CFG_F_STR, OFF(gb28181, platform_id),
-     STSZ(gb28181, platform_id), NULL},
-    {"platform_domain", "platformDomain", ZCS_CFG_F_STR, OFF(gb28181, platform_domain),
-     STSZ(gb28181, platform_domain), NULL},
-    {"platform_ip", "platformIp", ZCS_CFG_F_STR, OFF(gb28181, platform_ip),
-     STSZ(gb28181, platform_ip), NULL},
-    {"platform_port", "platformPort", ZCS_CFG_F_UINT, OFF(gb28181, platform_port), 0, NULL},
-    {"device_id", "deviceId", ZCS_CFG_F_STR, OFF(gb28181, device_id), STSZ(gb28181, device_id),
-     NULL},
-    {"device_name", "deviceName", ZCS_CFG_F_STR, OFF(gb28181, device_name),
-     STSZ(gb28181, device_name), NULL},
-    {"manufacturer", NULL, ZCS_CFG_F_STR, OFF(gb28181, manufacturer),
-     STSZ(gb28181, manufacturer), NULL},
-    {"model", NULL, ZCS_CFG_F_STR, OFF(gb28181, model), STSZ(gb28181, model), NULL},
-    {"firmware", NULL, ZCS_CFG_F_STR, OFF(gb28181, firmware), STSZ(gb28181, firmware), NULL},
-    {"username", NULL, ZCS_CFG_F_STR, OFF(gb28181, username), STSZ(gb28181, username), NULL},
-    {"password", NULL, ZCS_CFG_F_STR, OFF(gb28181, password), STSZ(gb28181, password), NULL},
-    {"local_ip", "localIp", ZCS_CFG_F_STR, OFF(gb28181, local_ip), STSZ(gb28181, local_ip), NULL},
-    {"local_port", "localPort", ZCS_CFG_F_UINT, OFF(gb28181, local_port), 0, NULL},
-    {"sip_transport", "sipTransport", ZCS_CFG_F_STR, OFF(gb28181, sip_transport),
-     STSZ(gb28181, sip_transport), NULL},
-    {"sip_mode", "sipMode", ZCS_CFG_F_STR, OFF(gb28181, sip_mode), STSZ(gb28181, sip_mode), NULL},
-    {"tls_ca", "tlsCa", ZCS_CFG_F_STR, OFF(gb28181, tls_ca), STSZ(gb28181, tls_ca), NULL},
-    {"tls_cert", "tlsCert", ZCS_CFG_F_STR, OFF(gb28181, tls_cert), STSZ(gb28181, tls_cert), NULL},
-    {"tls_key", "tlsKey", ZCS_CFG_F_STR, OFF(gb28181, tls_key), STSZ(gb28181, tls_key), NULL},
-    {"tls_verify_peer", "tlsVerifyPeer", ZCS_CFG_F_BOOL, OFF(gb28181, tls_verify_peer), 0, NULL},
-    {"register_expires", "registerExpires", ZCS_CFG_F_INT, OFF(gb28181, register_expires), 0, NULL},
-    {"keepalive_interval", "keepaliveInterval", ZCS_CFG_F_INT,
-     OFF(gb28181, keepalive_interval), 0, NULL},
-    {"channels", NULL, ZCS_CFG_F_STR, OFF(gb28181, channels), STSZ(gb28181, channels), NULL},
-    {"record_root", "recordRoot", ZCS_CFG_F_STR, OFF(gb28181, record_root),
-     STSZ(gb28181, record_root), NULL},
-    {NULL, NULL, ZCS_CFG_F_STR, 0, 0, NULL}};
 
 /* [gb28181_platform] */
-static const zcs_cfg_field k_gb28181_platform[] = {
-    {"enable", NULL, ZCS_CFG_F_BOOL, OFF(gb28181_platform, enable), 0, NULL},
-    {"id", NULL, ZCS_CFG_F_STR, OFF(gb28181_platform, id), STSZ(gb28181_platform, id), NULL},
-    {"domain", NULL, ZCS_CFG_F_STR, OFF(gb28181_platform, domain),
-     STSZ(gb28181_platform, domain), NULL},
-    {"password", NULL, ZCS_CFG_F_STR, OFF(gb28181_platform, password),
-     STSZ(gb28181_platform, password), NULL},
-    {"advertise_ip", "advertiseIp", ZCS_CFG_F_STR, OFF(gb28181_platform, advertise_ip),
-     STSZ(gb28181_platform, advertise_ip), NULL},
-    {"listen_port", "listenPort", ZCS_CFG_F_UINT, OFF(gb28181_platform, listen_port), 0, NULL},
-    {"transport", NULL, ZCS_CFG_F_STR, OFF(gb28181_platform, transport),
-     STSZ(gb28181_platform, transport), NULL},
-    {"tls_cert", "tlsCert", ZCS_CFG_F_STR, OFF(gb28181_platform, tls_cert),
-     STSZ(gb28181_platform, tls_cert), NULL},
-    {"tls_key", "tlsKey", ZCS_CFG_F_STR, OFF(gb28181_platform, tls_key),
-     STSZ(gb28181_platform, tls_key), NULL},
-    {"tls_ca", "tlsCa", ZCS_CFG_F_STR, OFF(gb28181_platform, tls_ca),
-     STSZ(gb28181_platform, tls_ca), NULL},
-    {"tls_verify_peer", "tlsVerifyPeer", ZCS_CFG_F_BOOL, OFF(gb28181_platform, tls_verify_peer),
-     0, NULL},
-    {"keepalive_timeout_sec", "keepaliveTimeoutSec", ZCS_CFG_F_INT,
-     OFF(gb28181_platform, keepalive_timeout_sec), 0, NULL},
-    {"media_vhost", "mediaVhost", ZCS_CFG_F_STR, OFF(gb28181_platform, media_vhost),
-     STSZ(gb28181_platform, media_vhost), NULL},
-    {"media_app", "mediaApp", ZCS_CFG_F_STR, OFF(gb28181_platform, media_app),
-     STSZ(gb28181_platform, media_app), NULL},
-    {NULL, NULL, ZCS_CFG_F_STR, 0, 0, NULL}};
 
 #undef OFF
 #undef STSZ
@@ -489,12 +349,10 @@ typedef struct {
 
 static const zcs_section_map k_sections[] = {
     {"general", k_general}, {"rtmp", k_rtmp},   {"rtsp", k_rtsp},     {"http", k_http},
-    {"api", k_api},         {"srt", k_srt},     {"webrtc", k_webrtc}, {"protocol", k_protocol},
-    {"hls", k_hls},         {"proxy", k_proxy}, {"record", k_record}, {"play", k_play},
-    {"hook", k_hook},       {"auth", k_auth},   {"ssl", k_ssl},       {"onvif", k_onvif},
-    {"storage", k_storage},
-    {"gb28181", k_gb28181},
-    {"gb28181_platform", k_gb28181_platform},   {NULL, NULL}};
+    {"api", k_api},         {"protocol", k_protocol},
+    {"proxy", k_proxy}, {"record", k_record}, {"play", k_play},
+    {"hook", k_hook},       {"auth", k_auth},   {"ssl", k_ssl},
+    {"storage", k_storage}, {NULL, NULL}};
 
 /* ── apply_kv：查表写入 ───────────────────────────────────────────────────── */
 
@@ -561,20 +419,11 @@ void zcs_config_default(zcs_config *cfg)
     cfg->rtsp.multicast_port_base = 0;
     cfg->rtsp.multicast_ttl = 16;
     cfg->rtsp.low_latency = 0;
-    cfg->srt.port = 9000;
-    cfg->srt.timeout_sec = 5;
-    cfg->srt.latency_mul = 4;
-    cfg->srt.pkt_buf_size = 8192;
     cfg->http.port = 8080;
 
     /* [protocol] */
     cfg->protocol.enable_rtmp = 1;
     cfg->protocol.enable_rtsp = 1;
-    cfg->protocol.enable_srt = 1;
-    cfg->protocol.enable_hls = 1;
-    cfg->protocol.enable_hls_fmp4 = 0;
-    cfg->protocol.hls_demand = 0;
-    cfg->protocol.dash_demand = 0;
     cfg->protocol.enable_audio = 1;
     cfg->protocol.add_mute_audio = 1;
     cfg->protocol.continue_push_ms = 15000;
@@ -588,8 +437,6 @@ void zcs_config_default(zcs_config *cfg)
     cfg->proxy.reconnect_delay_ms = 2000;
 
     /* [hls] */
-    cfg->hls.segment_duration_sec = 2.f;
-    cfg->hls.segment_count = 3;
 
     /* [auth] */
     cfg->auth.enable = 0;
@@ -631,45 +478,12 @@ void zcs_config_default(zcs_config *cfg)
     cfg->ssl.verify_peer = 1;
 
     /* [onvif] */
-    cfg->onvif.enable = 0;
-    cfg->onvif.server_enable = 0;
-    strncpy(cfg->onvif.server_name, "ZCS", sizeof(cfg->onvif.server_name) - 1);
-    strncpy(cfg->onvif.default_app, "onvif", sizeof(cfg->onvif.default_app) - 1);
-    cfg->onvif.timeout_ms = 5000;
-    cfg->onvif.retry_count = -1;
-    cfg->onvif.reconnect_delay_ms = 3000;
 
     /* [gb28181] */
-    cfg->gb28181.enable = 0;
-    cfg->gb28181.platform_port = 5060;
-    cfg->gb28181.local_port = 5060;
-    strncpy(cfg->gb28181.sip_transport, "udp", sizeof(cfg->gb28181.sip_transport) - 1);
-    strncpy(cfg->gb28181.sip_mode, "client", sizeof(cfg->gb28181.sip_mode) - 1);
-    cfg->gb28181.register_expires = 3600;
-    cfg->gb28181.keepalive_interval = 60;
-    strncpy(cfg->gb28181.device_name, "ZCS-IPC", sizeof(cfg->gb28181.device_name) - 1);
-    strncpy(cfg->gb28181.manufacturer, "Zero", sizeof(cfg->gb28181.manufacturer) - 1);
-    strncpy(cfg->gb28181.model, "ZCS", sizeof(cfg->gb28181.model) - 1);
-    strncpy(cfg->gb28181.firmware, "0.5.0", sizeof(cfg->gb28181.firmware) - 1);
 
     /* [gb28181_platform] */
-    cfg->gb28181_platform.enable = 0;
-    cfg->gb28181_platform.listen_port = 5060;
-    strncpy(cfg->gb28181_platform.transport, "udp",
-            sizeof(cfg->gb28181_platform.transport) - 1);
-    cfg->gb28181_platform.keepalive_timeout_sec = 180;
-    strncpy(cfg->gb28181_platform.media_app, "gb28181",
-            sizeof(cfg->gb28181_platform.media_app) - 1);
 
     /* [webrtc] */
-    cfg->webrtc.enable = 1;
-    cfg->webrtc.port_min = 50000;
-    cfg->webrtc.port_max = 60000;
-    cfg->webrtc.max_sessions = 64;
-    cfg->webrtc.signaling_enable = 0;
-    strncpy(cfg->webrtc.signaling_room, "door-1", sizeof(cfg->webrtc.signaling_room) - 1);
-    strncpy(cfg->webrtc.signaling_app, "live", sizeof(cfg->webrtc.signaling_app) - 1);
-    strncpy(cfg->webrtc.signaling_stream, "cam1", sizeof(cfg->webrtc.signaling_stream) - 1);
 
     /* [play] */
     zcs_egress_pacing_defaults(&cfg->play.pacing);

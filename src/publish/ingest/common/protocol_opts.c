@@ -29,8 +29,6 @@ void zcs_protocol_opts_default(zcs_protocol_opts *opts)
     memset(opts, 0, sizeof(*opts));
     opts->enable_rtmp = 1;
     opts->enable_rtsp = 1;
-    opts->enable_srt = 1;
-    opts->enable_hls = 1;
     opts->enable_audio = 1;
     opts->add_mute_audio = 1;
     opts->continue_push_ms = 15000;

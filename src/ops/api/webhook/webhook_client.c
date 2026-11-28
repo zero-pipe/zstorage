@@ -655,9 +655,9 @@ static int build_server_info(char *body, size_t cap, const zcs_config *cfg,
     secret = cfg->http.api_secret ? cfg->http.api_secret : "";
     enable_rtsp = cfg->protocol.enable_rtsp ? 1 : 0;
     enable_rtmp = cfg->protocol.enable_rtmp ? 1 : 0;
-    enable_hls = cfg->protocol.enable_hls ? 1 : 0;
-    enable_webrtc = cfg->webrtc.enable ? 1 : 0;
-    enable_srt = (cfg->protocol.enable_srt && ports->srt) ? 1 : 0;
+    enable_hls = 0;
+    enable_webrtc = 0;
+    enable_srt = 0;
 
     n = snprintf(
         body, cap,
@@ -670,8 +670,8 @@ static int build_server_info(char *body, size_t cap, const zcs_config *cfg,
         "\"enableRtsp\":%s,\"enableRtmp\":%s,\"enableHls\":%s,"
         "\"enableSrt\":%s,\"enableWebrtc\":%s",
         ZCS_VERSION_STRING, ip, ip, ip, ip, secret, ports->http, cfg->http.ssl_port,
-        ports->rtsp, cfg->rtsp.ssl_port, ports->rtmp, cfg->rtmp.ssl_port, ports->srt,
-        cfg->webrtc.port_min, cfg->webrtc.port_max, enable_rtsp ? "true" : "false",
+        ports->rtsp, cfg->rtsp.ssl_port, ports->rtmp, cfg->rtmp.ssl_port, 0,
+        0, 0, enable_rtsp ? "true" : "false",
         enable_rtmp ? "true" : "false", enable_hls ? "true" : "false",
         enable_srt ? "true" : "false", enable_webrtc ? "true" : "false");
     if (n < 0 || (size_t)n >= cap) {

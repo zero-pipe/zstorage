@@ -328,12 +328,6 @@ static zn_err_t server_start_services(zcs_server *s)
     if (cfg->proxy.pull[0]) {
         zcs_dns_cache_warm(cfg->proxy.pull);
     }
-    if (cfg->webrtc.whip_client_url[0]) {
-        zcs_dns_cache_warm(cfg->webrtc.whip_client_url);
-    }
-    if (cfg->webrtc.whep_client_url[0]) {
-        zcs_dns_cache_warm(cfg->webrtc.whep_client_url);
-    }
 
     zcs_auth_init(&auth_opt);
     zcs_webhook_init(s->main_poller, cfg);

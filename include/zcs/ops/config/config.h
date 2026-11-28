@@ -100,58 +100,11 @@ typedef struct zcs_http_config {
     char api_secret[128];
 } zcs_http_config;
 
-/** [srt] */
-typedef struct zcs_srt_config {
-    unsigned port;
-    int timeout_sec;   /**< peer idle timeout（秒），对应 ZLM timeoutSec */
-    int latency_mul;   /**< 延迟倍数，基础 50ms × latencyMul */
-    int pkt_buf_size;  /**< 包缓冲大小，换算为字节用于 RCVBUF/SNDBUF */
-    char passphrase[128]; /**< 空表示不加密，对应 ZLM passPhrase */
-} zcs_srt_config;
-
-/** [webrtc] */
-typedef struct zcs_webrtc_config {
-    int enable;
-    unsigned port_min;
-    unsigned port_max;
-    /** 并发 WHEP/WHIP 会话上限；0 = 用默认 64，超过编译期硬上限会被夹住。 */
-    unsigned max_sessions;
-    /** 可选 STUN/TURN：host:port（支持 stun:/turn: 前缀）。 */
-    char stun_server[128];
-    char turn_server[128];
-    char turn_user[64];
-    char turn_pass[128];
-    /** 可选：连接到外部 WebSocket 信令（设备作为 master）。 */
-    int signaling_enable;
-    char signaling_url[256];
-    char signaling_room[64];
-    char signaling_token[128];
-    char signaling_app[64];
-    char signaling_stream[128];
-    /** 可选：主动连接（WHEP 拉流 / WHIP 推流）。 */
-    char whep_client_url[256];
-    char whep_client_app[64];
-    char whep_client_stream[128];
-    char whep_client_token[128];
-    char whip_client_url[256];
-    char whip_client_app[64];
-    char whip_client_stream[128];
-    char whip_client_token[128];
-} zcs_webrtc_config;
-
 /** [protocol] 节；zcs_protocol_opts 为其别名（见 protocol_opts.h） */
 typedef struct zcs_protocol_config {
     int enable_rtmp;
     int enable_rtsp;
-    int enable_srt;
-    int enable_hls;
-    int enable_hls_fmp4;
     /** 1 = 不随推流预建 HLS 切片器，首个 HLS 请求时按需创建（ZLM hls_demand） */
-    int hls_demand;
-    /** 1 = 不随推流预建 DASH 切片器，首个 DASH 请求时按需创建 */
-    int dash_demand;
-    /** 非空时把直播 HLS 分片/清单落盘到该目录（{path}/{app}/{stream}/） */
-    char hls_save_path[256];
     int enable_audio;
     /** 视频无音轨时补静音 AAC，对应 ZLM add_mute_audio */
     int add_mute_audio;
@@ -168,12 +121,6 @@ typedef struct zcs_protocol_config {
     /** 单 IP 最大会话数；0=不限。 */
     int max_sessions_per_ip;
 } zcs_protocol_config;
-
-/** [hls] */
-typedef struct zcs_hls_config {
-    float segment_duration_sec;
-    unsigned segment_count;
-} zcs_hls_config;
 
 /** [proxy] */
 typedef struct zcs_proxy_config {
@@ -299,78 +246,6 @@ typedef struct zcs_ssl_config {
     char client_key[ZCS_CFG_PATH_MAX];
 } zcs_ssl_config;
 
-/** [onvif] 客户端（接入 IPC）默认参数；API 始终可用，enable 仅作为默认开关。 */
-typedef struct zcs_onvif_config {
-    int enable;
-    /** 1 = 同时作为 ONVIF 设备端对外提供 /onvif/* 服务 */
-    int server_enable;
-    char server_name[64];
-    /** 设备 UUID（urn:uuid:...）；空则自动生成 */
-    char server_uuid[80];
-    /** 设备映射默认值：vhost 空=默认 vhost；app 空="onvif" */
-    char default_vhost[64];
-    char default_app[ZCS_APP_MAX];
-    /** 设备默认凭据（API 未传时使用） */
-    char auth_user[64];
-    char auth_pass[128];
-    int timeout_ms;
-    int retry_count; /**< -1=无限 */
-    int reconnect_delay_ms;
-} zcs_onvif_config;
-
-/** [gb28181] 设备端（ZCS 作为 IPC 注册到上级平台）。 */
-typedef struct zcs_gb28181_config {
-    int enable;
-    char platform_id[32];
-    char platform_domain[32];
-    char platform_ip[64];
-    unsigned platform_port;
-    char device_id[32];
-    char device_name[128];
-    char manufacturer[64];
-    char model[64];
-    char firmware[32];
-    char username[64];
-    char password[128];
-    /** 本机 SIP 对外 IP；空 = 按平台地址自动探测 */
-    char local_ip[64];
-    unsigned local_port;
-    /** SIP 传输：udp（默认）/ tcp / tls（设备作为客户端连平台） */
-    char sip_transport[8];
-    /** client（默认，设备连平台）/ server（平台连设备；tcp/tls） */
-    char sip_mode[8];
-    char tls_ca[ZCS_CFG_PATH_MAX];
-    char tls_cert[ZCS_CFG_PATH_MAX];
-    char tls_key[ZCS_CFG_PATH_MAX];
-    int tls_verify_peer;
-    int register_expires;
-    int keepalive_interval;
-    /** 通道映射：`<id>:<vhost>/<app>/<stream>`，分号分隔 */
-    char channels[1024];
-    /** 录像根目录；空 = [record] root */
-    char record_root[ZCS_CFG_PATH_MAX];
-} zcs_gb28181_config;
-
-/** [gb28181_platform] 平台端：接受下级 GB28181 设备注册与查询。 */
-typedef struct zcs_gb28181_platform_config {
-    int enable;
-    char id[32];
-    char domain[32];
-    char password[128];
-    char advertise_ip[64];
-    unsigned listen_port;
-    /** udp / tcp / tls（tcp/tls 为服务端，设备连入） */
-    char transport[8];
-    char tls_cert[ZCS_CFG_PATH_MAX];
-    char tls_key[ZCS_CFG_PATH_MAX];
-    char tls_ca[ZCS_CFG_PATH_MAX];
-    int tls_verify_peer;
-    int keepalive_timeout_sec;
-    /** 平台 INVITE 取流写入的 vhost/app（stream=通道 ID，可被 API 覆盖） */
-    char media_vhost[64];
-    char media_app[64];
-} zcs_gb28181_platform_config;
-
 /* ════════════════════════════════════════════════════════════════════════════
  * 顶层聚合：zcs_config
  * ════════════════════════════════════════════════════════════════════════════ */
@@ -379,10 +254,7 @@ typedef struct zcs_config {
     zcs_rtmp_config rtmp;
     zcs_rtsp_config rtsp;
     zcs_http_config http;
-    zcs_srt_config srt;
-    zcs_webrtc_config webrtc;
     zcs_protocol_config protocol;
-    zcs_hls_config hls;
     zcs_proxy_config proxy;
     zcs_record_config record;
     zcs_storage_config storage;
@@ -390,9 +262,6 @@ typedef struct zcs_config {
     zcs_auth_config auth;
     zcs_hook_config hook;
     zcs_ssl_config ssl;
-    zcs_onvif_config onvif;
-    zcs_gb28181_config gb28181;
-    zcs_gb28181_platform_config gb28181_platform;
 } zcs_config;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */
