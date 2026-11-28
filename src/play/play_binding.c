@@ -2,13 +2,13 @@
  * @file play_binding.c
  * @brief 播放侧 reader 记账与 lane/egress_source 统一拆除。
  */
-#include "zms/play/play_binding.h"
-#include "zms/play/dispatch.h"
-#include "zms/core/event.h"
-#include "zms/vod/play/play_lane.h"
+#include "zcs/play/play_binding.h"
+#include "zcs/play/dispatch.h"
+#include "zcs/core/event.h"
+#include "zcs/vod/play/play_lane.h"
 #include "zn/platform.h"
 
-void zms_play_binding_reader_start(zms_play_binding *b, zms_media_source *src, const char *player)
+void zcs_play_binding_reader_start(zcs_play_binding *b, zcs_media_source *src, const char *player)
 {
     if (!b || !src || !b->reader_attached) {
         return;
@@ -19,7 +19,7 @@ void zms_play_binding_reader_start(zms_play_binding *b, zms_media_source *src, c
     if (b->source) {
         *b->source = src;
     }
-    zms_media_source_reader_add(src);
+    zcs_media_source_reader_add(src);
     *b->reader_attached = 1;
     if (b->play_start_ms) {
         *b->play_start_ms = zn_monotonic_ms();
@@ -27,12 +27,12 @@ void zms_play_binding_reader_start(zms_play_binding *b, zms_media_source *src, c
     if (player) {
         b->player = player;
     }
-    zms_media_event_play(src, b->player ? b->player : "play");
+    zcs_media_event_play(src, b->player ? b->player : "play");
 }
 
-void zms_play_binding_reader_stop(zms_play_binding *b)
+void zcs_play_binding_reader_stop(zcs_play_binding *b)
 {
-    zms_media_source *src;
+    zcs_media_source *src;
     const char *player;
     uint64_t start_ms;
 
@@ -43,8 +43,8 @@ void zms_play_binding_reader_stop(zms_play_binding *b)
     player = b->player ? b->player : "play";
     start_ms = b->play_start_ms ? *b->play_start_ms : 0;
     if (src) {
-        zms_media_source_reader_remove(src);
-        zms_media_event_stop(src, player, start_ms);
+        zcs_media_source_reader_remove(src);
+        zcs_media_event_stop(src, player, start_ms);
     }
     *b->reader_attached = 0;
     if (b->play_start_ms) {
@@ -52,7 +52,7 @@ void zms_play_binding_reader_stop(zms_play_binding *b)
     }
 }
 
-void zms_play_binding_close_readers(zms_play_binding *b)
+void zcs_play_binding_close_readers(zcs_play_binding *b)
 {
     if (!b) {
         return;
@@ -70,30 +70,30 @@ void zms_play_binding_close_readers(zms_play_binding *b)
     if (b->play) {
         b->play->readers.gop = NULL;
         b->play->readers.vod = NULL;
-        zms_session_play_close(b->play);
+        zcs_session_play_close(b->play);
     }
     if (b->vod_lane && *b->vod_lane) {
-        zms_vod_play_lane_close(*b->vod_lane);
+        zcs_vod_play_lane_close(*b->vod_lane);
         *b->vod_lane = NULL;
     }
 }
 
-void zms_play_binding_close(zms_play_binding *b, int clear_source)
+void zcs_play_binding_close(zcs_play_binding *b, int clear_source)
 {
     if (!b) {
         return;
     }
-    zms_play_binding_close_readers(b);
-    zms_play_binding_reader_stop(b);
+    zcs_play_binding_close_readers(b);
+    zcs_play_binding_reader_stop(b);
     if (clear_source && b->source) {
         *b->source = NULL;
     }
 }
 
-void zms_play_binding_demux_fill(zms_play_binding *b, int max_pumps)
+void zcs_play_binding_demux_fill(zcs_play_binding *b, int max_pumps)
 {
     if (!b || !b->vod_lane || !*b->vod_lane || max_pumps <= 0) {
         return;
     }
-    zms_vod_play_lane_demux_fill(*b->vod_lane, max_pumps);
+    zcs_vod_play_lane_demux_fill(*b->vod_lane, max_pumps);
 }

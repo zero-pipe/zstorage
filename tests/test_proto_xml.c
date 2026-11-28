@@ -2,8 +2,8 @@
  * @file test_proto_xml.c
  * @brief 协议层 XML 文档助手 + MANSCDP 按标签取值。
  */
-#include "zms/message/msg.h"
-#include "zms/message/xml.h"
+#include "zcs/message/msg.h"
+#include "zcs/message/xml.h"
 #include "device/gb28181/gb28181_internal.h"
 
 #include <stdio.h>
@@ -19,7 +19,7 @@
 
 static int test_msg_xml(void)
 {
-    static zms_msg m;
+    static zcs_msg m;
     const char *xml = "<?xml version=\"1.0\"?><Query><CmdType>Catalog</CmdType>"
                       "<SN>12345</SN><DeviceID>34020000001320000001</DeviceID></Query>";
     char buf[64];
@@ -27,21 +27,21 @@ static int test_msg_xml(void)
     static const char *roots[] = {"Notify", "Response", "Query", "Control"};
     char root[16];
 
-    zms_msg_init(&m);
-    CHECK(zms_msg_set_body(&m, xml, strlen(xml)) == 0);
+    zcs_msg_init(&m);
+    CHECK(zcs_msg_set_body(&m, xml, strlen(xml)) == 0);
 
-    CHECK(zms_msg_xml_get(&m, "CmdType", buf, sizeof(buf)) == 0);
+    CHECK(zcs_msg_xml_get(&m, "CmdType", buf, sizeof(buf)) == 0);
     CHECK(strcmp(buf, "Catalog") == 0);
-    CHECK(zms_msg_xml_get(&m, "DeviceID", buf, sizeof(buf)) == 0);
+    CHECK(zcs_msg_xml_get(&m, "DeviceID", buf, sizeof(buf)) == 0);
     CHECK(strcmp(buf, "34020000001320000001") == 0);
-    CHECK(zms_msg_xml_get_int(&m, "SN", 0, &n) == 0 && n == 12345);
-    CHECK(zms_msg_xml_root(&m, roots, 4, root, sizeof(root)) == 0);
+    CHECK(zcs_msg_xml_get_int(&m, "SN", 0, &n) == 0 && n == 12345);
+    CHECK(zcs_msg_xml_root(&m, roots, 4, root, sizeof(root)) == 0);
     CHECK(strcmp(root, "Query") == 0);
     /* 不存在的标签：返回 -1 且清空 */
-    CHECK(zms_msg_xml_get(&m, "NotThere", buf, sizeof(buf)) == -1 && buf[0] == '\0');
+    CHECK(zcs_msg_xml_get(&m, "NotThere", buf, sizeof(buf)) == -1 && buf[0] == '\0');
     /* 无 body */
-    zms_msg_init(&m);
-    CHECK(zms_msg_xml_get(&m, "CmdType", buf, sizeof(buf)) == -1);
+    zcs_msg_init(&m);
+    CHECK(zcs_msg_xml_get(&m, "CmdType", buf, sizeof(buf)) == -1);
     return 0;
 }
 

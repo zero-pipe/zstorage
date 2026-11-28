@@ -3,8 +3,8 @@
  * @brief RTSP 客户端 UDP 传输：端口协商与 SETUP/PLAY 响应处理。
  */
 #include "protocol/rtsp/client_internal.h"
-#include "zms/media/wire/rtp_packet.h"
-#include "zms/media/wire/rtcp.h"
+#include "zcs/media/wire/rtp_packet.h"
+#include "zcs/media/wire/rtcp.h"
 #include "zn/util/log.h"
 #include <stdio.h>
 #include <string.h>
@@ -15,7 +15,7 @@ static int peer_ip_loopback(const char *host)
                     strcmp(host, "::1") == 0);
 }
 
-static void udp_learn_rtp_peer(zms_rtsp_client_udp_track *ut, const char *from_ip,
+static void udp_learn_rtp_peer(zcs_rtsp_client_udp_track *ut, const char *from_ip,
                                uint16_t from_port)
 {
     if (!ut || !ut->rtp || !from_ip || !from_port) {
@@ -32,25 +32,25 @@ static void udp_learn_rtp_peer(zms_rtsp_client_udp_track *ut, const char *from_i
 static void client_udp_on_rtp(zn_udp_client *client, const void *data, size_t len,
                               const char *from_ip, uint16_t from_port, void *user)
 {
-    zms_rtsp_client_udp_track *ut = (zms_rtsp_client_udp_track *)user;
-    zms_rtsp_client *c = ut ? ut->owner : NULL;
+    zcs_rtsp_client_udp_track *ut = (zcs_rtsp_client_udp_track *)user;
+    zcs_rtsp_client *c = ut ? ut->owner : NULL;
     (void)client;
     if (!c || !ut || c->stopping || !data || len < 12) {
         return;
     }
-    if (zms_rtp_is_rtcp(data, len)) {
+    if (zcs_rtp_is_rtcp(data, len)) {
         return;
     }
     udp_learn_rtp_peer(ut, from_ip, from_port);
     if (c->receiver) {
-        (void)zms_rtp_receiver_input(c->receiver, ut->track_idx, (const uint8_t *)data, len);
+        (void)zcs_rtp_receiver_input(c->receiver, ut->track_idx, (const uint8_t *)data, len);
     }
 }
 
 static void client_udp_on_rtcp(zn_udp_client *client, const void *data, size_t len,
                                const char *from_ip, uint16_t from_port, void *user)
 {
-    zms_rtsp_client_udp_track *ut = (zms_rtsp_client_udp_track *)user;
+    zcs_rtsp_client_udp_track *ut = (zcs_rtsp_client_udp_track *)user;
     (void)client;
     (void)data;
     (void)len;
@@ -63,12 +63,12 @@ static void client_udp_on_rtcp(zn_udp_client *client, const void *data, size_t l
     }
 }
 
-static void udp_teardown_track(zms_rtsp_client *c, unsigned track_idx)
+static void udp_teardown_track(zcs_rtsp_client *c, unsigned track_idx)
 {
-    if (!c || track_idx >= ZMS_RTSP_CLIENT_UDP_MAX) {
+    if (!c || track_idx >= ZCS_RTSP_CLIENT_UDP_MAX) {
         return;
     }
-    zms_rtsp_client_udp_track *ut = &c->udp[track_idx];
+    zcs_rtsp_client_udp_track *ut = &c->udp[track_idx];
     if (ut->rtp) {
         zn_udp_client_destroy(ut->rtp);
         ut->rtp = NULL;
@@ -78,36 +78,36 @@ static void udp_teardown_track(zms_rtsp_client *c, unsigned track_idx)
         ut->rtcp = NULL;
     }
     if (ut->local_rtp) {
-        zms_rtsp_transport_release_ports(ut->local_rtp);
+        zcs_rtsp_transport_release_ports(ut->local_rtp);
         ut->local_rtp = 0;
         ut->local_rtcp = 0;
     }
     memset(ut, 0, sizeof(*ut));
 }
 
-void rtsp_client_udp_teardown(zms_rtsp_client *c)
+void rtsp_client_udp_teardown(zcs_rtsp_client *c)
 {
     if (!c) {
         return;
     }
-    for (unsigned i = 0; i < ZMS_RTSP_CLIENT_UDP_MAX; ++i) {
+    for (unsigned i = 0; i < ZCS_RTSP_CLIENT_UDP_MAX; ++i) {
         udp_teardown_track(c, i);
     }
 }
 
-zn_err_t rtsp_client_udp_prepare_track(zms_rtsp_client *c, unsigned track_idx)
+zn_err_t rtsp_client_udp_prepare_track(zcs_rtsp_client *c, unsigned track_idx)
 {
-    if (!c || track_idx >= ZMS_RTSP_CLIENT_UDP_MAX) {
+    if (!c || track_idx >= ZCS_RTSP_CLIENT_UDP_MAX) {
         return ZN_ERR_INVALID;
     }
 
-    zms_rtsp_client_udp_track *ut = &c->udp[track_idx];
+    zcs_rtsp_client_udp_track *ut = &c->udp[track_idx];
     if (ut->active) {
         return ZN_OK;
     }
 
     uint16_t local_rtp = 0, local_rtcp = 0;
-    if (zms_rtsp_transport_acquire_ports(&local_rtp, &local_rtcp) != ZN_OK) {
+    if (zcs_rtsp_transport_acquire_ports(&local_rtp, &local_rtcp) != ZN_OK) {
         return ZN_ERR_IO;
     }
 
@@ -139,12 +139,12 @@ zn_err_t rtsp_client_udp_prepare_track(zms_rtsp_client *c, unsigned track_idx)
     return ZN_OK;
 }
 
-int rtsp_client_udp_build_setup_extra(zms_rtsp_client *c, unsigned track_idx, char *buf, size_t cap)
+int rtsp_client_udp_build_setup_extra(zcs_rtsp_client *c, unsigned track_idx, char *buf, size_t cap)
 {
-    if (!c || !buf || cap < 64 || track_idx >= ZMS_RTSP_CLIENT_UDP_MAX) {
+    if (!c || !buf || cap < 64 || track_idx >= ZCS_RTSP_CLIENT_UDP_MAX) {
         return -1;
     }
-    zms_rtsp_client_udp_track *ut = &c->udp[track_idx];
+    zcs_rtsp_client_udp_track *ut = &c->udp[track_idx];
     if (!ut->active) {
         return -1;
     }
@@ -153,24 +153,24 @@ int rtsp_client_udp_build_setup_extra(zms_rtsp_client *c, unsigned track_idx, ch
     return (n > 0 && (size_t)n < cap) ? n : -1;
 }
 
-void rtsp_client_udp_apply_setup_response(zms_rtsp_client *c, unsigned track_idx,
+void rtsp_client_udp_apply_setup_response(zcs_rtsp_client *c, unsigned track_idx,
                                           const char *transport)
 {
-    if (!c || !transport || track_idx >= ZMS_RTSP_CLIENT_UDP_MAX) {
+    if (!c || !transport || track_idx >= ZCS_RTSP_CLIENT_UDP_MAX) {
         return;
     }
-    zms_rtsp_client_udp_track *ut = &c->udp[track_idx];
+    zcs_rtsp_client_udp_track *ut = &c->udp[track_idx];
     if (!ut->active) {
         return;
     }
 
     uint16_t srv_rtp = 0, srv_rtcp = 0;
-    if (zms_rtsp_transport_parse_server_port(transport, &srv_rtp, &srv_rtcp) != 0) {
+    if (zcs_rtsp_transport_parse_server_port(transport, &srv_rtp, &srv_rtcp) != 0) {
         zn_warn("RTSP client SETUP UDP: missing server_port track=%u", track_idx);
         return;
     }
     uint32_t ssrc = 0;
-    if (zms_rtsp_transport_parse_ssrc(transport, &ssrc) == 0) {
+    if (zcs_rtsp_transport_parse_ssrc(transport, &ssrc) == 0) {
         ut->rtp_ssrc = ssrc;
     }
 
@@ -183,18 +183,18 @@ void rtsp_client_udp_apply_setup_response(zms_rtsp_client *c, unsigned track_idx
              (unsigned)srv_rtcp);
 }
 
-void rtsp_client_udp_on_play(zms_rtsp_client *c)
+void rtsp_client_udp_on_play(zcs_rtsp_client *c)
 {
     if (!c) {
         return;
     }
     uint8_t rtcp[64];
-    for (unsigned i = 0; i < c->session.track_count && i < ZMS_RTSP_CLIENT_UDP_MAX; ++i) {
-        zms_rtsp_client_udp_track *ut = &c->udp[i];
+    for (unsigned i = 0; i < c->session.track_count && i < ZCS_RTSP_CLIENT_UDP_MAX; ++i) {
+        zcs_rtsp_client_udp_track *ut = &c->udp[i];
         if (!ut->active || !ut->rtcp) {
             continue;
         }
-        size_t n = zms_rtcp_build_rr(rtcp, sizeof(rtcp), ut->rtp_ssrc, ut->rtp_ssrc, 0, 0, 0);
+        size_t n = zcs_rtcp_build_rr(rtcp, sizeof(rtcp), ut->rtp_ssrc, ut->rtp_ssrc, 0, 0, 0);
         if (n > 0) {
             (void)zn_udp_client_send(ut->rtcp, rtcp, n);
         }

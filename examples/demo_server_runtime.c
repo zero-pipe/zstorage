@@ -1,11 +1,11 @@
 #include "demo_server_runtime.h"
 
-#include "zms/egress/pacing/egress_pacing.h"
-#include "zms/util/thread_pool.h"
-#include "zms/core/module_registry.h"
-#include "zms/util/buf_pool.h"
-#include "zms/util/poller_drain.h"
-#include "zms/vod/io/source.h"
+#include "zcs/egress/pacing/egress_pacing.h"
+#include "zcs/util/thread_pool.h"
+#include "zcs/core/module_registry.h"
+#include "zcs/util/buf_pool.h"
+#include "zcs/util/poller_drain.h"
+#include "zcs/vod/io/source.h"
 #include "zn/util/log.h"
 #include "zn/zn.h"
 
@@ -20,14 +20,14 @@
 #endif
 
 /* 全局停止标志，由信号/控制台处理器置 1 */
-volatile int g_zms_stop = 0;
+volatile int g_zcs_stop = 0;
 
 #if defined(_WIN32)
 static BOOL WINAPI win_ctrl_handler(DWORD ctrl_type)
 {
     if (ctrl_type == CTRL_C_EVENT || ctrl_type == CTRL_BREAK_EVENT ||
         ctrl_type == CTRL_CLOSE_EVENT || ctrl_type == CTRL_SHUTDOWN_EVENT) {
-        g_zms_stop = 1;
+        g_zcs_stop = 1;
         return TRUE;
     }
     return FALSE;
@@ -36,7 +36,7 @@ static BOOL WINAPI win_ctrl_handler(DWORD ctrl_type)
 static void sig_stop(int sig)
 {
     (void)sig;
-    g_zms_stop = 1;
+    g_zcs_stop = 1;
 }
 
 static void sig_hup(int sig)
@@ -69,7 +69,7 @@ static void demo_install_signals(void)
 #endif
 }
 
-void zms_demo_server_args_default(zms_demo_server_args *args)
+void zcs_demo_server_args_default(zcs_demo_server_args *args)
 {
     if (!args) {
         return;
@@ -88,17 +88,17 @@ static void demo_usage(const char *prog, const char *extra)
     fputc('\n', stderr);
 }
 
-void zms_demo_server_print_usage(const char *prog, const char *extra)
+void zcs_demo_server_print_usage(const char *prog, const char *extra)
 {
     demo_usage(prog, extra);
 }
 
-int zms_demo_server_parse_args(int argc, char **argv, zms_demo_server_args *args)
+int zcs_demo_server_parse_args(int argc, char **argv, zcs_demo_server_args *args)
 {
     if (!args) {
         return 1;
     }
-    zms_demo_server_args_default(args);
+    zcs_demo_server_args_default(args);
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
@@ -116,7 +116,7 @@ int zms_demo_server_parse_args(int argc, char **argv, zms_demo_server_args *args
     return 0;
 }
 
-static zn_err_t demo_setup_logging(zms_config *cfg, const char *log_override)
+static zn_err_t demo_setup_logging(zcs_config *cfg, const char *log_override)
 {
     if (log_override && log_override[0]) {
         strncpy(cfg->general.log_file, log_override, sizeof(cfg->general.log_file) - 1);
@@ -141,8 +141,8 @@ static zn_err_t demo_setup_logging(zms_config *cfg, const char *log_override)
     return ZN_OK;
 }
 
-zn_err_t zms_demo_server_runtime_init(zms_demo_server_runtime *rt,
-                                       const zms_demo_server_args *args)
+zn_err_t zcs_demo_server_runtime_init(zcs_demo_server_runtime *rt,
+                                       const zcs_demo_server_args *args)
 {
     zn_poller_pool_opts_t popts;
 
@@ -151,21 +151,21 @@ zn_err_t zms_demo_server_runtime_init(zms_demo_server_runtime *rt,
     }
     memset(rt, 0, sizeof(*rt));
 
-    zms_config_default(&rt->cfg);
+    zcs_config_default(&rt->cfg);
     if (args && args->config_path && args->config_path[0]) {
-        if (zms_config_load_ini(&rt->cfg, args->config_path) != ZN_OK) {
+        if (zcs_config_load_ini(&rt->cfg, args->config_path) != ZN_OK) {
             fprintf(stderr, "failed to load config: %s\r\n", args->config_path);
             return ZN_ERR_IO;
         }
     }
 
-    zms_egress_pacing_init(&rt->cfg.play.pacing);
-    zms_vod_config_apply(&rt->cfg);
-    zms_buf_pool_init(&rt->cfg);
-    zms_vod_thread_pool_init((int)rt->cfg.general.vod_work_threads);
+    zcs_egress_pacing_init(&rt->cfg.play.pacing);
+    zcs_vod_config_apply(&rt->cfg);
+    zcs_buf_pool_init(&rt->cfg);
+    zcs_vod_thread_pool_init((int)rt->cfg.general.vod_work_threads);
 
     zn_platform_init();
-    zms_modules_register_all();
+    zcs_modules_register_all();
 
     if (demo_setup_logging(&rt->cfg, args ? args->log_file_override : NULL) != ZN_OK) {
         return ZN_ERR_IO;
@@ -184,43 +184,43 @@ zn_err_t zms_demo_server_runtime_init(zms_demo_server_runtime *rt,
             zn_poller_pool_destroy(rt->poller_pool);
         }
         rt->poller_pool = NULL;
-        zms_vod_thread_pool_fini();
-        zms_buf_pool_fini();
+        zcs_vod_thread_pool_fini();
+        zcs_buf_pool_fini();
         return ZN_ERR_IO;
     }
 
     rt->main_poller = zn_poller_pool_get(rt->poller_pool, 0);
-    zms_poller_pool_buf_attach(rt->poller_pool, &rt->cfg);
+    zcs_poller_pool_buf_attach(rt->poller_pool, &rt->cfg);
     return ZN_OK;
 }
 
-void zms_demo_server_runtime_fini(zms_demo_server_runtime *rt)
+void zcs_demo_server_runtime_fini(zcs_demo_server_runtime *rt)
 {
     if (!rt) {
         return;
     }
     if (rt->poller_pool) {
-        zms_poller_pool_drain_async_wait(rt->poller_pool, 50);
-        zms_poller_pool_buf_detach(rt->poller_pool);
+        zcs_poller_pool_drain_async_wait(rt->poller_pool, 50);
+        zcs_poller_pool_buf_detach(rt->poller_pool);
         zn_poller_pool_stop(rt->poller_pool);
         zn_poller_pool_destroy(rt->poller_pool);
         rt->poller_pool = NULL;
     }
-    zms_vod_thread_pool_fini();
-    zms_buf_pool_fini();
-    zms_egress_pacing_fini();
+    zcs_vod_thread_pool_fini();
+    zcs_buf_pool_fini();
+    zcs_egress_pacing_fini();
     zn_log_close_file();
     zn_platform_fini();
     rt->main_poller = NULL;
 }
 
-void zms_demo_server_runtime_wait(const zms_demo_server_runtime *rt, int seconds)
+void zcs_demo_server_runtime_wait(const zcs_demo_server_runtime *rt, int seconds)
 {
     (void)rt;
     demo_install_signals();
     if (seconds < 0) {
         /* 永久运行，直到收到 SIGTERM/SIGINT */
-        while (!g_zms_stop) {
+        while (!g_zcs_stop) {
             zn_sleep_ms(200);
         }
         zn_info("signal received, shutting down...");
@@ -228,7 +228,7 @@ void zms_demo_server_runtime_wait(const zms_demo_server_runtime *rt, int seconds
         int run = seconds > 0 ? seconds : 5;
         int elapsed = 0;
         printf("running for %d second(s)\r\n", run);
-        while (!g_zms_stop && elapsed < run * 5) {
+        while (!g_zcs_stop && elapsed < run * 5) {
             zn_sleep_ms(200);
             ++elapsed;
         }

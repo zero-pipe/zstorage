@@ -2,11 +2,11 @@
  * @file poller_drain.c
  * @brief poller 异步 drain。
  */
-#include "zms/util/poller_drain.h"
+#include "zcs/util/poller_drain.h"
 #include "zn/poller/poller.h"
 #include "zn/platform.h"
 
-void zms_poller_pool_drain_async(zn_poller_pool *pool)
+void zcs_poller_pool_drain_async(zn_poller_pool *pool)
 {
     unsigned i;
     unsigned n;
@@ -25,11 +25,11 @@ void zms_poller_pool_drain_async(zn_poller_pool *pool)
     }
 }
 
-void zms_poller_pool_drain_async_wait(zn_poller_pool *pool, unsigned wait_ms)
+void zcs_poller_pool_drain_async_wait(zn_poller_pool *pool, unsigned wait_ms)
 {
-    zms_poller_pool_drain_async(pool);
+    zcs_poller_pool_drain_async(pool);
     if (wait_ms > 0) {
         zn_sleep_ms((int)wait_ms);
     }
-    zms_poller_pool_drain_async(pool);
+    zcs_poller_pool_drain_async(pool);
 }

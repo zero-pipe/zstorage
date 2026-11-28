@@ -2,10 +2,10 @@
  * @file framer.c
  * @brief WebSocket 帧编解码。
  */
-#include "zms/protocol/http/websocket/framer.h"
+#include "zcs/protocol/http/websocket/framer.h"
 #include <string.h>
 
-size_t zms_ws_framer_server_binary_hdr(uint8_t *hdr, size_t cap, size_t payload_len)
+size_t zcs_ws_framer_server_binary_hdr(uint8_t *hdr, size_t cap, size_t payload_len)
 {
     if (!hdr || cap < 2) {
         return 0;
@@ -36,7 +36,7 @@ size_t zms_ws_framer_server_binary_hdr(uint8_t *hdr, size_t cap, size_t payload_
     return 10;
 }
 
-size_t zms_ws_framer_client_hdr(uint8_t *hdr, size_t cap, uint8_t opcode, const uint8_t mask[4],
+size_t zcs_ws_framer_client_hdr(uint8_t *hdr, size_t cap, uint8_t opcode, const uint8_t mask[4],
                                 size_t payload_len)
 {
     size_t hlen;
@@ -75,7 +75,7 @@ size_t zms_ws_framer_client_hdr(uint8_t *hdr, size_t cap, uint8_t opcode, const 
     return hlen + 4;
 }
 
-void zms_ws_framer_apply_mask(uint8_t *data, size_t len, const uint8_t mask[4])
+void zcs_ws_framer_apply_mask(uint8_t *data, size_t len, const uint8_t mask[4])
 {
     size_t i;
 
@@ -134,8 +134,8 @@ static size_t ws_skip_frame(const uint8_t *data, size_t len, uint8_t *opcode_out
     return hlen + (size_t)plen;
 }
 
-size_t zms_ws_framer_consume_client(const uint8_t *data, size_t len, zms_ws_send_fn send,
-                                    zms_ws_on_close_fn on_close, void *user)
+size_t zcs_ws_framer_consume_client(const uint8_t *data, size_t len, zcs_ws_send_fn send,
+                                    zcs_ws_on_close_fn on_close, void *user)
 {
     size_t total = 0;
 

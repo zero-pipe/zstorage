@@ -14,28 +14,28 @@
  * 的访问。http_serve_depth 记录正在服务中的请求数（供调用方判断是否可安全
  * 销毁）。closing 标志在 destroy 时置位，让在途 tick 提前退出。
  */
-#include "zms/play/dash/segmenter.h"
-#include "zms/play/dash/playlist.h"
-#include "zms/play/hls/sidecar.h"
-#include "zms/media/codec/param_sets.h"
-#include "zms/media/codec/aac/aac_over_rtmp.h"
-#include "zms/media/codec/aac/aac_over_rtp.h"
-#include "zms/media/codec/vpx/vpx_over_rtmp.h"
-#include "zms/media/codec/av1/av1_over_rtmp.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/util/buf_pool.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h264/h264_config.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/codec/h265/h265_config.h"
-#include "zms/media/clock.h"
-#include "zms/core/gop/queue.h"
-#include "zms/egress/pacing/egress_pacing.h"
-#include "zms/egress/recorder/egress_segment_recorder.h"
-#include "zms/core/stream/hub.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
-#include "zms/media/codec/aac/aac_config.h"
+#include "zcs/play/dash/segmenter.h"
+#include "zcs/play/dash/playlist.h"
+#include "zcs/play/hls/sidecar.h"
+#include "zcs/media/codec/param_sets.h"
+#include "zcs/media/codec/aac/aac_over_rtmp.h"
+#include "zcs/media/codec/aac/aac_over_rtp.h"
+#include "zcs/media/codec/vpx/vpx_over_rtmp.h"
+#include "zcs/media/codec/av1/av1_over_rtmp.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/util/buf_pool.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h264/h264_config.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/h265/h265_config.h"
+#include "zcs/media/clock.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/egress/pacing/egress_pacing.h"
+#include "zcs/egress/recorder/egress_segment_recorder.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/aac/aac_config.h"
 #include "dash-mpd.h"
 #include "mov-format.h"
 #include "webm-vpx.h"
@@ -44,15 +44,15 @@
 #include "zn/poller/poller.h"
 #include "zb/os/sync.h"
 #include "zm/packager/packager.h"
-#include "bridge/zm_zms_bridge.h"
+#include "bridge/zm_zcs_bridge.h"
 #include <stdlib.h>
 #include <string.h>
 
-struct zms_http_dash_segmenter {
-    zms_media_source *src;
-    zms_http_dash_playlist *maker;
+struct zcs_http_dash_segmenter {
+    zcs_media_source *src;
+    zcs_http_dash_playlist *maker;
     dash_mpd_t *mpd;
-    zms_gop_reader *reader;
+    zcs_gop_reader *reader;
     zb_mutex *mu;
     zn_timer *timer;
     zn_poller *timer_poller;
@@ -64,17 +64,17 @@ struct zms_http_dash_segmenter {
     int video_armed;
     int adapt_video;
     int adapt_audio;
-    zms_avc_config avc;
-    zms_hevc_config hevc;
-    zms_aac_config aac;
+    zcs_avc_config avc;
+    zcs_hevc_config hevc;
+    zcs_aac_config aac;
     int have_aac;
     uint8_t *mux_buf;
     size_t mux_buf_cap;
     uint8_t *annexb;
     size_t annexb_cap;
-    zms_codec_param_sets params;
-    zms_mux_av_timeline mux_av;
-    zms_codec_id video_codec;
+    zcs_codec_param_sets params;
+    zcs_mux_av_timeline mux_av;
+    zcs_codec_id video_codec;
     uint32_t last_video_ring_dts_ms;
     zm_packager *zm_pkg;
     int zm_tried;
@@ -87,7 +87,7 @@ struct zms_http_dash_segmenter {
  * 默认参数：2 秒切片、保留 3 片、含音频。
  * 与 HLS 保持一致，便于同一份播放器配置在两套协议间切换。
  */
-void zms_http_dash_segmenter_default_opts(zms_http_dash_segmenter_opts *opts)
+void zcs_http_dash_segmenter_default_opts(zcs_http_dash_segmenter_opts *opts)
 {
     if (!opts) {
         return;
@@ -97,11 +97,11 @@ void zms_http_dash_segmenter_default_opts(zms_http_dash_segmenter_opts *opts)
     opts->enable_audio = 1;
 }
 
-static void dash_segmenter_tick_nolock(zms_http_dash_segmenter *rec);
+static void dash_segmenter_tick_nolock(zcs_http_dash_segmenter *rec);
 
 static void dash_segmenter_tick_cb(void *user)
 {
-    zms_http_dash_segmenter *rec = (zms_http_dash_segmenter *)user;
+    zcs_http_dash_segmenter *rec = (zcs_http_dash_segmenter *)user;
 
     if (!rec || !rec->mu) {
         return;
@@ -127,7 +127,7 @@ static int dash_zm_on_init(void *ctx, const char *name, const void *data, size_t
 static int dash_zm_on_segment(void *ctx, const char *name, const void *data, size_t len,
                                int64_t pts_ms, int64_t duration_ms, int discontinuity)
 {
-    zms_http_dash_segmenter *rec = (zms_http_dash_segmenter *)ctx;
+    zcs_http_dash_segmenter *rec = (zcs_http_dash_segmenter *)ctx;
 
     (void)discontinuity;
     if (!rec || !rec->maker) {
@@ -135,13 +135,13 @@ static int dash_zm_on_segment(void *ctx, const char *name, const void *data, siz
     }
     /* zm packager 切好一片回调这里：把分片交给 playlist 管理（按 pts/duration
      * 记录到时间线，供后续构建 MPD）。track 参数此处传 0。 */
-    return zms_http_dash_playlist_on_segment(rec->maker, 0, data, len, pts_ms, pts_ms, duration_ms,
+    return zcs_http_dash_playlist_on_segment(rec->maker, 0, data, len, pts_ms, pts_ms, duration_ms,
                                              name);
 }
 
 static int dash_zm_on_playlist(void *ctx, const char *name, const char *text, size_t len)
 {
-    zms_http_dash_segmenter *rec = (zms_http_dash_segmenter *)ctx;
+    zcs_http_dash_segmenter *rec = (zcs_http_dash_segmenter *)ctx;
     char *copy;
 
     (void)name;
@@ -161,10 +161,10 @@ static int dash_zm_on_playlist(void *ctx, const char *name, const char *text, si
     return 0;
 }
 
-static uint32_t dash_mux_dts_ms(zms_http_dash_segmenter *rec, zms_track_type track,
+static uint32_t dash_mux_dts_ms(zcs_http_dash_segmenter *rec, zcs_track_type track,
                                 uint32_t ring_dts_ms)
 {
-    return zms_mux_av_timeline_pts(&rec->mux_av, track, ring_dts_ms);
+    return zcs_mux_av_timeline_pts(&rec->mux_av, track, ring_dts_ms);
 }
 
 static int dash_aac_is_adts(const uint8_t *es, size_t es_len)
@@ -174,7 +174,7 @@ static int dash_aac_is_adts(const uint8_t *es, size_t es_len)
     return es && es_len >= 7 && es[0] == 0xff && (es[1] & 0xf0) == 0xf0;
 }
 
-static void dash_feed_video_cfg(zms_http_dash_segmenter *rec, const uint8_t *cfg, size_t clen)
+static void dash_feed_video_cfg(zcs_http_dash_segmenter *rec, const uint8_t *cfg, size_t clen)
 {
     const uint8_t *extra = NULL;
     size_t extra_len = 0;
@@ -188,70 +188,70 @@ static void dash_feed_video_cfg(zms_http_dash_segmenter *rec, const uint8_t *cfg
      * codec-specific extradata（H264→avcC，H265→hvcC，VP8/9/AV1→vpcC/av1C）。
      * 宽度/高度优先用源上报值。只有成功建出 adaptation set 才置 adapt_video>=0，
      * 否则后续帧会在 adapt_video<0 检查处被丢弃。 */
-    rec->video_codec = zms_flv_video_config_codec(cfg, clen);
-    if (rec->video_codec == ZMS_CODEC_INVALID && rec->src &&
-        rec->src->video.codec != ZMS_CODEC_INVALID) {
+    rec->video_codec = zcs_flv_video_config_codec(cfg, clen);
+    if (rec->video_codec == ZCS_CODEC_INVALID && rec->src &&
+        rec->src->video.codec != ZCS_CODEC_INVALID) {
         rec->video_codec = rec->src->video.codec;
     }
-    if (rec->video_codec == ZMS_CODEC_H264 &&
-        zms_rtmp_avc_extradata(cfg, clen, &extra, &extra_len) && extra && extra_len > 0) {
+    if (rec->video_codec == ZCS_CODEC_H264 &&
+        zcs_rtmp_avc_extradata(cfg, clen, &extra, &extra_len) && extra && extra_len > 0) {
         if (rec->src) {
             w = (int)rec->src->video.width;
             h = (int)rec->src->video.height;
         }
-        (void)zms_avc_config_load_record(&rec->avc, extra, extra_len);
-        (void)zms_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
+        (void)zcs_avc_config_load_record(&rec->avc, extra, extra_len);
+        (void)zcs_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
         rec->adapt_video =
-            dash_mpd_add_video_adaptation_set(rec->mpd, zms_http_dash_playlist_prefix(rec->maker),
+            dash_mpd_add_video_adaptation_set(rec->mpd, zcs_http_dash_playlist_prefix(rec->maker),
                                               MOV_OBJECT_H264, w, h, extra, extra_len);
-    } else if (rec->video_codec == ZMS_CODEC_H265 &&
-               zms_h265_video_config_hvcc(cfg, clen, &extra, &extra_len) && extra &&
+    } else if (rec->video_codec == ZCS_CODEC_H265 &&
+               zcs_h265_video_config_hvcc(cfg, clen, &extra, &extra_len) && extra &&
                extra_len > 0) {
         if (rec->src) {
             w = (int)rec->src->video.width;
             h = (int)rec->src->video.height;
         }
-        (void)zms_hevc_config_load_record(&rec->hevc, extra, extra_len);
-        (void)zms_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
+        (void)zcs_hevc_config_load_record(&rec->hevc, extra, extra_len);
+        (void)zcs_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
         rec->adapt_video =
-            dash_mpd_add_video_adaptation_set(rec->mpd, zms_http_dash_playlist_prefix(rec->maker),
+            dash_mpd_add_video_adaptation_set(rec->mpd, zcs_http_dash_playlist_prefix(rec->maker),
                                               MOV_OBJECT_H265, w, h, extra, extra_len);
         if (rec->adapt_video >= 0) {
             zn_info("DASH recorder: H265 adaptation set ready w=%d h=%d hvcc=%u", w, h,
                      (unsigned)extra_len);
         }
-    } else if ((rec->video_codec == ZMS_CODEC_VP8 || rec->video_codec == ZMS_CODEC_VP9) &&
+    } else if ((rec->video_codec == ZCS_CODEC_VP8 || rec->video_codec == ZCS_CODEC_VP9) &&
                clen >= 8) {
         const uint8_t *vpxc = NULL;
         size_t vpxc_len = 0;
-        uint8_t mov_obj = rec->video_codec == ZMS_CODEC_VP9 ? MOV_OBJECT_VP9 : MOV_OBJECT_VP8;
+        uint8_t mov_obj = rec->video_codec == ZCS_CODEC_VP9 ? MOV_OBJECT_VP9 : MOV_OBJECT_VP8;
 
-        if (zms_vpx_over_rtmp_config_extradata(rec->video_codec, cfg, clen, &vpxc, &vpxc_len) &&
+        if (zcs_vpx_over_rtmp_config_extradata(rec->video_codec, cfg, clen, &vpxc, &vpxc_len) &&
             vpxc && vpxc_len >= 8) {
             if (rec->src) {
                 w = (int)rec->src->video.width;
                 h = (int)rec->src->video.height;
             }
             rec->adapt_video = dash_mpd_add_video_adaptation_set(
-                rec->mpd, zms_http_dash_playlist_prefix(rec->maker), mov_obj, w > 0 ? w : 640,
+                rec->mpd, zcs_http_dash_playlist_prefix(rec->maker), mov_obj, w > 0 ? w : 640,
                 h > 0 ? h : 480, vpxc, vpxc_len);
             if (rec->adapt_video >= 0) {
                 zn_info("DASH recorder: %s adaptation set ready w=%d h=%d",
-                         zms_codec_name(rec->video_codec), w, h);
+                         zcs_codec_name(rec->video_codec), w, h);
             }
         }
-    } else if (rec->video_codec == ZMS_CODEC_AV1) {
+    } else if (rec->video_codec == ZCS_CODEC_AV1) {
         const uint8_t *av1c = NULL;
         size_t av1c_len = 0;
 
-        if (zms_av1_over_rtmp_config_extradata(cfg, clen, &av1c, &av1c_len) && av1c &&
+        if (zcs_av1_over_rtmp_config_extradata(cfg, clen, &av1c, &av1c_len) && av1c &&
             av1c_len >= 4) {
             if (rec->src) {
                 w = (int)rec->src->video.width;
                 h = (int)rec->src->video.height;
             }
             rec->adapt_video = dash_mpd_add_video_adaptation_set(
-                rec->mpd, zms_http_dash_playlist_prefix(rec->maker), MOV_OBJECT_AV1,
+                rec->mpd, zcs_http_dash_playlist_prefix(rec->maker), MOV_OBJECT_AV1,
                 w > 0 ? w : 640, h > 0 ? h : 480, av1c, av1c_len);
             if (rec->adapt_video >= 0) {
                 zn_info("DASH recorder: AV1 adaptation set ready w=%d h=%d", w, h);
@@ -260,7 +260,7 @@ static void dash_feed_video_cfg(zms_http_dash_segmenter *rec, const uint8_t *cfg
     }
 }
 
-static int dash_build_vpx_extra(zms_codec_id vc, const uint8_t *keyframe, size_t len, uint8_t *out,
+static int dash_build_vpx_extra(zcs_codec_id vc, const uint8_t *keyframe, size_t len, uint8_t *out,
                                 size_t cap, int *width, int *height)
 {
     struct webm_vpx_t vpx;
@@ -272,11 +272,11 @@ static int dash_build_vpx_extra(zms_codec_id vc, const uint8_t *keyframe, size_t
         return -1;
     }
     memset(&vpx, 0, sizeof(vpx));
-    if (vc == ZMS_CODEC_VP9) {
+    if (vc == ZCS_CODEC_VP9) {
         if (webm_vpx_codec_configuration_record_from_vp9(&vpx, &w, &h, keyframe, len) < 0) {
             return -1;
         }
-    } else if (vc == ZMS_CODEC_VP8) {
+    } else if (vc == ZCS_CODEC_VP8) {
         if (webm_vpx_codec_configuration_record_from_vp8(&vpx, &w, &h, keyframe, len) < 0) {
             return -1;
         }
@@ -315,7 +315,7 @@ static void dash_build_opus_extra(int channels, int sample_rate, uint8_t *out, s
     *out_len = 19;
 }
 
-static void dash_ensure_av1_adaptation(zms_http_dash_segmenter *rec, const uint8_t *obu, size_t len)
+static void dash_ensure_av1_adaptation(zcs_http_dash_segmenter *rec, const uint8_t *obu, size_t len)
 {
     uint8_t av1c[2048];
     int w = 0;
@@ -325,13 +325,13 @@ static void dash_ensure_av1_adaptation(zms_http_dash_segmenter *rec, const uint8
     if (!rec || !rec->mpd || rec->adapt_video >= 0 || !obu || len == 0) {
         return;
     }
-    n = zms_av1_extradata_from_obu(obu, len, av1c, sizeof(av1c), &w, &h);
+    n = zcs_av1_extradata_from_obu(obu, len, av1c, sizeof(av1c), &w, &h);
     if (n <= 0) {
         return;
     }
-    rec->video_codec = ZMS_CODEC_AV1;
+    rec->video_codec = ZCS_CODEC_AV1;
     rec->adapt_video = dash_mpd_add_video_adaptation_set(
-        rec->mpd, zms_http_dash_playlist_prefix(rec->maker), MOV_OBJECT_AV1, w > 0 ? w : 640,
+        rec->mpd, zcs_http_dash_playlist_prefix(rec->maker), MOV_OBJECT_AV1, w > 0 ? w : 640,
         h > 0 ? h : 480, av1c, (size_t)n);
     if (rec->adapt_video >= 0) {
         rec->sent_video_cfg = 1;
@@ -339,7 +339,7 @@ static void dash_ensure_av1_adaptation(zms_http_dash_segmenter *rec, const uint8
     }
 }
 
-static void dash_ensure_vpx_adaptation(zms_http_dash_segmenter *rec, zms_codec_id vc,
+static void dash_ensure_vpx_adaptation(zcs_http_dash_segmenter *rec, zcs_codec_id vc,
                                        const uint8_t *keyframe, size_t len)
 {
     uint8_t vpxc[32];
@@ -355,19 +355,19 @@ static void dash_ensure_vpx_adaptation(zms_http_dash_segmenter *rec, zms_codec_i
     if (n <= 0) {
         return;
     }
-    mov_obj = vc == ZMS_CODEC_VP9 ? MOV_OBJECT_VP9 : MOV_OBJECT_VP8;
+    mov_obj = vc == ZCS_CODEC_VP9 ? MOV_OBJECT_VP9 : MOV_OBJECT_VP8;
     rec->video_codec = vc;
     rec->adapt_video = dash_mpd_add_video_adaptation_set(
-        rec->mpd, zms_http_dash_playlist_prefix(rec->maker), mov_obj, w > 0 ? w : 640,
+        rec->mpd, zcs_http_dash_playlist_prefix(rec->maker), mov_obj, w > 0 ? w : 640,
         h > 0 ? h : 480, vpxc, (size_t)n);
     if (rec->adapt_video >= 0) {
         rec->sent_video_cfg = 1;
-        zn_info("DASH recorder: %s adaptation set ready w=%d h=%d (keyframe)", zms_codec_name(vc),
+        zn_info("DASH recorder: %s adaptation set ready w=%d h=%d (keyframe)", zcs_codec_name(vc),
                  w, h);
     }
 }
 
-static void dash_ensure_opus_adaptation(zms_http_dash_segmenter *rec)
+static void dash_ensure_opus_adaptation(zcs_http_dash_segmenter *rec)
 {
     uint8_t opus_head[32];
     size_t head_len = 0;
@@ -383,7 +383,7 @@ static void dash_ensure_opus_adaptation(zms_http_dash_segmenter *rec)
     }
     dash_build_opus_extra(ch, sr, opus_head, sizeof(opus_head), &head_len);
     rec->adapt_audio =
-        dash_mpd_add_audio_adaptation_set(rec->mpd, zms_http_dash_playlist_prefix(rec->maker),
+        dash_mpd_add_audio_adaptation_set(rec->mpd, zcs_http_dash_playlist_prefix(rec->maker),
                                           MOV_OBJECT_OPUS, ch, 16, sr, opus_head, head_len);
     if (rec->adapt_audio >= 0) {
         rec->sent_audio_cfg = 1;
@@ -391,44 +391,44 @@ static void dash_ensure_opus_adaptation(zms_http_dash_segmenter *rec)
     }
 }
 
-static void dash_feed_audio_cfg(zms_http_dash_segmenter *rec, const uint8_t *cfg, size_t clen)
+static void dash_feed_audio_cfg(zcs_http_dash_segmenter *rec, const uint8_t *cfg, size_t clen)
 {
     const uint8_t *asc = NULL;
     size_t asc_len = 0;
     int sr = 44100;
     int ch = 2;
-    zms_codec_id ac;
+    zcs_codec_id ac;
 
     if (!rec || !rec->mpd || !cfg || clen < 2) {
         return;
     }
-    ac = zms_flv_tag_audio_codec(cfg, clen);
-    if (ac == ZMS_CODEC_OPUS) {
+    ac = zcs_flv_tag_audio_codec(cfg, clen);
+    if (ac == ZCS_CODEC_OPUS) {
         dash_ensure_opus_adaptation(rec);
         return;
     }
-    if (ac != ZMS_CODEC_AAC || clen < 4) {
+    if (ac != ZCS_CODEC_AAC || clen < 4) {
         return;
     }
-    if (!zms_rtmp_aac_extradata(cfg, clen, &asc, &asc_len) || !asc || asc_len == 0) {
+    if (!zcs_rtmp_aac_extradata(cfg, clen, &asc, &asc_len) || !asc || asc_len == 0) {
         return;
     }
-    zms_aac_config_set_defaults(&rec->aac, 44100, 2);
-    if (!zms_aac_config_load_asc(&rec->aac, asc, asc_len)) {
+    zcs_aac_config_set_defaults(&rec->aac, 44100, 2);
+    if (!zcs_aac_config_load_asc(&rec->aac, asc, asc_len)) {
         return;
     }
     rec->have_aac = 1;
-    sr = zms_aac_config_sample_rate(&rec->aac);
-    ch = zms_aac_config_channels(&rec->aac);
+    sr = zcs_aac_config_sample_rate(&rec->aac);
+    ch = zcs_aac_config_channels(&rec->aac);
     if (ch <= 0) {
         ch = 2;
     }
     rec->adapt_audio =
-        dash_mpd_add_audio_adaptation_set(rec->mpd, zms_http_dash_playlist_prefix(rec->maker),
+        dash_mpd_add_audio_adaptation_set(rec->mpd, zcs_http_dash_playlist_prefix(rec->maker),
                                           MOV_OBJECT_AAC, ch, 16, sr, asc, asc_len);
 }
 
-static void dash_feed_h264(zms_http_dash_segmenter *rec, const uint8_t *annexb, size_t len,
+static void dash_feed_h264(zcs_http_dash_segmenter *rec, const uint8_t *annexb, size_t len,
                            uint32_t dts_ms, int keyframe)
 {
     int vcl = 0;
@@ -442,8 +442,8 @@ static void dash_feed_h264(zms_http_dash_segmenter *rec, const uint8_t *annexb, 
     if (!rec || rec->adapt_video < 0 || !annexb || len < 4) {
         return;
     }
-    sync = keyframe || zms_h264_annexb_is_sync_key(annexb, len);
-    idr = keyframe || zms_h264_annexb_is_idr(annexb, len);
+    sync = keyframe || zcs_h264_annexb_is_sync_key(annexb, len);
+    idr = keyframe || zcs_h264_annexb_is_idr(annexb, len);
     if (!rec->video_armed) {
         if (!sync) {
             return;
@@ -451,19 +451,19 @@ static void dash_feed_h264(zms_http_dash_segmenter *rec, const uint8_t *annexb, 
         /* 首个关键帧才“武装”：之前没有可解码起点，切出来的分片播放器无法起播。
          * 武装时锁定 A/V 时间线原点，使音视频共用同一基准避免错位。 */
         rec->video_armed = 1;
-        zms_mux_av_timeline_lock_origin(&rec->mux_av, dts_ms);
+        zcs_mux_av_timeline_lock_origin(&rec->mux_av, dts_ms);
         zn_info("DASH recorder: first H264 IDR ts=%u", (unsigned)dts_ms);
     }
-    if (!zms_buf_pool_slot_resize(&rec->mux_buf, &rec->mux_buf_cap, len + 65536u)) {
+    if (!zcs_buf_pool_slot_resize(&rec->mux_buf, &rec->mux_buf_cap, len + 65536u)) {
         return;
     }
     /* fMP4 参数集在 init 段；media 段勿 prepend SPS/PPS（TS/HLS 习惯，会导致 DASH 解码失败） */
-    n = zms_avc_config_annexb_to_mp4(&rec->avc, annexb, len, rec->mux_buf, rec->mux_buf_cap, &vcl,
+    n = zcs_avc_config_annexb_to_mp4(&rec->avc, annexb, len, rec->mux_buf, rec->mux_buf_cap, &vcl,
                                      &update);
     if (n <= 0) {
         return;
     }
-    rel_dts_ms = (int64_t)dash_mux_dts_ms(rec, ZMS_TRACK_VIDEO, dts_ms);
+    rel_dts_ms = (int64_t)dash_mux_dts_ms(rec, ZCS_TRACK_VIDEO, dts_ms);
     rec->last_video_ring_dts_ms = dts_ms;
     /* 仅在 IDR 切段；sync_key（含非 IDR）会导致约 500ms 碎段，ffplay 追帧卡顿 */
     flags = idr ? MOV_AV_FLAG_KEYFREAME : 0;
@@ -471,7 +471,7 @@ static void dash_feed_h264(zms_http_dash_segmenter *rec, const uint8_t *annexb, 
                          rel_dts_ms, flags);
 }
 
-static void dash_feed_h265(zms_http_dash_segmenter *rec, const uint8_t *annexb, size_t len,
+static void dash_feed_h265(zcs_http_dash_segmenter *rec, const uint8_t *annexb, size_t len,
                            uint32_t dts_ms, int keyframe)
 {
     int vcl = 0;
@@ -487,24 +487,24 @@ static void dash_feed_h265(zms_http_dash_segmenter *rec, const uint8_t *annexb, 
     if (!rec || rec->adapt_video < 0 || !annexb || len < 4) {
         return;
     }
-    sync = keyframe || zms_h265_annexb_is_sync_key(annexb, len);
-    idr = keyframe || zms_h265_annexb_is_idr(annexb, len);
+    sync = keyframe || zcs_h265_annexb_is_sync_key(annexb, len);
+    idr = keyframe || zcs_h265_annexb_is_idr(annexb, len);
     if (!rec->video_armed) {
         if (!sync) {
             return;
         }
         rec->video_armed = 1;
-        zms_mux_av_timeline_lock_origin(&rec->mux_av, dts_ms);
+        zcs_mux_av_timeline_lock_origin(&rec->mux_av, dts_ms);
         zn_info("DASH recorder: first H265 sync ts=%u", (unsigned)dts_ms);
     }
-    if (!zms_buf_pool_slot_resize(&rec->mux_buf, &rec->mux_buf_cap, len + 65536u)) {
+    if (!zcs_buf_pool_slot_resize(&rec->mux_buf, &rec->mux_buf_cap, len + 65536u)) {
         return;
     }
     if (sync && rec->params.sps_len > 0 && rec->params.pps_len > 0) {
         size_t full_len = 0;
         /* 关键帧且已有参数集：把 VPS/SPS/PPS 前置拼成本帧完整 AU 再转 mp4 box，
          * 保证每个切片起点自带参数集（DASH 播放器可能从任意分片起播）。 */
-        if (zms_h265_annexb_build_rtp_au(rec->params.vps_len ? rec->params.vps : NULL,
+        if (zcs_h265_annexb_build_rtp_au(rec->params.vps_len ? rec->params.vps : NULL,
                                          rec->params.vps_len, rec->params.sps, rec->params.sps_len,
                                          rec->params.pps, rec->params.pps_len, annexb, len, 1,
                                          rec->annexb, rec->annexb_cap, &full_len) == ZN_OK &&
@@ -516,19 +516,19 @@ static void dash_feed_h265(zms_http_dash_segmenter *rec, const uint8_t *annexb, 
         size_t vcl_len = 0;
         /* 非起始帧/无参数集：只取 VCL（图像数据）部分转 mp4，剥掉内联参数集
          * 避免与 init 段重复。 */
-        if (zms_h265_annexb_copy_vcl(annexb, len, rec->annexb, rec->annexb_cap, &vcl_len) ==
+        if (zcs_h265_annexb_copy_vcl(annexb, len, rec->annexb, rec->annexb_cap, &vcl_len) ==
                 ZN_OK &&
             vcl_len > 0) {
             mux_ptr = rec->annexb;
             mux_len = vcl_len;
         }
     }
-    n = zms_hevc_config_annexb_to_mp4(&rec->hevc, mux_ptr, mux_len, rec->mux_buf, rec->mux_buf_cap,
+    n = zcs_hevc_config_annexb_to_mp4(&rec->hevc, mux_ptr, mux_len, rec->mux_buf, rec->mux_buf_cap,
                                       &vcl, &update);
     if (n <= 0) {
         return;
     }
-    rel_dts_ms = (int64_t)dash_mux_dts_ms(rec, ZMS_TRACK_VIDEO, dts_ms);
+    rel_dts_ms = (int64_t)dash_mux_dts_ms(rec, ZCS_TRACK_VIDEO, dts_ms);
     rec->last_video_ring_dts_ms = dts_ms;
     flags = idr ? MOV_AV_FLAG_KEYFREAME : 0;
     (void)dash_mpd_input(rec->mpd, rec->adapt_video, rec->mux_buf, (size_t)n, rel_dts_ms,
@@ -536,20 +536,20 @@ static void dash_feed_h265(zms_http_dash_segmenter *rec, const uint8_t *annexb, 
 }
 
 typedef struct {
-    zms_http_dash_segmenter *rec;
+    zcs_http_dash_segmenter *rec;
     uint32_t base_dts_ms;
     unsigned idx;
     uint32_t au_dur_ms;
 } dash_aac_feed_ctx;
 
-static uint32_t dash_aac_au_duration_ms(const zms_http_dash_segmenter *rec)
+static uint32_t dash_aac_au_duration_ms(const zcs_http_dash_segmenter *rec)
 {
     int sr;
 
     if (!rec || !rec->have_aac) {
         return 23u;
     }
-    sr = zms_aac_config_sample_rate(&rec->aac);
+    sr = zcs_aac_config_sample_rate(&rec->aac);
     if (sr <= 0) {
         sr = 48000;
     }
@@ -566,7 +566,7 @@ static int dash_feed_aac_au(const uint8_t *au, size_t len, void *user)
     if (!ctx || !ctx->rec || !au || len == 0) {
         return -1;
     }
-    if (zms_aac_es_to_raw(au, len, &raw, &raw_len) != ZN_OK || !raw || raw_len == 0) {
+    if (zcs_aac_es_to_raw(au, len, &raw, &raw_len) != ZN_OK || !raw || raw_len == 0) {
         return -1;
     }
     {
@@ -579,7 +579,7 @@ static int dash_feed_aac_au(const uint8_t *au, size_t len, void *user)
              * 让分片里音频跑在前面导致错位，直接丢弃这段音频等视频追上。 */
             return 0;
         }
-        rel_dts_ms = (int64_t)dash_mux_dts_ms(ctx->rec, ZMS_TRACK_AUDIO, ats);
+        rel_dts_ms = (int64_t)dash_mux_dts_ms(ctx->rec, ZCS_TRACK_AUDIO, ats);
     }
     (void)dash_mpd_input(ctx->rec->mpd, ctx->rec->adapt_audio, raw, raw_len, rel_dts_ms, rel_dts_ms,
                          0);
@@ -587,7 +587,7 @@ static int dash_feed_aac_au(const uint8_t *au, size_t len, void *user)
     return 0;
 }
 
-static void dash_feed_opus(zms_http_dash_segmenter *rec, const uint8_t *es, size_t es_len,
+static void dash_feed_opus(zcs_http_dash_segmenter *rec, const uint8_t *es, size_t es_len,
                            uint32_t dts_ms)
 {
     int64_t rel_dts_ms;
@@ -601,11 +601,11 @@ static void dash_feed_opus(zms_http_dash_segmenter *rec, const uint8_t *es, size
     if (rec->last_video_ring_dts_ms > 0 && dts_ms > rec->last_video_ring_dts_ms + 4000u) {
         return;
     }
-    rel_dts_ms = (int64_t)dash_mux_dts_ms(rec, ZMS_TRACK_AUDIO, dts_ms);
+    rel_dts_ms = (int64_t)dash_mux_dts_ms(rec, ZCS_TRACK_AUDIO, dts_ms);
     (void)dash_mpd_input(rec->mpd, rec->adapt_audio, es, es_len, rel_dts_ms, rel_dts_ms, 0);
 }
 
-static void dash_feed_av1(zms_http_dash_segmenter *rec, const uint8_t *es, size_t len,
+static void dash_feed_av1(zcs_http_dash_segmenter *rec, const uint8_t *es, size_t len,
                           uint32_t dts_ms, int keyframe)
 {
     int64_t rel_dts_ms;
@@ -615,16 +615,16 @@ static void dash_feed_av1(zms_http_dash_segmenter *rec, const uint8_t *es, size_
         return;
     }
     if (!keyframe) {
-        zms_gop_slot slot;
+        zcs_gop_slot slot;
         /* 用 gop_slot_refresh_play_key 复核关键帧：AV1 没有命令式关键帧标记，
          * 得看 OBU 里 frame_type/是否 RAP。不是关键帧就不切段。 */
         memset(&slot, 0, sizeof(slot));
-        slot.codec = ZMS_CODEC_AV1;
-        slot.track = ZMS_TRACK_VIDEO;
+        slot.codec = ZCS_CODEC_AV1;
+        slot.track = ZCS_TRACK_VIDEO;
         slot.data = (uint8_t *)es;
         slot.len = len;
         slot.keyframe = keyframe;
-        zms_gop_slot_refresh_play_key(&slot);
+        zcs_gop_slot_refresh_play_key(&slot);
         keyframe = slot.keyframe;
     }
     /* AV1 的 adaptation set 往往要等首帧才能抽出 av1C（configure 里没有），
@@ -638,16 +638,16 @@ static void dash_feed_av1(zms_http_dash_segmenter *rec, const uint8_t *es, size_
             return;
         }
         rec->video_armed = 1;
-        zms_mux_av_timeline_lock_origin(&rec->mux_av, dts_ms);
+        zcs_mux_av_timeline_lock_origin(&rec->mux_av, dts_ms);
         zn_info("DASH recorder: first AV1 key ts=%u", (unsigned)dts_ms);
     }
-    rel_dts_ms = (int64_t)dash_mux_dts_ms(rec, ZMS_TRACK_VIDEO, dts_ms);
+    rel_dts_ms = (int64_t)dash_mux_dts_ms(rec, ZCS_TRACK_VIDEO, dts_ms);
     rec->last_video_ring_dts_ms = dts_ms;
     flags = keyframe ? MOV_AV_FLAG_KEYFREAME : 0;
     (void)dash_mpd_input(rec->mpd, rec->adapt_video, es, len, rel_dts_ms, rel_dts_ms, flags);
 }
 
-static void dash_feed_vpx(zms_http_dash_segmenter *rec, zms_codec_id vc, const uint8_t *es,
+static void dash_feed_vpx(zcs_http_dash_segmenter *rec, zcs_codec_id vc, const uint8_t *es,
                           size_t len, uint32_t dts_ms, int keyframe)
 {
     int64_t rel_dts_ms;
@@ -657,14 +657,14 @@ static void dash_feed_vpx(zms_http_dash_segmenter *rec, zms_codec_id vc, const u
         return;
     }
     if (!keyframe) {
-        zms_gop_slot slot;
+        zcs_gop_slot slot;
         memset(&slot, 0, sizeof(slot));
         slot.codec = vc;
-        slot.track = ZMS_TRACK_VIDEO;
+        slot.track = ZCS_TRACK_VIDEO;
         slot.data = (uint8_t *)es;
         slot.len = len;
         slot.keyframe = keyframe;
-        zms_gop_slot_refresh_play_key(&slot);
+        zcs_gop_slot_refresh_play_key(&slot);
         keyframe = slot.keyframe;
     }
     dash_ensure_vpx_adaptation(rec, vc, es, len);
@@ -676,16 +676,16 @@ static void dash_feed_vpx(zms_http_dash_segmenter *rec, zms_codec_id vc, const u
             return;
         }
         rec->video_armed = 1;
-        zms_mux_av_timeline_lock_origin(&rec->mux_av, dts_ms);
-        zn_info("DASH recorder: first %s key ts=%u", zms_codec_name(vc), (unsigned)dts_ms);
+        zcs_mux_av_timeline_lock_origin(&rec->mux_av, dts_ms);
+        zn_info("DASH recorder: first %s key ts=%u", zcs_codec_name(vc), (unsigned)dts_ms);
     }
-    rel_dts_ms = (int64_t)dash_mux_dts_ms(rec, ZMS_TRACK_VIDEO, dts_ms);
+    rel_dts_ms = (int64_t)dash_mux_dts_ms(rec, ZCS_TRACK_VIDEO, dts_ms);
     rec->last_video_ring_dts_ms = dts_ms;
     flags = keyframe ? MOV_AV_FLAG_KEYFREAME : 0;
     (void)dash_mpd_input(rec->mpd, rec->adapt_video, es, len, rel_dts_ms, rel_dts_ms, flags);
 }
 
-static void dash_feed_aac(zms_http_dash_segmenter *rec, const uint8_t *es, size_t es_len,
+static void dash_feed_aac(zcs_http_dash_segmenter *rec, const uint8_t *es, size_t es_len,
                           uint32_t dts_ms)
 {
     dash_aac_feed_ctx ctx;
@@ -705,27 +705,27 @@ static void dash_feed_aac(zms_http_dash_segmenter *rec, const uint8_t *es, size_
     /* ADTS 帧里可能含多个 AAC frame：逐个拆出、各自算时间戳（按 au_dur 递增）；
      * 不带 ADTS 的裸帧则整段当一个 AU。 */
     if (dash_aac_is_adts(es, es_len)) {
-        (void)zms_aac_es_foreach_frame(es, es_len, dash_feed_aac_au, &ctx);
+        (void)zcs_aac_es_foreach_frame(es, es_len, dash_feed_aac_au, &ctx);
     } else {
         (void)dash_feed_aac_au(es, es_len, &ctx);
     }
 }
 
-zms_http_dash_segmenter *zms_http_dash_segmenter_create(zms_media_source *src,
-                                                        const zms_http_dash_segmenter_opts *opts)
+zcs_http_dash_segmenter *zcs_http_dash_segmenter_create(zcs_media_source *src,
+                                                        const zcs_http_dash_segmenter_opts *opts)
 {
-    zms_http_dash_segmenter_opts def;
-    zms_http_dash_segmenter *rec;
-    zms_http_dash_playlist_opts mopts;
-    const zms_http_dash_segmenter_opts *o;
+    zcs_http_dash_segmenter_opts def;
+    zcs_http_dash_segmenter *rec;
+    zcs_http_dash_playlist_opts mopts;
+    const zcs_http_dash_segmenter_opts *o;
 
     if (!src || !src->gop_queue) {
         return NULL;
     }
-    zms_http_dash_segmenter_default_opts(&def);
+    zcs_http_dash_segmenter_default_opts(&def);
     o = opts ? opts : &def;
 
-    rec = (zms_http_dash_segmenter *)calloc(1, sizeof(*rec));
+    rec = (zcs_http_dash_segmenter *)calloc(1, sizeof(*rec));
     if (!rec) {
         return NULL;
     }
@@ -734,10 +734,10 @@ zms_http_dash_segmenter *zms_http_dash_segmenter_create(zms_media_source *src,
     mopts.segment_duration_sec = o->segment_duration_sec;
     mopts.segment_count = o->segment_count;
     mopts.prefix = src->stream;
-    rec->maker = zms_http_dash_playlist_create(&mopts);
-    rec->mpd = rec->maker ? zms_http_dash_playlist_mpd(rec->maker) : NULL;
+    rec->maker = zcs_http_dash_playlist_create(&mopts);
+    rec->mpd = rec->maker ? zcs_http_dash_playlist_mpd(rec->maker) : NULL;
     if (!rec->maker || !rec->mpd) {
-        zms_http_dash_segmenter_destroy(rec);
+        zcs_http_dash_segmenter_destroy(rec);
         return NULL;
     }
 
@@ -749,24 +749,24 @@ zms_http_dash_segmenter *zms_http_dash_segmenter_create(zms_media_source *src,
     rec->enable_audio = o->enable_audio;
     rec->adapt_video = rec->adapt_audio = -1;
     rec->mu = zb_mutex_create(0);
-    rec->reader = zms_gop_reader_attach(src->gop_queue);
+    rec->reader = zcs_gop_reader_attach(src->gop_queue);
     if (!rec->mu || !rec->reader) {
-        zms_http_dash_segmenter_destroy(rec);
+        zcs_http_dash_segmenter_destroy(rec);
         return NULL;
     }
     /* 从最近的直播关键帧起读（不回溯历史，DASH 只发新鲜切片），并把 A/V
      * 时间线原点复位。mux/annexb 缓冲初始 256KB，之后按帧大小自动扩。 */
-    zms_gop_reader_seek_live_key(rec->reader);
-    zms_mux_av_timeline_reset(&rec->mux_av);
+    zcs_gop_reader_seek_live_key(rec->reader);
+    zcs_mux_av_timeline_reset(&rec->mux_av);
     rec->mux_buf_cap = 256 * 1024;
     rec->mux_buf = (uint8_t *)malloc(rec->mux_buf_cap);
     rec->annexb_cap = rec->mux_buf_cap;
     rec->annexb = (uint8_t *)malloc(rec->annexb_cap);
     if (!rec->mux_buf || !rec->annexb) {
-        zms_http_dash_segmenter_destroy(rec);
+        zcs_http_dash_segmenter_destroy(rec);
         return NULL;
     }
-    (void)zms_media_source_segment_rec_set(src, ZMS_SEGMENT_REC_DASH, rec);
+    (void)zcs_media_source_segment_rec_set(src, ZCS_SEGMENT_REC_DASH, rec);
     zn_info("DASH recorder start: %s/%s", src->app, src->stream);
     return rec;
 }
@@ -777,14 +777,14 @@ zms_http_dash_segmenter *zms_http_dash_segmenter_create(zms_media_source *src,
  * 的回调，若此处立即 free(rec)，在途 tick 会访问已释放内存。因此当定时器属于
  * 其它正在运行的 poller 时，把清理投递到该 poller 串行执行。
  */
-static void dash_segmenter_destroy_now(zms_http_dash_segmenter *rec);
+static void dash_segmenter_destroy_now(zcs_http_dash_segmenter *rec);
 
 static void dash_segmenter_destroy_deferred(void *user)
 {
-    dash_segmenter_destroy_now((zms_http_dash_segmenter *)user);
+    dash_segmenter_destroy_now((zcs_http_dash_segmenter *)user);
 }
 
-void zms_http_dash_segmenter_destroy(zms_http_dash_segmenter *rec)
+void zcs_http_dash_segmenter_destroy(zcs_http_dash_segmenter *rec)
 {
     zn_poller *pol;
 
@@ -810,11 +810,11 @@ void zms_http_dash_segmenter_destroy(zms_http_dash_segmenter *rec)
     dash_segmenter_destroy_now(rec);
 }
 
-static void dash_segmenter_destroy_now(zms_http_dash_segmenter *rec)
+static void dash_segmenter_destroy_now(zcs_http_dash_segmenter *rec)
 {
-    zms_media_source *src;
-    zms_http_dash_playlist *maker;
-    zms_gop_reader *reader;
+    zcs_media_source *src;
+    zcs_http_dash_playlist *maker;
+    zcs_gop_reader *reader;
     zb_mutex *mu;
     zm_packager *zm_pkg;
     char *zm_mpd;
@@ -837,9 +837,9 @@ static void dash_segmenter_destroy_now(zms_http_dash_segmenter *rec)
         rec->closing = 1;
         /* closing 置位后，任何在途 tick/HTTP serve 都会在读 mpd/maker 时提前
          * 退出；把指针清空并 detach reader 放到锁内，确保此刻没有线程还在用。 */
-        if (src && zms_media_source_segment_rec_get(src, ZMS_SEGMENT_REC_DASH) == rec) {
+        if (src && zcs_media_source_segment_rec_get(src, ZCS_SEGMENT_REC_DASH) == rec) {
             /* 延迟销毁期间同名录制器可能已重建：只摘除自己，避免抹掉新录制器。 */
-            (void)zms_media_source_segment_rec_set(src, ZMS_SEGMENT_REC_DASH, NULL);
+            (void)zcs_media_source_segment_rec_set(src, ZCS_SEGMENT_REC_DASH, NULL);
         }
         rec->maker = NULL;
         rec->mpd = NULL;
@@ -848,38 +848,38 @@ static void dash_segmenter_destroy_now(zms_http_dash_segmenter *rec)
         rec->zm_mpd = NULL;
         rec->mu = NULL;
         zb_mutex_unlock(mu);
-    } else if (src && zms_media_source_segment_rec_get(src, ZMS_SEGMENT_REC_DASH) == rec) {
-        (void)zms_media_source_segment_rec_set(src, ZMS_SEGMENT_REC_DASH, NULL);
+    } else if (src && zcs_media_source_segment_rec_get(src, ZCS_SEGMENT_REC_DASH) == rec) {
+        (void)zcs_media_source_segment_rec_set(src, ZCS_SEGMENT_REC_DASH, NULL);
     }
     if (reader) {
-        zms_gop_reader_detach(reader);
+        zcs_gop_reader_detach(reader);
     }
     if (zm_pkg) {
         zm_packager_close(zm_pkg);
     }
     free(zm_mpd);
     if (maker) {
-        zms_http_dash_playlist_destroy(maker);
+        zcs_http_dash_playlist_destroy(maker);
     }
     free(rec->mux_buf);
     free(rec->annexb);
-    zms_codec_param_sets_clear(&rec->params);
+    zcs_codec_param_sets_clear(&rec->params);
     zb_mutex_destroy(mu);
     free(rec);
 }
 
-zms_http_dash_playlist *zms_http_dash_segmenter_playlist(zms_http_dash_segmenter *rec)
+zcs_http_dash_playlist *zcs_http_dash_segmenter_playlist(zcs_http_dash_segmenter *rec)
 {
     return rec ? rec->maker : NULL;
 }
 
 static zn_poller *dash_segmenter_timer_poller(zn_poller *fallback)
 {
-    zn_poller *main_pol = zms_http_hls_main_poller();
+    zn_poller *main_pol = zcs_http_hls_main_poller();
     return main_pol ? main_pol : fallback;
 }
 
-void zms_http_dash_segmenter_bind_timer(zms_http_dash_segmenter *rec, zn_poller *poller)
+void zcs_http_dash_segmenter_bind_timer(zcs_http_dash_segmenter *rec, zn_poller *poller)
 {
     zn_poller *bind_pol;
 
@@ -918,7 +918,7 @@ void zms_http_dash_segmenter_bind_timer(zms_http_dash_segmenter *rec, zn_poller 
     }
 }
 
-void zms_http_dash_segmenter_http_enter(zms_http_dash_segmenter *rec)
+void zcs_http_dash_segmenter_http_enter(zcs_http_dash_segmenter *rec)
 {
     if (!rec || !rec->mu) {
         return;
@@ -930,7 +930,7 @@ void zms_http_dash_segmenter_http_enter(zms_http_dash_segmenter *rec)
     zb_mutex_unlock(rec->mu);
 }
 
-void zms_http_dash_segmenter_http_leave(zms_http_dash_segmenter *rec, zn_poller *poller)
+void zcs_http_dash_segmenter_http_leave(zcs_http_dash_segmenter *rec, zn_poller *poller)
 {
     (void)poller;
     if (!rec || !rec->mu) {
@@ -943,27 +943,27 @@ void zms_http_dash_segmenter_http_leave(zms_http_dash_segmenter *rec, zn_poller 
     zb_mutex_unlock(rec->mu);
 }
 
-void zms_http_dash_segmenter_touch(zms_http_dash_segmenter *rec)
+void zcs_http_dash_segmenter_touch(zcs_http_dash_segmenter *rec)
 {
     if (rec) {
-        zms_http_dash_segmenter_tick(rec);
+        zcs_http_dash_segmenter_tick(rec);
     }
 }
 
 /** 仅在 MPD 请求时轻量推进；分片响应后不 pump，避免覆盖播放器仍请求的缓存 */
-static void dash_segmenter_serve_pump_mpd(zms_http_dash_segmenter *rec)
+static void dash_segmenter_serve_pump_mpd(zcs_http_dash_segmenter *rec)
 {
     int i;
 
     if (!rec || !rec->mu) {
         return;
     }
-    /* 一次 MPD 请求里连续推进有限个 tick（ZMS_SEGMENT_REC_SERVE_MAX_TICKS），
+    /* 一次 MPD 请求里连续推进有限个 tick（ZCS_SEGMENT_REC_SERVE_MAX_TICKS），
      * 让“还没分片”的起始阶段能较快产出第一片；但不能无限推进，否则一个慢
      * 客户端会把整个 poller 拖在这里。 */
     zb_mutex_lock(rec->mu);
     if (!rec->closing) {
-        for (i = 0; i < ZMS_SEGMENT_REC_SERVE_MAX_TICKS; ++i) {
+        for (i = 0; i < ZCS_SEGMENT_REC_SERVE_MAX_TICKS; ++i) {
             dash_segmenter_tick_nolock(rec);
         }
     }
@@ -977,7 +977,7 @@ static void dash_segmenter_serve_pump_mpd(zms_http_dash_segmenter *rec)
  * 其它组合（VP8/VP9/AV1/Opus）落到 legacy —— 后者按 codec 自行构造
  * adaptation set 与 fMP4 box。这是一个“能力探测”，不是错误。
  */
-static void dash_ensure_zm_output(zms_http_dash_segmenter *rec)
+static void dash_ensure_zm_output(zcs_http_dash_segmenter *rec)
 {
     zm_track tracks[4];
     size_t tn = 0;
@@ -989,7 +989,7 @@ static void dash_ensure_zm_output(zms_http_dash_segmenter *rec)
     /* zm_tried 一次性门闩：无论成功与否只尝试一次。track 组合不满足（视频非
      * H264/H265 或音频非 AAC）则 goto fallback，永不使用 zm packager，后续由
      * legacy dash_mpd 处理。 */
-    if (zms_zm_tracks_from_source(rec->src, tracks, 4, &tn) != ZM_OK || tn == 0) {
+    if (zcs_zm_tracks_from_source(rec->src, tracks, 4, &tn) != ZM_OK || tn == 0) {
         return;
     }
     rec->zm_tried = 1;
@@ -1027,9 +1027,9 @@ fallback:
     }
 }
 
-static void dash_segmenter_tick_nolock(zms_http_dash_segmenter *rec)
+static void dash_segmenter_tick_nolock(zcs_http_dash_segmenter *rec)
 {
-    zms_gop_slot slot;
+    zcs_gop_slot slot;
 
     if (!rec) {
         return;
@@ -1042,18 +1042,18 @@ static void dash_segmenter_tick_nolock(zms_http_dash_segmenter *rec)
     dash_ensure_zm_output(rec);
     if (rec->zm_pkg) {
         for (int n = 0;
-             n < ZMS_SEGMENT_REC_TICK_FRAMES && zms_gop_reader_read_muxed(rec->reader, &slot, 0) > 0;
+             n < ZCS_SEGMENT_REC_TICK_FRAMES && zcs_gop_reader_read_muxed(rec->reader, &slot, 0) > 0;
              ++n) {
             zm_packet pkt;
             if (!slot.data || slot.len == 0 || slot.config_frame) {
                 continue;
             }
-            if (slot.track == ZMS_TRACK_VIDEO) {
-                zms_gop_slot_refresh_play_key(&slot);
+            if (slot.track == ZCS_TRACK_VIDEO) {
+                zcs_gop_slot_refresh_play_key(&slot);
             }
             /* 时间戳先经 A/V timeline 换算成相对原点，再交给 packager 切段，
              * 保证音视频对齐。 */
-            zms_zm_packet_from_gop_slot(&slot, &pkt);
+            zcs_zm_packet_from_gop_slot(&slot, &pkt);
             pkt.dts_ms = (int64_t)dash_mux_dts_ms(rec, slot.track, slot.dts_ms);
             pkt.pts_ms = pkt.dts_ms;
             (void)zm_packager_write(rec->zm_pkg, &pkt);
@@ -1064,48 +1064,48 @@ static void dash_segmenter_tick_nolock(zms_http_dash_segmenter *rec)
      * dash_mpd。config 尚未拿到时回落到用源上报的 codec 预判。 */
     if (!rec->sent_video_cfg || rec->adapt_video < 0) {
         size_t clen = 0;
-        const uint8_t *cfg = zms_gop_queue_video_config(rec->src->gop_queue, &clen);
+        const uint8_t *cfg = zcs_gop_queue_video_config(rec->src->gop_queue, &clen);
         if (cfg && clen) {
             dash_feed_video_cfg(rec, cfg, clen);
             if (rec->adapt_video >= 0) {
                 rec->sent_video_cfg = 1;
             }
         } else if (rec->src && rec->src->video.ready &&
-                   rec->src->video.codec != ZMS_CODEC_INVALID) {
+                   rec->src->video.codec != ZCS_CODEC_INVALID) {
             rec->video_codec = rec->src->video.codec;
         }
     }
     if (rec->enable_audio && (!rec->sent_audio_cfg || rec->adapt_audio < 0)) {
         size_t clen = 0;
-        const uint8_t *cfg = zms_gop_queue_audio_config(rec->src->gop_queue, &clen);
+        const uint8_t *cfg = zcs_gop_queue_audio_config(rec->src->gop_queue, &clen);
         if (cfg && clen) {
             dash_feed_audio_cfg(rec, cfg, clen);
             if (rec->adapt_audio >= 0) {
                 rec->sent_audio_cfg = 1;
             }
-        } else if (rec->src && rec->src->audio.ready && rec->src->audio.codec == ZMS_CODEC_OPUS) {
+        } else if (rec->src && rec->src->audio.ready && rec->src->audio.codec == ZCS_CODEC_OPUS) {
             dash_ensure_opus_adaptation(rec);
         }
     }
     for (int n = 0;
-         n < ZMS_SEGMENT_REC_TICK_FRAMES && zms_gop_reader_read_muxed(rec->reader, &slot, 0) > 0;
+         n < ZCS_SEGMENT_REC_TICK_FRAMES && zcs_gop_reader_read_muxed(rec->reader, &slot, 0) > 0;
          ++n) {
         if (!slot.data || slot.len == 0 || slot.config_frame) {
             continue;
         }
-        if (slot.track == ZMS_TRACK_VIDEO) {
-            zms_gop_slot_refresh_play_key(&slot);
-            if (slot.codec == ZMS_CODEC_H265) {
+        if (slot.track == ZCS_TRACK_VIDEO) {
+            zcs_gop_slot_refresh_play_key(&slot);
+            if (slot.codec == ZCS_CODEC_H265) {
                 dash_feed_h265(rec, slot.data, slot.len, slot.dts_ms, slot.keyframe);
-            } else if (slot.codec == ZMS_CODEC_H264) {
+            } else if (slot.codec == ZCS_CODEC_H264) {
                 dash_feed_h264(rec, slot.data, slot.len, slot.dts_ms, slot.keyframe);
-            } else if (slot.codec == ZMS_CODEC_VP8 || slot.codec == ZMS_CODEC_VP9) {
+            } else if (slot.codec == ZCS_CODEC_VP8 || slot.codec == ZCS_CODEC_VP9) {
                 dash_feed_vpx(rec, slot.codec, slot.data, slot.len, slot.dts_ms, slot.keyframe);
-            } else if (slot.codec == ZMS_CODEC_AV1) {
+            } else if (slot.codec == ZCS_CODEC_AV1) {
                 dash_feed_av1(rec, slot.data, slot.len, slot.dts_ms, slot.keyframe);
             }
-        } else if (slot.track == ZMS_TRACK_AUDIO) {
-            if (slot.codec == ZMS_CODEC_OPUS) {
+        } else if (slot.track == ZCS_TRACK_AUDIO) {
+            if (slot.codec == ZCS_CODEC_OPUS) {
                 dash_feed_opus(rec, slot.data, slot.len, slot.dts_ms);
             } else {
                 dash_feed_aac(rec, slot.data, slot.len, slot.dts_ms);
@@ -1114,7 +1114,7 @@ static void dash_segmenter_tick_nolock(zms_http_dash_segmenter *rec)
     }
 }
 
-void zms_http_dash_segmenter_tick(zms_http_dash_segmenter *rec)
+void zcs_http_dash_segmenter_tick(zcs_http_dash_segmenter *rec)
 {
     if (!rec || !rec->mu) {
         return;
@@ -1126,10 +1126,10 @@ void zms_http_dash_segmenter_tick(zms_http_dash_segmenter *rec)
     zb_mutex_unlock(rec->mu);
 }
 
-zn_err_t zms_http_dash_segmenter_serve_mpd(zms_http_dash_segmenter *rec, char *out, size_t cap,
+zn_err_t zcs_http_dash_segmenter_serve_mpd(zcs_http_dash_segmenter *rec, char *out, size_t cap,
                                             size_t *out_len, int max_ticks, int *has_media)
 {
-    zms_http_dash_playlist *maker;
+    zcs_http_dash_playlist *maker;
     zn_err_t err;
 
     (void)max_ticks;
@@ -1145,11 +1145,11 @@ zn_err_t zms_http_dash_segmenter_serve_mpd(zms_http_dash_segmenter *rec, char *o
     }
 
     /* 已有分片时勿在每次 MPD 轮询时 pump：ffplay 高频刷新会抽空 reader，导致 MPD 停滞 */
-    if (!zms_http_dash_playlist_has_media_segment(maker)) {
+    if (!zcs_http_dash_playlist_has_media_segment(maker)) {
         dash_segmenter_serve_pump_mpd(rec);
     }
 
-    if (!zms_http_dash_playlist_has_media_segment(maker)) {
+    if (!zcs_http_dash_playlist_has_media_segment(maker)) {
         return ZN_ERR_INVALID;
     }
 
@@ -1175,7 +1175,7 @@ zn_err_t zms_http_dash_segmenter_serve_mpd(zms_http_dash_segmenter *rec, char *o
         zb_mutex_unlock(rec->mu);
     }
 
-    err = zms_http_dash_playlist_build_mpd(maker, out, cap, out_len);
+    err = zcs_http_dash_playlist_build_mpd(maker, out, cap, out_len);
     if (err == ZN_OK && has_media) {
         *has_media = 1;
     }
@@ -1191,11 +1191,11 @@ zn_err_t zms_http_dash_segmenter_serve_mpd(zms_http_dash_segmenter *rec, char *o
  * max_ticks 是“分片尚未就绪时最多推进几次切片”的上限，避免 HTTP 线程
  * 无限期停留在推进循环里。
  */
-zn_err_t zms_http_dash_segmenter_copy_segment(zms_http_dash_segmenter *rec, const char *name,
+zn_err_t zcs_http_dash_segmenter_copy_segment(zcs_http_dash_segmenter *rec, const char *name,
                                                uint8_t *buf, size_t cap, size_t *out_len,
                                                int max_ticks)
 {
-    zms_http_dash_playlist *maker;
+    zcs_http_dash_playlist *maker;
     int i;
 
     if (!rec || !rec->mu || !name || !buf || !out_len) {
@@ -1206,10 +1206,10 @@ zn_err_t zms_http_dash_segmenter_copy_segment(zms_http_dash_segmenter *rec, cons
         return ZN_ERR_INVALID;
     }
     if (max_ticks <= 0) {
-        max_ticks = ZMS_SEGMENT_REC_SERVE_MAX_TICKS;
+        max_ticks = ZCS_SEGMENT_REC_SERVE_MAX_TICKS;
     }
 
-    if (zms_http_dash_playlist_copy_segment(maker, name, buf, cap, out_len) == ZN_OK &&
+    if (zcs_http_dash_playlist_copy_segment(maker, name, buf, cap, out_len) == ZN_OK &&
         *out_len > 0) {
         return ZN_OK;
     }
@@ -1225,7 +1225,7 @@ zn_err_t zms_http_dash_segmenter_copy_segment(zms_http_dash_segmenter *rec, cons
         }
         dash_segmenter_tick_nolock(rec);
         zb_mutex_unlock(rec->mu);
-        if (zms_http_dash_playlist_copy_segment(maker, name, buf, cap, out_len) == ZN_OK &&
+        if (zcs_http_dash_playlist_copy_segment(maker, name, buf, cap, out_len) == ZN_OK &&
             *out_len > 0) {
             return ZN_OK;
         }
@@ -1240,10 +1240,10 @@ zn_err_t zms_http_dash_segmenter_copy_segment(zms_http_dash_segmenter *rec, cons
  * 大分片首选这个接口：拿的是内部 zn_buf 的引用，省掉一次 memcpy。
  * 分片可能因环形缓冲淘汰而短暂不存在，因此内部会按 max_ticks 推进重试。
  */
-zn_err_t zms_http_dash_segmenter_ref_segment(zms_http_dash_segmenter *rec, const char *name,
+zn_err_t zcs_http_dash_segmenter_ref_segment(zcs_http_dash_segmenter *rec, const char *name,
                                               zn_buf **out_buf, size_t *out_len, int max_ticks)
 {
-    zms_http_dash_playlist *maker;
+    zcs_http_dash_playlist *maker;
     int i;
 
     if (!rec || !rec->mu || !name || !out_buf || !out_len) {
@@ -1254,10 +1254,10 @@ zn_err_t zms_http_dash_segmenter_ref_segment(zms_http_dash_segmenter *rec, const
         return ZN_ERR_INVALID;
     }
     if (max_ticks <= 0) {
-        max_ticks = ZMS_SEGMENT_REC_SERVE_MAX_TICKS;
+        max_ticks = ZCS_SEGMENT_REC_SERVE_MAX_TICKS;
     }
 
-    if (zms_http_dash_playlist_ref_segment(maker, name, out_buf, out_len) == ZN_OK &&
+    if (zcs_http_dash_playlist_ref_segment(maker, name, out_buf, out_len) == ZN_OK &&
         *out_len > 0) {
         return ZN_OK;
     }
@@ -1270,7 +1270,7 @@ zn_err_t zms_http_dash_segmenter_ref_segment(zms_http_dash_segmenter *rec, const
         }
         dash_segmenter_tick_nolock(rec);
         zb_mutex_unlock(rec->mu);
-        if (zms_http_dash_playlist_ref_segment(maker, name, out_buf, out_len) == ZN_OK &&
+        if (zcs_http_dash_playlist_ref_segment(maker, name, out_buf, out_len) == ZN_OK &&
             *out_len > 0) {
             return ZN_OK;
         }
@@ -1279,14 +1279,14 @@ zn_err_t zms_http_dash_segmenter_ref_segment(zms_http_dash_segmenter *rec, const
     return ZN_ERR_INVALID;
 }
 
-static zn_err_t dash_ops_create_live(zms_media_source *src, const void *opts, void **out_rec)
+static zn_err_t dash_ops_create_live(zcs_media_source *src, const void *opts, void **out_rec)
 {
-    zms_http_dash_segmenter *rec;
+    zcs_http_dash_segmenter *rec;
 
     if (!out_rec) {
         return ZN_ERR_INVALID;
     }
-    rec = zms_http_dash_segmenter_create(src, (const zms_http_dash_segmenter_opts *)opts);
+    rec = zcs_http_dash_segmenter_create(src, (const zcs_http_dash_segmenter_opts *)opts);
     if (!rec) {
         return ZN_ERR_INVALID;
     }
@@ -1296,28 +1296,28 @@ static zn_err_t dash_ops_create_live(zms_media_source *src, const void *opts, vo
 
 static void dash_ops_destroy(void *rec)
 {
-    zms_http_dash_segmenter_destroy((zms_http_dash_segmenter *)rec);
+    zcs_http_dash_segmenter_destroy((zcs_http_dash_segmenter *)rec);
 }
 
 static void dash_ops_bind_timer(void *rec, zn_poller *poller)
 {
-    zms_http_dash_segmenter_bind_timer((zms_http_dash_segmenter *)rec, poller);
+    zcs_http_dash_segmenter_bind_timer((zcs_http_dash_segmenter *)rec, poller);
 }
 
 static void dash_ops_tick(void *rec)
 {
-    zms_http_dash_segmenter_tick((zms_http_dash_segmenter *)rec);
+    zcs_http_dash_segmenter_tick((zcs_http_dash_segmenter *)rec);
 }
 
 static void dash_ops_touch(void *rec)
 {
-    zms_http_dash_segmenter_touch((zms_http_dash_segmenter *)rec);
+    zcs_http_dash_segmenter_touch((zcs_http_dash_segmenter *)rec);
 }
 
-const zms_segment_recorder_ops *zms_http_dash_segment_recorder_ops(void)
+const zcs_segment_recorder_ops *zcs_http_dash_segment_recorder_ops(void)
 {
-    static const zms_segment_recorder_ops k_dash_ops = {
-        .name = ZMS_SEGMENT_REC_DASH,
+    static const zcs_segment_recorder_ops k_dash_ops = {
+        .name = ZCS_SEGMENT_REC_DASH,
         .create_live = dash_ops_create_live,
         .destroy = dash_ops_destroy,
         .bind_timer = dash_ops_bind_timer,

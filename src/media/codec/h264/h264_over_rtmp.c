@@ -2,8 +2,8 @@
  * @file h264_over_rtmp.c
  * @brief H.264 在 RTMP/FLV 的 AVCC、序列头与打包。
  */
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/media/codec/h264/h264_sps.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/media/codec/h264/h264_sps.h"
 #include "zm/codec/bitstream.h"
 #include "zm/format/flv.h"
 #include <stdio.h>
@@ -66,7 +66,7 @@ static void mpeg4_avc_bind_param_sets(struct mpeg4_avc_t *avc, const uint8_t *sp
     avc->pps[0].bytes = (uint16_t)pps_len;
 }
 
-zn_err_t zms_rtmp_avc_seq_header(const uint8_t *sps, size_t sps_len, const uint8_t *pps,
+zn_err_t zcs_rtmp_avc_seq_header(const uint8_t *sps, size_t sps_len, const uint8_t *pps,
                                   size_t pps_len, uint8_t *out, size_t cap, size_t *out_len)
 {
     struct mpeg4_avc_t avc;
@@ -103,13 +103,13 @@ static int pick_best_sps(struct mpeg4_avc_t *avc, const uint8_t **sps, size_t *s
     int i;
 
     for (i = 0; i < (int)avc->nb_sps; ++i) {
-        zms_h264_sps_info info;
+        zcs_h264_sps_info info;
         int area;
 
         if (!avc->sps[i].data || avc->sps[i].bytes == 0) {
             continue;
         }
-        if (zms_h264_sps_parse(avc->sps[i].data, avc->sps[i].bytes, &info)) {
+        if (zcs_h264_sps_parse(avc->sps[i].data, avc->sps[i].bytes, &info)) {
             area = info.width * info.height;
             if (area > best_area) {
                 best_area = area;
@@ -127,7 +127,7 @@ static int pick_best_sps(struct mpeg4_avc_t *avc, const uint8_t **sps, size_t *s
     return 1;
 }
 
-int zms_rtmp_avc_extract_sps_pps(const uint8_t *data, size_t len, const uint8_t **sps,
+int zcs_rtmp_avc_extract_sps_pps(const uint8_t *data, size_t len, const uint8_t **sps,
                                  size_t *sps_len, const uint8_t **pps, size_t *pps_len)
 {
     struct mpeg4_avc_t avc;
@@ -154,7 +154,7 @@ int zms_rtmp_avc_extract_sps_pps(const uint8_t *data, size_t len, const uint8_t 
     return 1;
 }
 
-int zms_rtmp_avc_extradata(const uint8_t *data, size_t len, const uint8_t **avcc, size_t *avcc_len)
+int zcs_rtmp_avc_extradata(const uint8_t *data, size_t len, const uint8_t **avcc, size_t *avcc_len)
 {
     if (!avcc || !avcc_len) {
         return 0;
@@ -163,7 +163,7 @@ int zms_rtmp_avc_extradata(const uint8_t *data, size_t len, const uint8_t **avcc
     return *avcc && *avcc_len > 0;
 }
 
-int zms_rtmp_avc_profile_level_id(const uint8_t *data, size_t len, char profile[16])
+int zcs_rtmp_avc_profile_level_id(const uint8_t *data, size_t len, char profile[16])
 {
     struct mpeg4_avc_t avc;
     size_t avcc_len = 0;
@@ -184,7 +184,7 @@ int zms_rtmp_avc_profile_level_id(const uint8_t *data, size_t len, char profile[
     return 1;
 }
 
-zn_err_t zms_h264_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
+zn_err_t zcs_h264_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
                                      const uint8_t *annexb, size_t len, int key, uint8_t *out,
                                      size_t cap, size_t *out_len)
 {
@@ -204,7 +204,7 @@ zn_err_t zms_h264_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
     }
 
     memset(&avc, 0, sizeof(avc));
-    if (video_cfg && zms_rtmp_avc_extradata(video_cfg, cfg_len, &avcc, &avcc_len) && avcc &&
+    if (video_cfg && zcs_rtmp_avc_extradata(video_cfg, cfg_len, &avcc, &avcc_len) && avcc &&
         avcc_len >= 7) {
         (void)mpeg4_avc_decoder_configuration_record_load(avcc, avcc_len, &avc);
     }
@@ -223,14 +223,14 @@ zn_err_t zms_h264_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
     return ZN_OK;
 }
 
-zn_err_t zms_rtmp_h264_annexb(const uint8_t *annexb, size_t len, uint32_t tag_dts_ms, int key,
+zn_err_t zcs_rtmp_h264_annexb(const uint8_t *annexb, size_t len, uint32_t tag_dts_ms, int key,
                                uint8_t *out, size_t cap, size_t *out_len)
 {
     (void)tag_dts_ms;
-    return zms_h264_over_rtmp_pack_es(NULL, 0, annexb, len, key, out, cap, out_len);
+    return zcs_h264_over_rtmp_pack_es(NULL, 0, annexb, len, key, out, cap, out_len);
 }
 
-zn_err_t zms_rtmp_video_tag_to_annexb(const uint8_t *body, size_t len, uint8_t *out, size_t cap,
+zn_err_t zcs_rtmp_video_tag_to_annexb(const uint8_t *body, size_t len, uint8_t *out, size_t cap,
                                        size_t *out_len, int *keyframe)
 {
     struct mpeg4_avc_t avc;

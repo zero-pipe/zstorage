@@ -4,8 +4,8 @@
  */
 #include "server_internal.h"
 #include "poller.h"
-#include "zms/play/dispatch.h"
-#include "zms/protocol/srt/srt_server.h"
+#include "zcs/play/dispatch.h"
+#include "zcs/protocol/srt/srt_server.h"
 #include "zn/util/log.h"
 #include <srt/srt.h>
 #include <stdlib.h>
@@ -33,14 +33,14 @@ static int srt_ensure_startup(void)
     return 0;
 }
 
-int zms_srt_server_available(void)
+int zcs_srt_server_available(void)
 {
     return 1;
 }
 
-#define ZMS_SRT_LIVE_LATENCY_MS 200
-#define ZMS_SRT_LIVE_PAYLOAD 1316 /* 188*7, MPEG-TS over SRT live */
-#define ZMS_SRT_RCVBUF_BYTES (24 * 1024 * 1024)
+#define ZCS_SRT_LIVE_LATENCY_MS 200
+#define ZCS_SRT_LIVE_PAYLOAD 1316 /* 188*7, MPEG-TS over SRT live */
+#define ZCS_SRT_RCVBUF_BYTES (24 * 1024 * 1024)
 
 /* 进程内单 SRT 服务；由 [srt] 配置填充，供 listener / accepted socket 共用。 */
 typedef struct {
@@ -50,12 +50,12 @@ typedef struct {
     int timeout_sec;
     int pkt_buf_size;
     char passphrase[128];
-} zms_srt_runtime_opts;
+} zcs_srt_runtime_opts;
 
-static zms_srt_runtime_opts g_srt_rt = {
-    ZMS_SRT_LIVE_LATENCY_MS, ZMS_SRT_RCVBUF_BYTES, ZMS_SRT_RCVBUF_BYTES, 5, 8192, {0}};
+static zcs_srt_runtime_opts g_srt_rt = {
+    ZCS_SRT_LIVE_LATENCY_MS, ZCS_SRT_RCVBUF_BYTES, ZCS_SRT_RCVBUF_BYTES, 5, 8192, {0}};
 
-static void srt_runtime_from_opts(const zms_srt_server_opts *opts)
+static void srt_runtime_from_opts(const zcs_srt_server_opts *opts)
 {
     int mul;
     int pkt;
@@ -70,7 +70,7 @@ static void srt_runtime_from_opts(const zms_srt_server_opts *opts)
         g_srt_rt.latency_ms = 20;
     }
     pkt = opts->pkt_buf_size > 0 ? opts->pkt_buf_size : 8192;
-    bytes = (long)pkt * (long)ZMS_SRT_LIVE_PAYLOAD;
+    bytes = (long)pkt * (long)ZCS_SRT_LIVE_PAYLOAD;
     if (bytes < 1024 * 1024) {
         bytes = 1024 * 1024;
     }
@@ -102,7 +102,7 @@ static void srt_apply_listener_opts(SRTSOCKET sock)
 {
     int transtype = SRTT_LIVE;
     int latency = g_srt_rt.latency_ms;
-    int payload = ZMS_SRT_LIVE_PAYLOAD;
+    int payload = ZCS_SRT_LIVE_PAYLOAD;
     int rcvbuf = g_srt_rt.rcvbuf;
     int sndbuf = g_srt_rt.sndbuf;
     int tsbpd = 1;
@@ -132,9 +132,9 @@ static void srt_apply_listener_opts(SRTSOCKET sock)
     }
 }
 
-void zms_srt_apply_session_opts(SRTSOCKET sock)
+void zcs_srt_apply_session_opts(SRTSOCKET sock)
 {
-    int payload = ZMS_SRT_LIVE_PAYLOAD;
+    int payload = ZCS_SRT_LIVE_PAYLOAD;
     int rcvbuf = g_srt_rt.rcvbuf;
     int sndbuf = g_srt_rt.sndbuf;
     int tlpktdrop = 1;
@@ -247,9 +247,9 @@ static SRTSOCKET srt_create_listener(const char *host, uint16_t port)
     return ls;
 }
 
-zms_srt_server *zms_srt_server_create(const zms_srt_server_opts *opts)
+zcs_srt_server *zcs_srt_server_create(const zcs_srt_server_opts *opts)
 {
-    zms_srt_server *srv;
+    zcs_srt_server *srv;
 
     if (!opts || !opts->poller) {
         return NULL;
@@ -259,10 +259,10 @@ zms_srt_server *zms_srt_server_create(const zms_srt_server_opts *opts)
         return NULL;
     }
 
-    zms_session_dispatch_register_all();
+    zcs_session_dispatch_register_all();
     srt_runtime_from_opts(opts);
 
-    srv = (zms_srt_server *)calloc(1, sizeof(*srv));
+    srv = (zcs_srt_server *)calloc(1, sizeof(*srv));
     if (!srv) {
         return NULL;
     }
@@ -277,13 +277,13 @@ zms_srt_server *zms_srt_server_create(const zms_srt_server_opts *opts)
     return srv;
 }
 
-zn_err_t zms_srt_server_start(zms_srt_server *srv)
+zn_err_t zcs_srt_server_start(zcs_srt_server *srv)
 {
     if (!srv || srv->running) {
         return ZN_ERR_INVALID;
     }
     srv->running = 1;
-    zms_srt_poller_init(srv);
+    zcs_srt_poller_init(srv);
     if (srv->epoll_id < 0 || !srv->io_timer) {
         srv->running = 0;
         return ZN_ERR_STATE;
@@ -292,25 +292,25 @@ zn_err_t zms_srt_server_start(zms_srt_server *srv)
     return ZN_OK;
 }
 
-void zms_srt_server_stop(zms_srt_server *srv)
+void zcs_srt_server_stop(zcs_srt_server *srv)
 {
     if (!srv || !srv->running) {
         return;
     }
     srv->running = 0;
-    zms_srt_poller_fini(srv);
+    zcs_srt_poller_fini(srv);
     if (srv->listen_sock != SRT_INVALID_SOCK) {
         srt_close(srv->listen_sock);
         srv->listen_sock = SRT_INVALID_SOCK;
     }
 }
 
-void zms_srt_server_destroy(zms_srt_server *srv)
+void zcs_srt_server_destroy(zcs_srt_server *srv)
 {
     if (!srv) {
         return;
     }
-    zms_srt_server_stop(srv);
+    zcs_srt_server_stop(srv);
     free(srv);
     if (g_srt_service_initialized) {
         srt_cleanup();
@@ -318,7 +318,7 @@ void zms_srt_server_destroy(zms_srt_server *srv)
     }
 }
 
-uint16_t zms_srt_server_port(const zms_srt_server *srv)
+uint16_t zcs_srt_server_port(const zcs_srt_server *srv)
 {
     return srv ? srv->port : 0;
 }

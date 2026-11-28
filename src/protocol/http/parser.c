@@ -2,7 +2,7 @@
  * @file parser.c
  * @brief HTTP 请求/响应解析。
  */
-#include "zms/protocol/http/parser.h"
+#include "zcs/protocol/http/parser.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,16 +40,16 @@ static const char *find_char(const char *s, size_t len, char c)
     return NULL;
 }
 
-static zn_err_t add_header(zms_http_parser *p, const char *key, size_t klen, const char *val,
+static zn_err_t add_header(zcs_http_parser *p, const char *key, size_t klen, const char *val,
                             size_t vlen)
 {
-    zms_http_header *h;
+    zcs_http_header *h;
     char *value;
 
-    if (!p || p->header_count >= ZMS_HTTP_HDR_MAX) {
+    if (!p || p->header_count >= ZCS_HTTP_HDR_MAX) {
         return ZN_ERR_BUFFER_TOO_SMALL;
     }
-    if (klen >= ZMS_HTTP_KEY_MAX || vlen >= ZMS_HTTP_VAL_MAX) {
+    if (klen >= ZCS_HTTP_KEY_MAX || vlen >= ZCS_HTTP_VAL_MAX) {
         return ZN_ERR_BUFFER_TOO_SMALL;
     }
     value = (char *)malloc(vlen + 1);
@@ -69,14 +69,14 @@ static zn_err_t add_header(zms_http_parser *p, const char *key, size_t klen, con
     return ZN_OK;
 }
 
-void zms_http_parser_init(zms_http_parser *p)
+void zcs_http_parser_init(zcs_http_parser *p)
 {
     if (p) {
         memset(p, 0, sizeof(*p));
     }
 }
 
-void zms_http_parser_clear(zms_http_parser *p)
+void zcs_http_parser_clear(zcs_http_parser *p)
 {
     if (!p) {
         return;
@@ -88,7 +88,7 @@ void zms_http_parser_clear(zms_http_parser *p)
     memset(p, 0, sizeof(*p));
 }
 
-static zn_err_t parse_lines(zms_http_parser *p, const char *buf, size_t size, size_t *body_off)
+static zn_err_t parse_lines(zcs_http_parser *p, const char *buf, size_t size, size_t *body_off)
 {
     const char *ptr = buf;
     const char *end = buf + size;
@@ -112,7 +112,7 @@ static zn_err_t parse_lines(zms_http_parser *p, const char *buf, size_t size, si
                 return ZN_ERR_INVALID;
             }
             size_t mlen = (size_t)(sp1 - ptr);
-            if (mlen >= ZMS_HTTP_METHOD_MAX) {
+            if (mlen >= ZCS_HTTP_METHOD_MAX) {
                 return ZN_ERR_INVALID;
             }
             memcpy(p->method, ptr, mlen);
@@ -124,7 +124,7 @@ static zn_err_t parse_lines(zms_http_parser *p, const char *buf, size_t size, si
             }
 
             size_t ulen = (size_t)(sp2 - (sp1 + 1));
-            if (ulen >= ZMS_HTTP_URL_MAX) {
+            if (ulen >= ZCS_HTTP_URL_MAX) {
                 return ZN_ERR_INVALID;
             }
             memcpy(p->url, sp1 + 1, ulen);
@@ -139,7 +139,7 @@ static zn_err_t parse_lines(zms_http_parser *p, const char *buf, size_t size, si
             }
 
             size_t plen = (size_t)(line_stop - (sp2 + 1));
-            if (plen >= ZMS_HTTP_PROTO_MAX) {
+            if (plen >= ZCS_HTTP_PROTO_MAX) {
                 return ZN_ERR_INVALID;
             }
             memcpy(p->protocol, sp2 + 1, plen);
@@ -175,12 +175,12 @@ static zn_err_t parse_lines(zms_http_parser *p, const char *buf, size_t size, si
     return ZN_ERR_INVALID;
 }
 
-zn_err_t zms_http_parser_parse_header(zms_http_parser *p, const char *buf, size_t size)
+zn_err_t zcs_http_parser_parse_header(zcs_http_parser *p, const char *buf, size_t size)
 {
     if (!p || !buf || size < 4) {
         return ZN_ERR_INVALID;
     }
-    zms_http_parser_clear(p);
+    zcs_http_parser_clear(p);
     size_t body_off = 0;
     zn_err_t err = parse_lines(p, buf, size, &body_off);
     if (err != ZN_OK) {
@@ -190,12 +190,12 @@ zn_err_t zms_http_parser_parse_header(zms_http_parser *p, const char *buf, size_
     return ZN_OK;
 }
 
-zn_err_t zms_http_parser_parse(zms_http_parser *p, const char *buf, size_t size)
+zn_err_t zcs_http_parser_parse(zcs_http_parser *p, const char *buf, size_t size)
 {
     if (!p || !buf) {
         return ZN_ERR_INVALID;
     }
-    zn_err_t err = zms_http_parser_parse_header(p, buf, size);
+    zn_err_t err = zcs_http_parser_parse_header(p, buf, size);
     if (err != ZN_OK) {
         return err;
     }
@@ -214,12 +214,12 @@ zn_err_t zms_http_parser_parse(zms_http_parser *p, const char *buf, size_t size)
     }
 
     if (body_off < size) {
-        return zms_http_parser_set_content(p, buf + body_off, size - body_off);
+        return zcs_http_parser_set_content(p, buf + body_off, size - body_off);
     }
     return ZN_OK;
 }
 
-zn_err_t zms_http_parser_set_content(zms_http_parser *p, const char *data, size_t len)
+zn_err_t zcs_http_parser_set_content(zcs_http_parser *p, const char *data, size_t len)
 {
     if (!p) {
         return ZN_ERR_INVALID;
@@ -246,7 +246,7 @@ zn_err_t zms_http_parser_set_content(zms_http_parser *p, const char *data, size_
     return ZN_OK;
 }
 
-const char *zms_http_parser_header(const zms_http_parser *p, const char *name)
+const char *zcs_http_parser_header(const zcs_http_parser *p, const char *name)
 {
     if (!p || !name) {
         return "";
@@ -259,7 +259,7 @@ const char *zms_http_parser_header(const zms_http_parser *p, const char *name)
     return "";
 }
 
-const char *zms_http_parser_full_url(const zms_http_parser *p, char *out, size_t out_cap)
+const char *zcs_http_parser_full_url(const zcs_http_parser *p, char *out, size_t out_cap)
 {
     if (!p || !out || out_cap == 0) {
         return "";

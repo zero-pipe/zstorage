@@ -2,7 +2,7 @@
  * @file thread_pool.c
  * @brief VOD / 通用线程池。
  */
-#include "zms/util/thread_pool.h"
+#include "zcs/util/thread_pool.h"
 #include "zn/poller/poller.h"
 #include "zn/thread/thread_pool.h"
 #include "zn/util/log.h"
@@ -10,9 +10,9 @@
 
 static zn_thread_pool *g_pool;
 
-void zms_vod_thread_pool_init(int thread_count)
+void zcs_vod_thread_pool_init(int thread_count)
 {
-    zms_vod_thread_pool_fini();
+    zcs_vod_thread_pool_fini();
     if (thread_count <= 0) {
         return;
     }
@@ -29,7 +29,7 @@ void zms_vod_thread_pool_init(int thread_count)
     }
 }
 
-void zms_vod_thread_pool_fini(void)
+void zcs_vod_thread_pool_fini(void)
 {
     if (g_pool) {
         zn_thread_pool_destroy(g_pool);
@@ -37,21 +37,21 @@ void zms_vod_thread_pool_fini(void)
     }
 }
 
-int zms_vod_thread_pool_enabled(void)
+int zcs_vod_thread_pool_enabled(void)
 {
     return g_pool != NULL;
 }
 
-typedef struct zms_vod_thread_pool_run_ctx {
+typedef struct zcs_vod_thread_pool_run_ctx {
     zn_poller *io;
-    zms_vod_thread_pool_work_fn work;
-    zms_vod_thread_pool_on_io_fn on_io;
+    zcs_vod_thread_pool_work_fn work;
+    zcs_vod_thread_pool_on_io_fn on_io;
     void *user;
-} zms_vod_thread_pool_run_ctx;
+} zcs_vod_thread_pool_run_ctx;
 
 static void on_io_tramp(void *arg)
 {
-    zms_vod_thread_pool_run_ctx *ctx = (zms_vod_thread_pool_run_ctx *)arg;
+    zcs_vod_thread_pool_run_ctx *ctx = (zcs_vod_thread_pool_run_ctx *)arg;
     if (ctx->on_io) {
         ctx->on_io(ctx->user);
     }
@@ -60,7 +60,7 @@ static void on_io_tramp(void *arg)
 
 static void work_tramp(void *arg)
 {
-    zms_vod_thread_pool_run_ctx *ctx = (zms_vod_thread_pool_run_ctx *)arg;
+    zcs_vod_thread_pool_run_ctx *ctx = (zcs_vod_thread_pool_run_ctx *)arg;
     if (ctx->work) {
         ctx->work(ctx->user);
     }
@@ -77,10 +77,10 @@ static void work_tramp(void *arg)
     }
 }
 
-zn_err_t zms_vod_thread_pool_run(zn_poller *io, zms_vod_thread_pool_work_fn work,
-                                  zms_vod_thread_pool_on_io_fn on_io, void *user)
+zn_err_t zcs_vod_thread_pool_run(zn_poller *io, zcs_vod_thread_pool_work_fn work,
+                                  zcs_vod_thread_pool_on_io_fn on_io, void *user)
 {
-    zms_vod_thread_pool_run_ctx *ctx;
+    zcs_vod_thread_pool_run_ctx *ctx;
 
     if (!work || !on_io) {
         return ZN_ERR_INVALID;
@@ -93,7 +93,7 @@ zn_err_t zms_vod_thread_pool_run(zn_poller *io, zms_vod_thread_pool_work_fn work
         return ZN_ERR_PLATFORM;
     }
 
-    ctx = (zms_vod_thread_pool_run_ctx *)calloc(1, sizeof(*ctx));
+    ctx = (zcs_vod_thread_pool_run_ctx *)calloc(1, sizeof(*ctx));
     if (!ctx) {
         return ZN_ERR_NOMEM;
     }

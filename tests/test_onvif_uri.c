@@ -1,15 +1,15 @@
 /**
  * @file test_onvif_uri.c
- * @brief ONVIF 取流地址注入凭据（zms_onvif_uri_with_auth）回归。
+ * @brief ONVIF 取流地址注入凭据（zcs_onvif_uri_with_auth）回归。
  */
-#include "zms/device/onvif/onvif.h"
+#include "zcs/device/onvif/onvif.h"
 #include <stdio.h>
 #include <string.h>
 
 static int check(const char *in, const char *u, const char *p, const char *want)
 {
     char out[512];
-    if (zms_onvif_uri_with_auth(in, u, p, out, sizeof(out)) != 0) {
+    if (zcs_onvif_uri_with_auth(in, u, p, out, sizeof(out)) != 0) {
         printf("FAIL rc in=%s\n", in);
         return 1;
     }

@@ -5,18 +5,18 @@
  * 槽位文件不是连续 PS 流：Zone A/B 是头和索引，Zone C 才是 PS 数据区，
  * 且文件末尾是预分配的空洞。所以不能直接交给文件 demuxer，这里：
  *   - open_file 解析槽位头，拿到 data_start/data_write_off；
- *   - pump 按块读数据区喂给现成的 zms_mpegps_demuxer；
+ *   - pump 按块读数据区喂给现成的 zcs_mpegps_demuxer；
  *   - seek 用槽位关键帧索引定位到"不晚于目标时间的最近关键帧"；
  *   - duration_ms 由索引首尾关键帧时间差给出。
  *
- * 输出统一成 ZMS_CONTAINER_PKT_MP4_SAMPLE，与 MP4/MKV/FLV 文件走同一条
+ * 输出统一成 ZCS_CONTAINER_PKT_MP4_SAMPLE，与 MP4/MKV/FLV 文件走同一条
  * VOD 路径，file_reader / FLV / HLS / RTSP 都无需改动。
  */
-#include "zms/media/container/container_registry.h"
-#include "zms/media/container/mpegps/mpegps_demuxer.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/media/container/container_registry.h"
+#include "zcs/media/container/mpegps/mpegps_demuxer.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
 #include "storage/zs_slot.h"
 
 #include <stdio.h>
@@ -28,11 +28,11 @@
 #define ZS_DEMUX_TRACK_AUDIO 2u
 
 typedef struct zs_slot_ctx {
-    zms_container_demux_opts cfg;
+    zcs_container_demux_opts cfg;
     zs_slot *slot;
     FILE *fp;
 
-    zms_mpegps_demuxer *ps;
+    zcs_mpegps_demuxer *ps;
     int ps_open;
 
     uint64_t read_off; /* 下一个待读的数据区偏移 */
@@ -43,8 +43,8 @@ typedef struct zs_slot_ctx {
 
     int has_video;
     int has_audio;
-    zms_codec_id video_codec;
-    zms_codec_id audio_codec;
+    zcs_codec_id video_codec;
+    zcs_codec_id audio_codec;
     uint32_t width;
     uint32_t height;
 
@@ -54,19 +54,19 @@ typedef struct zs_slot_ctx {
 
 /* ── PS 解出的帧 -> 容器包 ──────────────────────────────────────────────── */
 
-static void zs_demux_emit_config(zs_slot_ctx *c, zms_codec_id codec, const uint8_t *data,
+static void zs_demux_emit_config(zs_slot_ctx *c, zcs_codec_id codec, const uint8_t *data,
                                  size_t len, uint32_t sample_rate, uint32_t channels)
 {
-    zms_container_packet pkt;
+    zcs_container_packet pkt;
 
     if (!c->cfg.on_packet || !data || len == 0) {
         return;
     }
     memset(&pkt, 0, sizeof(pkt));
-    pkt.kind = ZMS_CONTAINER_PKT_MP4_SAMPLE;
+    pkt.kind = ZCS_CONTAINER_PKT_MP4_SAMPLE;
     pkt.codec = codec;
     pkt.config = 1;
-    pkt.track_id = codec == ZMS_CODEC_AAC ? ZS_DEMUX_TRACK_AUDIO : ZS_DEMUX_TRACK_VIDEO;
+    pkt.track_id = codec == ZCS_CODEC_AAC ? ZS_DEMUX_TRACK_AUDIO : ZS_DEMUX_TRACK_VIDEO;
     pkt.data = data;
     pkt.len = len;
     pkt.width = (uint16_t)c->width;
@@ -82,28 +82,28 @@ static void zs_demux_try_video_config(zs_slot_ctx *c, const uint8_t *data, size_
     const uint8_t *sps = NULL;
     const uint8_t *pps = NULL;
 
-    if (c->video_codec == ZMS_CODEC_H264) {
+    if (c->video_codec == ZCS_CODEC_H264) {
         size_t sps_len = 0;
         size_t pps_len = 0;
         uint8_t out[768];
         size_t out_len = 0;
 
-        if (!zms_h264_annexb_extract_sps_pps(data, len, &sps, &sps_len, &pps, &pps_len)) {
+        if (!zcs_h264_annexb_extract_sps_pps(data, len, &sps, &sps_len, &pps, &pps_len)) {
             return;
         }
-        if (zms_rtmp_avc_seq_header(sps, sps_len, pps, pps_len, out, sizeof(out), &out_len) !=
+        if (zcs_rtmp_avc_seq_header(sps, sps_len, pps, pps_len, out, sizeof(out), &out_len) !=
             ZN_OK) {
             return;
         }
         /* file_reader 的视频配置契约是“裸” AVCDecoderConfigurationRecord（以 avcC 的
          * configurationVersion=1 开头），它自己负责包 FLV 序列头。而
-         * zms_rtmp_avc_seq_header 返回的是“FLV 视频 tag 头(5B) + avcC”。这里剥掉前
+         * zcs_rtmp_avc_seq_header 返回的是“FLV 视频 tag 头(5B) + avcC”。这里剥掉前
          * 5 字节给裸 avcC，否则下游会再套一层头，SPS 偏移错位 -> 宽高 0x0 / No start code。 */
         if (out_len <= 5) {
             return;
         }
-        zs_demux_emit_config(c, ZMS_CODEC_H264, out + 5, out_len - 5, 0, 0);
-    } else if (c->video_codec == ZMS_CODEC_H265) {
+        zs_demux_emit_config(c, ZCS_CODEC_H264, out + 5, out_len - 5, 0, 0);
+    } else if (c->video_codec == ZCS_CODEC_H265) {
         const uint8_t *vps = NULL;
         size_t vps_len = 0;
         size_t sps_len = 0;
@@ -111,15 +111,15 @@ static void zs_demux_try_video_config(zs_slot_ctx *c, const uint8_t *data, size_
         uint8_t hvcc[1024];
         size_t hvcc_len = 0;
 
-        if (!zms_h265_annexb_extract_vps_sps_pps(data, len, &vps, &vps_len, &sps, &sps_len,
+        if (!zcs_h265_annexb_extract_vps_sps_pps(data, len, &vps, &vps_len, &sps, &sps_len,
                                                  &pps, &pps_len)) {
             return;
         }
-        if (zms_h265_hvcc_from_annexb(data, len, hvcc, sizeof(hvcc), &hvcc_len) != ZN_OK ||
+        if (zcs_h265_hvcc_from_annexb(data, len, hvcc, sizeof(hvcc), &hvcc_len) != ZN_OK ||
             hvcc_len == 0) {
             return;
         }
-        zs_demux_emit_config(c, ZMS_CODEC_H265, hvcc, hvcc_len, 0, 0);
+        zs_demux_emit_config(c, ZCS_CODEC_H265, hvcc, hvcc_len, 0, 0);
     }
 }
 
@@ -136,28 +136,28 @@ static uint32_t zs_demux_rel_ms(zs_slot_ctx *c, uint32_t ts_ms)
     return ts_ms > c->first_kf_ms ? ts_ms - (uint32_t)c->first_kf_ms : 0;
 }
 
-static void zs_demux_on_frame(const zms_frame *frame, void *user)
+static void zs_demux_on_frame(const zcs_frame *frame, void *user)
 {
     zs_slot_ctx *c = (zs_slot_ctx *)user;
-    zms_container_packet pkt;
+    zcs_container_packet pkt;
 
     if (!c || !frame || !c->cfg.on_packet || !frame->data || frame->size == 0) {
         return;
     }
-    if (frame->track == ZMS_TRACK_VIDEO && !c->has_video) {
+    if (frame->track == ZCS_TRACK_VIDEO && !c->has_video) {
         c->has_video = 1;
         c->video_codec = frame->codec;
-    } else if (frame->track == ZMS_TRACK_AUDIO && !c->has_audio) {
+    } else if (frame->track == ZCS_TRACK_AUDIO && !c->has_audio) {
         c->has_audio = 1;
         c->audio_codec = frame->codec;
     }
-    if (frame->track == ZMS_TRACK_VIDEO && frame->keyframe) {
+    if (frame->track == ZCS_TRACK_VIDEO && frame->keyframe) {
         zs_demux_try_video_config(c, frame->data, frame->size);
     }
 
     memset(&pkt, 0, sizeof(pkt));
-    pkt.kind = ZMS_CONTAINER_PKT_MP4_SAMPLE;
-    pkt.track_id = frame->track == ZMS_TRACK_AUDIO ? ZS_DEMUX_TRACK_AUDIO : ZS_DEMUX_TRACK_VIDEO;
+    pkt.kind = ZCS_CONTAINER_PKT_MP4_SAMPLE;
+    pkt.track_id = frame->track == ZCS_TRACK_AUDIO ? ZS_DEMUX_TRACK_AUDIO : ZS_DEMUX_TRACK_VIDEO;
     pkt.codec = frame->codec;
     pkt.pts_ms = zs_demux_rel_ms(c, (uint32_t)frame->pts_ms);
     pkt.dts_ms = zs_demux_rel_ms(c, frame->dts_ms ? (uint32_t)frame->dts_ms : (uint32_t)frame->pts_ms);
@@ -184,29 +184,29 @@ static int zs_demux_feed_more(zs_slot_ctx *c)
         return -1;
     }
     c->read_off += want;
-    if (zms_mpegps_demuxer_feed(c->ps, c->buf, want) != ZN_OK) {
+    if (zcs_mpegps_demuxer_feed(c->ps, c->buf, want) != ZN_OK) {
         return -1;
     }
     return 1;
 }
 
 typedef struct zs_probe_ctx {
-    zms_codec_id video;
-    zms_codec_id audio;
+    zcs_codec_id video;
+    zcs_codec_id audio;
     uint32_t width;
     uint32_t height;
 } zs_probe_ctx;
 
-static void zs_probe_on_frame(const zms_frame *frame, void *user)
+static void zs_probe_on_frame(const zcs_frame *frame, void *user)
 {
     zs_probe_ctx *pr = (zs_probe_ctx *)user;
 
     if (!pr || !frame) {
         return;
     }
-    if (frame->track == ZMS_TRACK_VIDEO && pr->video == ZMS_CODEC_INVALID) {
+    if (frame->track == ZCS_TRACK_VIDEO && pr->video == ZCS_CODEC_INVALID) {
         pr->video = frame->codec;
-    } else if (frame->track == ZMS_TRACK_AUDIO && pr->audio == ZMS_CODEC_INVALID) {
+    } else if (frame->track == ZCS_TRACK_AUDIO && pr->audio == ZCS_CODEC_INVALID) {
         pr->audio = frame->codec;
     }
 }
@@ -218,19 +218,19 @@ static void zs_probe_on_frame(const zms_frame *frame, void *user)
  */
 static void zs_demux_probe_codecs(zs_slot_ctx *c)
 {
-    zms_mpegps_demuxer_opts popts;
-    zms_mpegps_demuxer *probe;
+    zcs_mpegps_demuxer_opts popts;
+    zcs_mpegps_demuxer *probe;
     zs_probe_ctx pr;
     uint64_t off = zs_slot_data_start(c->slot);
     int rounds;
 
     memset(&pr, 0, sizeof(pr));
-    pr.video = ZMS_CODEC_INVALID;
-    pr.audio = ZMS_CODEC_INVALID;
+    pr.video = ZCS_CODEC_INVALID;
+    pr.audio = ZCS_CODEC_INVALID;
     memset(&popts, 0, sizeof(popts));
     popts.on_frame = zs_probe_on_frame;
     popts.user = &pr;
-    probe = zms_mpegps_demuxer_create(&popts);
+    probe = zcs_mpegps_demuxer_create(&popts);
     if (!probe) {
         return;
     }
@@ -242,19 +242,19 @@ static void zs_demux_probe_codecs(zs_slot_ctx *c)
             break;
         }
         off += want;
-        (void)zms_mpegps_demuxer_feed(probe, c->buf, want);
-        if (pr.video != ZMS_CODEC_INVALID && pr.audio != ZMS_CODEC_INVALID) {
+        (void)zcs_mpegps_demuxer_feed(probe, c->buf, want);
+        if (pr.video != ZCS_CODEC_INVALID && pr.audio != ZCS_CODEC_INVALID) {
             break;
         }
     }
-    zms_mpegps_demuxer_destroy(probe);
+    zcs_mpegps_demuxer_destroy(probe);
     c->video_codec = pr.video;
     c->audio_codec = pr.audio;
 }
 
 /* ── vtable ─────────────────────────────────────────────────────────────── */
 
-static void *zs_demux_create(const zms_container_demux_opts *opts)
+static void *zs_demux_create(const zcs_container_demux_opts *opts)
 {
     zs_slot_ctx *c;
 
@@ -272,7 +272,7 @@ static void *zs_demux_create(const zms_container_demux_opts *opts)
 static void zs_demux_close(zs_slot_ctx *c)
 {
     if (c->ps) {
-        zms_mpegps_demuxer_destroy(c->ps);
+        zcs_mpegps_demuxer_destroy(c->ps);
         c->ps = NULL;
     }
     if (c->slot) {
@@ -298,7 +298,7 @@ static zn_err_t zs_demux_open(void *ctx, const char *path)
     zs_slot_ctx *c = (zs_slot_ctx *)ctx;
     zs_keyframe_entry first;
     zs_keyframe_entry last;
-    zms_mpegps_demuxer_opts popts;
+    zcs_mpegps_demuxer_opts popts;
     uint32_t n;
 
     if (!c || !path || !path[0]) {
@@ -327,7 +327,7 @@ static zn_err_t zs_demux_open(void *ctx, const char *path)
     memset(&popts, 0, sizeof(popts));
     popts.on_frame = zs_demux_on_frame;
     popts.user = c;
-    c->ps = zms_mpegps_demuxer_create(&popts);
+    c->ps = zcs_mpegps_demuxer_create(&popts);
     if (!c->ps) {
         zs_demux_close(c);
         return ZN_ERR_NOMEM;
@@ -410,21 +410,21 @@ static zn_err_t zs_demux_input_tag(void *ctx, uint8_t type_id, const uint8_t *bo
     return ZN_ERR_INVALID;
 }
 
-const zms_container_demuxer_ops zms_container_zslot_ops = {
-    ZMS_CONTAINER_ZSLOT, "zslot",       zs_demux_create, zs_demux_destroy,
+const zcs_container_demuxer_ops zcs_container_zslot_ops = {
+    ZCS_CONTAINER_ZSLOT, "zslot",       zs_demux_create, zs_demux_destroy,
     zs_demux_feed,       zs_demux_input_tag, zs_demux_open, zs_demux_close_op,
     zs_demux_pump,       zs_demux_seek,      zs_demux_duration,
 };
 
 /* 供 file_reader 判断容器后取 codec。 */
-void zms_container_demux_zslot_codecs(void *ctx, zms_codec_id *video, zms_codec_id *audio)
+void zcs_container_demux_zslot_codecs(void *ctx, zcs_codec_id *video, zcs_codec_id *audio)
 {
     zs_slot_ctx *c = (zs_slot_ctx *)ctx;
 
     if (video) {
-        *video = c ? c->video_codec : ZMS_CODEC_INVALID;
+        *video = c ? c->video_codec : ZCS_CODEC_INVALID;
     }
     if (audio) {
-        *audio = c ? c->audio_codec : ZMS_CODEC_INVALID;
+        *audio = c ? c->audio_codec : ZCS_CODEC_INVALID;
     }
 }

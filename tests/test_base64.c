@@ -6,9 +6,9 @@
  * 统一后需保证：标准向量正确、无填充容忍、非法字符不越界、
  * 缓冲不足时明确报错而不是静默截断。
  */
-#include "zms/util/base64.h"
+#include "zcs/util/base64.h"
 
-#include "zms_test.h"
+#include "zcs_test.h"
 
 
 static int encode_expect(const char *in, const char *expect)
@@ -16,7 +16,7 @@ static int encode_expect(const char *in, const char *expect)
     char out[128];
     size_t n = 0;
 
-    CHECK(zms_base64_encode((const uint8_t *)in, strlen(in), out, sizeof(out), &n) == ZN_OK);
+    CHECK(zcs_base64_encode((const uint8_t *)in, strlen(in), out, sizeof(out), &n) == ZN_OK);
     if (strcmp(out, expect) != 0) {
         fprintf(stderr, "encode(%s) = %s, expect %s\n", in, out, expect);
         return 1;
@@ -30,7 +30,7 @@ static int decode_expect(const char *in, const char *expect, size_t expect_len)
     uint8_t out[128];
     size_t n = 0;
 
-    CHECK(zms_base64_decode(in, out, sizeof(out), &n) == ZN_OK);
+    CHECK(zcs_base64_decode(in, out, sizeof(out), &n) == ZN_OK);
     CHECK(n == expect_len);
     CHECK(memcmp(out, expect, expect_len) == 0);
     return 0;
@@ -71,9 +71,9 @@ int main(void)
     CHECK(decode_expect("Zm9v!!", "foo", 3) == 0);
 
     /* 6) 二进制往返 */
-    CHECK(zms_base64_encode(bin, sizeof(bin), enc, sizeof(enc), &n) == ZN_OK);
+    CHECK(zcs_base64_encode(bin, sizeof(bin), enc, sizeof(enc), &n) == ZN_OK);
     memset(dec, 0, sizeof(dec));
-    CHECK(zms_base64_decode(enc, dec, sizeof(dec), &n) == ZN_OK);
+    CHECK(zcs_base64_decode(enc, dec, sizeof(dec), &n) == ZN_OK);
     CHECK(n == sizeof(bin));
     for (i = 0; i < sizeof(bin); ++i) {
         CHECK(dec[i] == bin[i]);
@@ -84,9 +84,9 @@ int main(void)
         char tiny[8];
         size_t small = 0;
 
-        CHECK(zms_base64_encode(bin, sizeof(bin), tiny, sizeof(tiny), &small) ==
+        CHECK(zcs_base64_encode(bin, sizeof(bin), tiny, sizeof(tiny), &small) ==
               ZN_ERR_BUFFER_TOO_SMALL);
-        CHECK(zms_base64_decode("Zm9vYmFy", dec, 2, &small) == ZN_ERR_BUFFER_TOO_SMALL);
+        CHECK(zcs_base64_decode("Zm9vYmFy", dec, 2, &small) == ZN_ERR_BUFFER_TOO_SMALL);
         CHECK(small == 2); /* 已写入的字节数仍然有效 */
     }
 
@@ -96,10 +96,10 @@ int main(void)
         char buf[32];
         size_t len = 0;
 
-        CHECK(zms_base64_encoded_max(i) >= (i + 2) / 3 * 4);
-        CHECK(zms_base64_encode(raw, i, buf, sizeof(buf), &len) == ZN_OK);
-        CHECK(len <= zms_base64_encoded_max(i));
-        CHECK(zms_base64_decoded_max(len) >= i);
+        CHECK(zcs_base64_encoded_max(i) >= (i + 2) / 3 * 4);
+        CHECK(zcs_base64_encode(raw, i, buf, sizeof(buf), &len) == ZN_OK);
+        CHECK(len <= zcs_base64_encoded_max(i));
+        CHECK(zcs_base64_decoded_max(len) >= i);
     }
 
     printf("test_base64: OK\n");

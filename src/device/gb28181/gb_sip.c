@@ -10,7 +10,7 @@
  * 缓冲；除 gb_rand_hex 用了进程级静态计数器外，均可在任意线程调用。
  */
 #include "device/gb28181/gb28181_internal.h"
-#include "zms/util/md5.h"
+#include "zcs/util/md5.h"
 #include "zn/platform.h"
 
 #include <stdarg.h>
@@ -532,7 +532,7 @@ int gb_sip_build_request(char *out, size_t cap, const gb_sip_req_spec *s)
     gb_sb_printf(&w, "CSeq: %u %s\r\n", s->cseq, cseq_method);
     /* Max-Forwards=70 是 SIP 请求的惯用初值，每经过一跳递减，防止环路。 */
     gb_sb_puts(&w, "Max-Forwards: 70\r\n");
-    gb_sb_puts(&w, "User-Agent: ZMS-GB28181/0.1\r\n");
+    gb_sb_puts(&w, "User-Agent: ZCS-GB28181/0.1\r\n");
     if (s->local_ip && s->local_ip[0]) {
         if (tr[0] == 'T' || tr[0] == 't') {
             gb_sb_printf(&w, "Contact: <sip:%s@%s:%u;transport=%s>\r\n",
@@ -614,7 +614,7 @@ int gb_sip_build_response_ex(char *out, size_t cap, const gb_sip_msg *req, int s
     if ((v = gb_sip_hdr(req, "CSeq")) != NULL) {
         gb_sb_printf(&w, "CSeq: %s\r\n", v);
     }
-    gb_sb_puts(&w, "User-Agent: ZMS-GB28181/0.1\r\n");
+    gb_sb_puts(&w, "User-Agent: ZCS-GB28181/0.1\r\n");
     if (contact_user && local_ip && local_ip[0]) {
         /* Contact 告诉对端本端信令可达地址（后续 INVITE/ACK 用）。仅有本地
          * IP 时才写，避免给出无效地址。 */
@@ -765,16 +765,16 @@ int gb_digest_verify(const char *auth_header, const char *method, const char *ur
         user = r_user;
     }
     snprintf(src, sizeof(src), "%s:%s:%s", user, realm, pass);
-    zms_md5_hex_str(src, ha1);
+    zcs_md5_hex_str(src, ha1);
     snprintf(src, sizeof(src), "%s:%s", method, uri);
-    zms_md5_hex_str(src, ha2);
+    zcs_md5_hex_str(src, ha2);
     if (qop[0] && strstr(qop, "auth") != NULL) {
         snprintf(kd, sizeof(kd), "%s:%s:%s:%s:%s:%s", ha1, nonce, nc[0] ? nc : "00000001",
                  cnonce[0] ? cnonce : "", "auth", ha2);
     } else {
         snprintf(kd, sizeof(kd), "%s:%s:%s", ha1, nonce, ha2);
     }
-    zms_md5_hex_str(kd, expected);
+    zcs_md5_hex_str(kd, expected);
     return strcasecmp(expected, r_resp) == 0;
 }
 
@@ -794,9 +794,9 @@ int gb_digest_build_authorization(const char *user, const char *pass, const char
         return -1;
     }
     snprintf(src, sizeof(src), "%s:%s:%s", user, ch->realm, pass);
-    zms_md5_hex_str(src, ha1);
+    zcs_md5_hex_str(src, ha1);
     snprintf(src, sizeof(src), "%s:%s", method, uri);
-    zms_md5_hex_str(src, ha2);
+    zcs_md5_hex_str(src, ha2);
 
     use_qop = ch->qop[0] && strstr(ch->qop, "auth") != NULL;
     /* 服务器支持 auth qop 时，响应里必须带 nc（8 位十六进制，每请求递增）和
@@ -807,7 +807,7 @@ int gb_digest_build_authorization(const char *user, const char *pass, const char
     } else {
         snprintf(kd, sizeof(kd), "%s:%s:%s", ha1, ch->nonce, ha2);
     }
-    zms_md5_hex_str(kd, response);
+    zcs_md5_hex_str(kd, response);
 
     if (use_qop) {
         snprintf(out, cap,

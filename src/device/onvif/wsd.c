@@ -15,9 +15,9 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
-typedef SOCKET zms_wsd_sock_t;
-#define ZMS_WSD_INVALID INVALID_SOCKET
-#define zms_wsd_close closesocket
+typedef SOCKET zcs_wsd_sock_t;
+#define ZCS_WSD_INVALID INVALID_SOCKET
+#define zcs_wsd_close closesocket
 #else
 #include <arpa/inet.h>
 #include <errno.h>
@@ -25,13 +25,13 @@ typedef SOCKET zms_wsd_sock_t;
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
-typedef int zms_wsd_sock_t;
-#define ZMS_WSD_INVALID (-1)
-#define zms_wsd_close close
+typedef int zcs_wsd_sock_t;
+#define ZCS_WSD_INVALID (-1)
+#define zcs_wsd_close close
 #endif
 
-#define ZMS_WSD_GROUP "239.255.255.250"
-#define ZMS_WSD_PORT 3702
+#define ZCS_WSD_GROUP "239.255.255.250"
+#define ZCS_WSD_PORT 3702
 
 static const char k_probe_template[] =
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
@@ -47,7 +47,7 @@ static const char k_probe_template[] =
     "<e:Body><d:Probe><d:Types>dn:NetworkVideoTransmitter</d:Types></d:Probe></e:Body>"
     "</e:Envelope>";
 
-static void wsd_set_timeout(zms_wsd_sock_t fd, int timeout_ms)
+static void wsd_set_timeout(zcs_wsd_sock_t fd, int timeout_ms)
 {
 #if defined(_WIN32)
     DWORD tv = (DWORD)timeout_ms;
@@ -80,16 +80,16 @@ static int copy_first_url(const char *text, char *out, size_t cap)
 }
 
 /** 在 ProbeMatch XML 中提取 xaddr/uuid/scopes */
-static int parse_probe_match(const char *xml, zms_onvif_device *dev)
+static int parse_probe_match(const char *xml, zcs_onvif_device *dev)
 {
     char addrs[512];
     const char *match;
 
-    match = zms_xml_find(xml, "ProbeMatch");
+    match = zcs_xml_find(xml, "ProbeMatch");
     if (!match) {
         return -1;
     }
-    if (zms_xml_text_between(match, NULL, "XAddrs", addrs, sizeof(addrs)) != 0) {
+    if (zcs_xml_text_between(match, NULL, "XAddrs", addrs, sizeof(addrs)) != 0) {
         return -1;
     }
     if (copy_first_url(addrs, dev->xaddr, sizeof(dev->xaddr)) != 0) {
@@ -98,8 +98,8 @@ static int parse_probe_match(const char *xml, zms_onvif_device *dev)
     if (strncmp(dev->xaddr, "http://", 7) != 0) {
         return -1;
     }
-    (void)zms_xml_text_between(match, NULL, "Address", dev->uuid, sizeof(dev->uuid));
-    (void)zms_xml_text_between(match, NULL, "Scopes", dev->scopes, sizeof(dev->scopes));
+    (void)zcs_xml_text_between(match, NULL, "Address", dev->uuid, sizeof(dev->uuid));
+    (void)zcs_xml_text_between(match, NULL, "Scopes", dev->scopes, sizeof(dev->scopes));
     if (dev->name[0] == '\0') {
         const char *name = strstr(dev->scopes, "/name/");
         if (name) {
@@ -113,9 +113,9 @@ static int parse_probe_match(const char *xml, zms_onvif_device *dev)
     return 0;
 }
 
-int zms_onvif_discover(int timeout_ms, zms_onvif_device *out, size_t cap, size_t *count)
+int zcs_onvif_discover(int timeout_ms, zcs_onvif_device *out, size_t cap, size_t *count)
 {
-    zms_wsd_sock_t fd;
+    zcs_wsd_sock_t fd;
     struct sockaddr_in addr;
     char msgid[80];
     char probe[2048];
@@ -142,26 +142,26 @@ int zms_onvif_discover(int timeout_ms, zms_onvif_device *out, size_t cap, size_t
 #endif
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd == ZMS_WSD_INVALID) {
+    if (fd == ZCS_WSD_INVALID) {
         zn_warn("onvif: discovery socket failed");
         return -1;
     }
     setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, (const char *)&ttl, sizeof(ttl));
 
-    zms_onvif_make_msgid(msgid, sizeof(msgid));
+    zcs_onvif_make_msgid(msgid, sizeof(msgid));
     probe_len = snprintf(probe, sizeof(probe), k_probe_template, msgid);
     if (probe_len <= 0 || (size_t)probe_len >= sizeof(probe)) {
-        zms_wsd_close(fd);
+        zcs_wsd_close(fd);
         return -1;
     }
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(ZMS_WSD_PORT);
-    inet_pton(AF_INET, ZMS_WSD_GROUP, &addr.sin_addr);
+    addr.sin_port = htons(ZCS_WSD_PORT);
+    inet_pton(AF_INET, ZCS_WSD_GROUP, &addr.sin_addr);
     if (sendto(fd, probe, probe_len, 0, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         zn_warn("onvif: discovery sendto failed");
-        zms_wsd_close(fd);
+        zcs_wsd_close(fd);
         return -1;
     }
 
@@ -180,7 +180,7 @@ int zms_onvif_discover(int timeout_ms, zms_onvif_device *out, size_t cap, size_t
         }
         buf[n] = '\0';
         if (found < cap) {
-            zms_onvif_device dev;
+            zcs_onvif_device dev;
             size_t i;
             int dup = 0;
             memset(&dev, 0, sizeof(dev));
@@ -197,7 +197,7 @@ int zms_onvif_discover(int timeout_ms, zms_onvif_device *out, size_t cap, size_t
             }
         }
     }
-    zms_wsd_close(fd);
+    zcs_wsd_close(fd);
     if (count) {
         *count = found;
     }

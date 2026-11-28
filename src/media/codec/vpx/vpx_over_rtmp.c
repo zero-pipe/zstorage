@@ -2,15 +2,15 @@
  * @file vpx_over_rtmp.c
  * @brief VP8/VP9 在 RTMP/FLV 的 config 与序列头。
  */
-#include "zms/media/codec/vpx/vpx_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/vpx/vpx_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
 #include "zm/codec/bitstream.h"
 #include "zm/format/flv.h"
 #include <string.h>
 
-static uint32_t vpx_fourcc(zms_codec_id codec)
+static uint32_t vpx_fourcc(zcs_codec_id codec)
 {
-    if (codec == ZMS_CODEC_VP9) {
+    if (codec == ZCS_CODEC_VP9) {
         return FLV_VIDEO_FOURCC_VP9;
     }
     return FLV_VIDEO_FOURCC_VP8;
@@ -30,7 +30,7 @@ static int vpx_write_video_hdr(uint8_t *out, size_t cap, uint32_t fourcc, int ke
     return 5;
 }
 
-static const uint8_t *locate_vpxc(const uint8_t *data, size_t len, zms_codec_id codec,
+static const uint8_t *locate_vpxc(const uint8_t *data, size_t len, zcs_codec_id codec,
                                   size_t *vpxc_len)
 {
     struct flv_video_tag_header_t vh;
@@ -39,7 +39,7 @@ static const uint8_t *locate_vpxc(const uint8_t *data, size_t len, zms_codec_id 
     if (!data || !vpxc_len || len < 2) {
         return NULL;
     }
-    if (zms_flv_tag_video_codec(data, len) == codec) {
+    if (zcs_flv_tag_video_codec(data, len) == codec) {
         hdr = flv_video_tag_header_read(&vh, data, len);
         if (hdr > 0 && vh.avpacket == FLV_SEQUENCE_HEADER && (size_t)hdr < len) {
             *vpxc_len = len - (size_t)hdr;
@@ -50,20 +50,20 @@ static const uint8_t *locate_vpxc(const uint8_t *data, size_t len, zms_codec_id 
     return data;
 }
 
-int zms_vpx_over_rtmp_config_extradata(zms_codec_id codec, const uint8_t *data, size_t len,
+int zcs_vpx_over_rtmp_config_extradata(zcs_codec_id codec, const uint8_t *data, size_t len,
                                        const uint8_t **vpxc, size_t *vpxc_len)
 {
     if (!data || len < 2 || !vpxc || !vpxc_len) {
         return 0;
     }
-    if (codec != ZMS_CODEC_VP8 && codec != ZMS_CODEC_VP9) {
+    if (codec != ZCS_CODEC_VP8 && codec != ZCS_CODEC_VP9) {
         return 0;
     }
     *vpxc = locate_vpxc(data, len, codec, vpxc_len);
     return *vpxc && *vpxc_len > 0;
 }
 
-zn_err_t zms_vpx_flv_sequence_header(zms_codec_id codec, const uint8_t *cfg, size_t cfg_len,
+zn_err_t zcs_vpx_flv_sequence_header(zcs_codec_id codec, const uint8_t *cfg, size_t cfg_len,
                                       uint8_t *out, size_t cap, size_t *out_len)
 {
     struct webm_vpx_t vpx;
@@ -76,11 +76,11 @@ zn_err_t zms_vpx_flv_sequence_header(zms_codec_id codec, const uint8_t *cfg, siz
     if (!cfg || cfg_len < 2 || !out || !out_len) {
         return ZN_ERR_INVALID;
     }
-    if (codec != ZMS_CODEC_VP8 && codec != ZMS_CODEC_VP9) {
+    if (codec != ZCS_CODEC_VP8 && codec != ZCS_CODEC_VP9) {
         return ZN_ERR_INVALID;
     }
 
-    if (zms_flv_tag_video_codec(cfg, cfg_len) == codec && cfg_len <= cap) {
+    if (zcs_flv_tag_video_codec(cfg, cfg_len) == codec && cfg_len <= cap) {
         struct flv_video_tag_header_t vh;
         int rh = flv_video_tag_header_read(&vh, cfg, cfg_len);
         if (rh > 0 && vh.avpacket == FLV_SEQUENCE_HEADER) {
@@ -90,7 +90,7 @@ zn_err_t zms_vpx_flv_sequence_header(zms_codec_id codec, const uint8_t *cfg, siz
         }
     }
 
-    if (!zms_vpx_over_rtmp_config_extradata(codec, cfg, cfg_len, &vpxc, &vpxc_len) || !vpxc ||
+    if (!zcs_vpx_over_rtmp_config_extradata(codec, cfg, cfg_len, &vpxc, &vpxc_len) || !vpxc ||
         vpxc_len < 4) {
         return ZN_ERR_INVALID;
     }
@@ -113,7 +113,7 @@ zn_err_t zms_vpx_flv_sequence_header(zms_codec_id codec, const uint8_t *cfg, siz
     return ZN_OK;
 }
 
-zn_err_t zms_vpx_over_rtmp_pack_es(zms_codec_id codec, const uint8_t *video_cfg, size_t cfg_len,
+zn_err_t zcs_vpx_over_rtmp_pack_es(zcs_codec_id codec, const uint8_t *video_cfg, size_t cfg_len,
                                     const uint8_t *es, size_t len, int key, uint8_t *out,
                                     size_t cap, size_t *out_len)
 {
@@ -122,7 +122,7 @@ zn_err_t zms_vpx_over_rtmp_pack_es(zms_codec_id codec, const uint8_t *video_cfg,
 
     (void)video_cfg;
     (void)cfg_len;
-    if (codec != ZMS_CODEC_VP8 && codec != ZMS_CODEC_VP9) {
+    if (codec != ZCS_CODEC_VP8 && codec != ZCS_CODEC_VP9) {
         return ZN_ERR_INVALID;
     }
     if (!es || !out || len == 0) {

@@ -2,7 +2,7 @@
  * @file device_xml.c
  * @brief 设备协议共用 XML 辅助实现。
  */
-#include "zms/message/xml.h"
+#include "zcs/message/xml.h"
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -48,7 +48,7 @@ static int tag_is(const char *p, const char *name, size_t name_len)
     return (size_t)(q - local) == name_len && ascii_ieq_n(local, name, name_len);
 }
 
-const char *zms_xml_find_between(const char *from, const char *end, const char *name)
+const char *zcs_xml_find_between(const char *from, const char *end, const char *name)
 {
     size_t name_len;
     const char *p;
@@ -72,7 +72,7 @@ const char *zms_xml_find_between(const char *from, const char *end, const char *
     return NULL;
 }
 
-const char *zms_xml_find_tag_start(const char *from, const char *end, const char *name)
+const char *zcs_xml_find_tag_start(const char *from, const char *end, const char *name)
 {
     size_t name_len;
     const char *p;
@@ -94,9 +94,9 @@ const char *zms_xml_find_tag_start(const char *from, const char *end, const char
     return NULL;
 }
 
-const char *zms_xml_find(const char *from, const char *name)
+const char *zcs_xml_find(const char *from, const char *name)
 {
-    return zms_xml_find_between(from, NULL, name);
+    return zcs_xml_find_between(from, NULL, name);
 }
 
 static void xml_unescape(char *s)
@@ -137,7 +137,7 @@ static void xml_unescape(char *s)
     *w = '\0';
 }
 
-int zms_xml_text_between(const char *from, const char *end, const char *name, char *out,
+int zcs_xml_text_between(const char *from, const char *end, const char *name, char *out,
                          size_t cap)
 {
     const char *t;
@@ -148,7 +148,7 @@ int zms_xml_text_between(const char *from, const char *end, const char *name, ch
         return -1;
     }
     out[0] = '\0';
-    t = zms_xml_find_between(from, end, name);
+    t = zcs_xml_find_between(from, end, name);
     if (!t || (end && t >= end)) {
         return -1;
     }
@@ -173,12 +173,12 @@ int zms_xml_text_between(const char *from, const char *end, const char *name, ch
     return 0;
 }
 
-int zms_xml_text(const char *from, const char *name, char *out, size_t cap)
+int zcs_xml_text(const char *from, const char *name, char *out, size_t cap)
 {
-    return zms_xml_text_between(from, NULL, name, out, cap);
+    return zcs_xml_text_between(from, NULL, name, out, cap);
 }
 
-int zms_xml_attr(const char *from, const char *name, const char *attr, char *out, size_t cap)
+int zcs_xml_attr(const char *from, const char *name, const char *attr, char *out, size_t cap)
 {
     size_t name_len;
     size_t attr_len;
@@ -250,7 +250,7 @@ int zms_xml_attr(const char *from, const char *name, const char *attr, char *out
     return -1;
 }
 
-int zms_xml_local_name(const char *tag_start, char *out, size_t cap)
+int zcs_xml_local_name(const char *tag_start, char *out, size_t cap)
 {
     const char *p;
     const char *local;
@@ -287,7 +287,7 @@ int zms_xml_local_name(const char *tag_start, char *out, size_t cap)
     return out[0] ? 0 : -1;
 }
 
-int zms_xml_first_child_name(const char *xml, const char *parent, char *out, size_t cap)
+int zcs_xml_first_child_name(const char *xml, const char *parent, char *out, size_t cap)
 {
     const char *p;
     const char *gt;
@@ -296,7 +296,7 @@ int zms_xml_first_child_name(const char *xml, const char *parent, char *out, siz
         return -1;
     }
     out[0] = '\0';
-    p = zms_xml_find_tag_start(xml, NULL, parent);
+    p = zcs_xml_find_tag_start(xml, NULL, parent);
     if (!p) {
         return -1;
     }
@@ -311,10 +311,10 @@ int zms_xml_first_child_name(const char *xml, const char *parent, char *out, siz
     if (*p != '<') {
         return -1;
     }
-    return zms_xml_local_name(p, out, cap);
+    return zcs_xml_local_name(p, out, cap);
 }
 
-int zms_msg_xml_get(const zms_msg *m, const char *local_name, char *out, size_t cap)
+int zcs_msg_xml_get(const zcs_msg *m, const char *local_name, char *out, size_t cap)
 {
     const char *end;
 
@@ -325,10 +325,10 @@ int zms_msg_xml_get(const zms_msg *m, const char *local_name, char *out, size_t 
         return -1;
     }
     end = m->body + m->body_len;
-    return zms_xml_text_between(m->body, end, local_name, out, cap) == 0 ? 0 : -1;
+    return zcs_xml_text_between(m->body, end, local_name, out, cap) == 0 ? 0 : -1;
 }
 
-int zms_msg_xml_get_int(const zms_msg *m, const char *local_name, int def, int *out)
+int zcs_msg_xml_get_int(const zcs_msg *m, const char *local_name, int def, int *out)
 {
     char buf[32];
     char *endp = NULL;
@@ -337,7 +337,7 @@ int zms_msg_xml_get_int(const zms_msg *m, const char *local_name, int def, int *
     if (out) {
         *out = def;
     }
-    if (zms_msg_xml_get(m, local_name, buf, sizeof(buf)) != 0 || buf[0] == '\0') {
+    if (zcs_msg_xml_get(m, local_name, buf, sizeof(buf)) != 0 || buf[0] == '\0') {
         return -1;
     }
     v = strtol(buf, &endp, 10);
@@ -350,7 +350,7 @@ int zms_msg_xml_get_int(const zms_msg *m, const char *local_name, int def, int *
     return 0;
 }
 
-int zms_msg_xml_root(const zms_msg *m, const char *const *roots, int root_n, char *out,
+int zcs_msg_xml_root(const zcs_msg *m, const char *const *roots, int root_n, char *out,
                      size_t cap)
 {
     const char *end;
@@ -363,7 +363,7 @@ int zms_msg_xml_root(const zms_msg *m, const char *const *roots, int root_n, cha
     }
     end = m->body + m->body_len;
     for (int i = 0; i < root_n; ++i) {
-        if (roots[i] && zms_xml_find_tag_start(m->body, end, roots[i])) {
+        if (roots[i] && zcs_xml_find_tag_start(m->body, end, roots[i])) {
             size_t n = strlen(roots[i]);
 
             if (n >= cap) {

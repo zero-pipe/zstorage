@@ -2,8 +2,8 @@
  * @file digest.c
  * @brief RTSP Digest 鉴权：解析 WWW-Authenticate、构造并校验 Authorization。
  */
-#include "zms/protocol/rtsp/digest.h"
-#include "zms/util/md5.h"
+#include "zcs/protocol/rtsp/digest.h"
+#include "zcs/util/md5.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -48,7 +48,7 @@ static int extract_quoted(const char *hdr, const char *key, char *out, size_t ca
     return 0;
 }
 
-zms_rtsp_auth_scheme zms_rtsp_digest_parse_www_auth(const char *hdr, char *realm, size_t realm_cap,
+zcs_rtsp_auth_scheme zcs_rtsp_digest_parse_www_auth(const char *hdr, char *realm, size_t realm_cap,
                                                     char *nonce, size_t nonce_cap)
 {
     if (realm && realm_cap) {
@@ -58,40 +58,40 @@ zms_rtsp_auth_scheme zms_rtsp_digest_parse_www_auth(const char *hdr, char *realm
         nonce[0] = '\0';
     }
     if (!hdr || !hdr[0]) {
-        return ZMS_RTSP_AUTH_NONE;
+        return ZCS_RTSP_AUTH_NONE;
     }
 
     if (strncasecmp(hdr, "Basic", 5) == 0) {
         extract_quoted(skip_scheme(hdr), "realm", realm, realm_cap);
-        return ZMS_RTSP_AUTH_BASIC;
+        return ZCS_RTSP_AUTH_BASIC;
     }
 
     const char *p = skip_scheme(hdr);
     if (strstr(p, "realm=") == NULL) {
-        return ZMS_RTSP_AUTH_NONE;
+        return ZCS_RTSP_AUTH_NONE;
     }
     extract_quoted(p, "realm", realm, realm_cap);
     if (nonce && nonce_cap) {
         extract_quoted(p, "nonce", nonce, nonce_cap);
     }
-    return ZMS_RTSP_AUTH_DIGEST;
+    return ZCS_RTSP_AUTH_DIGEST;
 }
 
 static void md5_join3_hex(const char *a, const char *b, const char *c, char out[33])
 {
     char buf[1024];
     snprintf(buf, sizeof(buf), "%s:%s:%s", a ? a : "", b ? b : "", c ? c : "");
-    zms_md5_hex_str(buf, out);
+    zcs_md5_hex_str(buf, out);
 }
 
 static void md5_method_url_hex(const char *method, const char *url, char out[33])
 {
     char buf[1024];
     snprintf(buf, sizeof(buf), "%s:%s", method ? method : "", url ? url : "");
-    zms_md5_hex_str(buf, out);
+    zcs_md5_hex_str(buf, out);
 }
 
-int zms_rtsp_digest_build_authorization(const char *method, const char *url, const char *user,
+int zcs_rtsp_digest_build_authorization(const char *method, const char *url, const char *user,
                                         const char *pass, const char *realm, const char *nonce,
                                         char *out, size_t out_cap)
 {
@@ -139,7 +139,7 @@ static int parse_basic_auth(const char *auth, char *user, size_t user_cap, char 
     return -1;
 }
 
-int zms_rtsp_digest_verify(const char *method, const char *url, const char *user, const char *pass,
+int zcs_rtsp_digest_verify(const char *method, const char *url, const char *user, const char *pass,
                            const char *realm, const char *nonce, const char *authorization)
 {
     if (!authorization || !user || !pass || !realm || !method || !url || !nonce) {

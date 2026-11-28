@@ -2,10 +2,10 @@
  * @file hex_decode.c
  * @brief 十六进制解码。
  */
-#include "zms/util/hex_decode.h"
+#include "zcs/util/hex_decode.h"
 #include <ctype.h>
 
-zn_err_t zms_hex_decode(const char *hex, uint8_t *out, size_t cap, size_t *out_len)
+zn_err_t zcs_hex_decode(const char *hex, uint8_t *out, size_t cap, size_t *out_len)
 {
     if (!hex || !out) {
         return ZN_ERR_INVALID;

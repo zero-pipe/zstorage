@@ -2,8 +2,8 @@
  * @file aac_over_rtmp.c
  * @brief AAC 在 RTMP/FLV 的 extradata、序列头与帧打包。
  */
-#include "zms/media/codec/aac/aac_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/aac/aac_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
 #include "zm/format/flv.h"
 #include <stdio.h>
 #include <string.h>
@@ -12,7 +12,7 @@ static const int k_aac_rates[] = {
     96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
 };
 
-int zms_rtmp_aac_extradata(const uint8_t *data, size_t len, const uint8_t **asc, size_t *asc_len)
+int zcs_rtmp_aac_extradata(const uint8_t *data, size_t len, const uint8_t **asc, size_t *asc_len)
 {
     struct flv_audio_tag_header_t a;
     int hdr;
@@ -20,7 +20,7 @@ int zms_rtmp_aac_extradata(const uint8_t *data, size_t len, const uint8_t **asc,
     if (!asc || !asc_len || !data || len < 3) {
         return 0;
     }
-    if (zms_flv_tag_audio_codec(data, len) != ZMS_CODEC_AAC) {
+    if (zcs_flv_tag_audio_codec(data, len) != ZCS_CODEC_AAC) {
         return 0;
     }
     hdr = flv_audio_tag_header_read(&a, data, len);
@@ -32,7 +32,7 @@ int zms_rtmp_aac_extradata(const uint8_t *data, size_t len, const uint8_t **asc,
     return *asc_len > 0;
 }
 
-zn_err_t zms_rtmp_aac_seq_header(const uint8_t *asc, size_t asc_len, uint8_t *out, size_t cap,
+zn_err_t zcs_rtmp_aac_seq_header(const uint8_t *asc, size_t asc_len, uint8_t *out, size_t cap,
                                   size_t *out_len)
 {
     if (!asc || asc_len == 0 || !out || cap < 2 + asc_len) {
@@ -47,7 +47,7 @@ zn_err_t zms_rtmp_aac_seq_header(const uint8_t *asc, size_t asc_len, uint8_t *ou
     return ZN_OK;
 }
 
-zn_err_t zms_rtmp_aac_frame(const uint8_t *aac, size_t len, uint32_t tag_dts_ms, uint8_t *out,
+zn_err_t zcs_rtmp_aac_frame(const uint8_t *aac, size_t len, uint32_t tag_dts_ms, uint8_t *out,
                              size_t cap, size_t *out_len)
 {
     (void)tag_dts_ms;
@@ -63,7 +63,7 @@ zn_err_t zms_rtmp_aac_frame(const uint8_t *aac, size_t len, uint32_t tag_dts_ms,
     return ZN_OK;
 }
 
-int zms_aac_build_config_hex(int sample_rate, int channels, char *hex, size_t hex_cap)
+int zcs_aac_build_config_hex(int sample_rate, int channels, char *hex, size_t hex_cap)
 {
     if (!hex || hex_cap < 5) {
         return 0;
@@ -86,7 +86,7 @@ int zms_aac_build_config_hex(int sample_rate, int channels, char *hex, size_t he
     return n >= 4 ? 1 : 0;
 }
 
-int zms_aac_adts_parse(const uint8_t *adts, size_t len, int *sample_rate, int *channels)
+int zcs_aac_adts_parse(const uint8_t *adts, size_t len, int *sample_rate, int *channels)
 {
     int sr_idx;
     int ch;
@@ -111,7 +111,7 @@ int zms_aac_adts_parse(const uint8_t *adts, size_t len, int *sample_rate, int *c
     return 1;
 }
 
-int zms_aac_parse_asc(const uint8_t *asc, size_t len, int *sample_rate, int *channels)
+int zcs_aac_parse_asc(const uint8_t *asc, size_t len, int *sample_rate, int *channels)
 {
     int sr_idx;
     int ch;

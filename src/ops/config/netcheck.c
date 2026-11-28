@@ -6,7 +6,7 @@
  * 改 DHCP、从测试机搬到现场之后，配置里的旧 IP 不会报错，只会表现为
  * "信令成功但浏览器黑屏"——排查成本很高。启动时比对一次能把这个坑挡在前面。
  */
-#include "zms/ops/config/netcheck.h"
+#include "zcs/ops/config/netcheck.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -19,7 +19,7 @@
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
-int zms_netcheck_host_ip_present(const char *ip)
+int zcs_netcheck_host_ip_present(const char *ip)
 {
     ULONG buf_len = 16 * 1024;
     IP_ADAPTER_ADDRESSES *buf = NULL;
@@ -77,7 +77,7 @@ int zms_netcheck_host_ip_present(const char *ip)
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-int zms_netcheck_host_ip_present(const char *ip)
+int zcs_netcheck_host_ip_present(const char *ip)
 {
     struct ifaddrs *ifa = NULL;
     struct ifaddrs *p;

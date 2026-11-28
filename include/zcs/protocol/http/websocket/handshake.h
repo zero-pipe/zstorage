@@ -1,0 +1,26 @@
+/**
+ * @file handshake.h
+ * @brief WebSocket 握手。
+ */
+#ifndef ZCS_PROTOCOL_HTTP_WEBSOCKET_HANDSHAKE_H
+#define ZCS_PROTOCOL_HTTP_WEBSOCKET_HANDSHAKE_H
+
+#include "zcs/zcs_export.h"
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** RFC6455 accept key = base64(sha1(key + GUID))。out 29 字节 + NUL。 */
+ZCS_API int zcs_ws_handshake_accept(const char *sec_websocket_key, char *accept_out,
+                                    size_t accept_cap);
+
+/** 101 Switching Protocols 响应体（仅头）。返回写入长度或 0。 */
+ZCS_API size_t zcs_ws_handshake_response(char *out, size_t cap, const char *accept);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* ZCS_PROTOCOL_HTTP_WEBSOCKET_HANDSHAKE_H */

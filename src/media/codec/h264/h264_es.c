@@ -2,7 +2,7 @@
  * @file h264_es.c
  * @brief H.264 Annex-B 判断、SPS/PPS 提取与 slice 检测。
  */
-#include "zms/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h264/h264_es.h"
 #include "zm/codec/bitstream.h"
 #include <string.h>
 
@@ -331,12 +331,12 @@ static int h264_annexb_has_nal_type(const uint8_t *annexb, size_t len, int want_
     return 0;
 }
 
-int zms_h264_es_is_annexb(const uint8_t *data, size_t len)
+int zcs_h264_es_is_annexb(const uint8_t *data, size_t len)
 {
     return h264_es_is_annexb_sample(data, len, 0);
 }
 
-int zms_h264_es_extract_sps_pps(const uint8_t *data, size_t len, const uint8_t **sps,
+int zcs_h264_es_extract_sps_pps(const uint8_t *data, size_t len, const uint8_t **sps,
                                 size_t *sps_len, const uint8_t **pps, size_t *pps_len)
 {
     struct mpeg4_avc_t avc;
@@ -344,8 +344,8 @@ int zms_h264_es_extract_sps_pps(const uint8_t *data, size_t len, const uint8_t *
     if (!data || len == 0 || !sps || !sps_len || !pps || !pps_len) {
         return 0;
     }
-    if (zms_h264_es_is_annexb(data, len)) {
-        return zms_h264_annexb_extract_sps_pps(data, len, sps, sps_len, pps, pps_len);
+    if (zcs_h264_es_is_annexb(data, len)) {
+        return zcs_h264_annexb_extract_sps_pps(data, len, sps, sps_len, pps, pps_len);
     }
     if (h264_avcc_es_extract_sps_pps(data, len, sps, sps_len, pps, pps_len)) {
         return 1;
@@ -362,18 +362,18 @@ int zms_h264_es_extract_sps_pps(const uint8_t *data, size_t len, const uint8_t *
     return 0;
 }
 
-int zms_h264_es_has_slice(const uint8_t *data, size_t len)
+int zcs_h264_es_has_slice(const uint8_t *data, size_t len)
 {
     if (!data || len < 5) {
         return 0;
     }
-    if (zms_h264_es_is_annexb(data, len)) {
+    if (zcs_h264_es_is_annexb(data, len)) {
         return h264_annexb_has_nal_type(data, len, 1) || h264_annexb_has_nal_type(data, len, 5);
     }
     return h264_avcc_es_has_slice(data, len);
 }
 
-zn_err_t zms_h264_es_to_annexb(const uint8_t *data, size_t len, uint8_t *out, size_t cap,
+zn_err_t zcs_h264_es_to_annexb(const uint8_t *data, size_t len, uint8_t *out, size_t cap,
                                 size_t *out_len)
 {
     struct mpeg4_avc_t avc;
@@ -387,7 +387,7 @@ zn_err_t zms_h264_es_to_annexb(const uint8_t *data, size_t len, uint8_t *out, si
     if (!data || len == 0) {
         return ZN_ERR_INVALID;
     }
-    if (zms_h264_es_is_annexb(data, len)) {
+    if (zcs_h264_es_is_annexb(data, len)) {
         if (len > cap) {
             return ZN_ERR_BUFFER_TOO_SMALL;
         }
@@ -424,7 +424,7 @@ static size_t annexb_write_nal(uint8_t *out, size_t cap, size_t pos, const uint8
     return pos + len;
 }
 
-int zms_h264_annexb_is_sync_key(const uint8_t *annexb, size_t len)
+int zcs_h264_annexb_is_sync_key(const uint8_t *annexb, size_t len)
 {
     h264_scan_ctx ctx;
 
@@ -436,7 +436,7 @@ int zms_h264_annexb_is_sync_key(const uint8_t *annexb, size_t len)
     return ctx.found;
 }
 
-int zms_h264_annexb_is_idr(const uint8_t *annexb, size_t len)
+int zcs_h264_annexb_is_idr(const uint8_t *annexb, size_t len)
 {
     h264_scan_ctx ctx;
 
@@ -468,7 +468,7 @@ static void h264_scan_first_vcl(void *param, const uint8_t *nalu, size_t bytes)
     }
 }
 
-int zms_h264_annexb_first_slice(const uint8_t *annexb, size_t len)
+int zcs_h264_annexb_first_slice(const uint8_t *annexb, size_t len)
 {
     h264_first_mb_ctx ctx;
 
@@ -480,21 +480,21 @@ int zms_h264_annexb_first_slice(const uint8_t *annexb, size_t len)
     return !ctx.found || ctx.first_mb;
 }
 
-int zms_h264_es_starts_access_unit(const uint8_t *es, size_t len)
+int zcs_h264_es_starts_access_unit(const uint8_t *es, size_t len)
 {
     if (!es || len < 4) {
         return 1;
     }
-    if (!zms_h264_es_has_slice(es, len)) {
+    if (!zcs_h264_es_has_slice(es, len)) {
         return 0;
     }
-    if (!zms_h264_es_is_annexb(es, len)) {
+    if (!zcs_h264_es_is_annexb(es, len)) {
         return 1;
     }
-    return zms_h264_annexb_first_slice(es, len);
+    return zcs_h264_annexb_first_slice(es, len);
 }
 
-int zms_h264_annexb_extract_sps_pps(const uint8_t *annexb, size_t len, const uint8_t **sps,
+int zcs_h264_annexb_extract_sps_pps(const uint8_t *annexb, size_t len, const uint8_t **sps,
                                     size_t *sps_len, const uint8_t **pps, size_t *pps_len)
 {
     h264_param_ctx ctx;
@@ -511,7 +511,7 @@ int zms_h264_annexb_extract_sps_pps(const uint8_t *annexb, size_t len, const uin
     return ctx.got == 3;
 }
 
-zn_err_t zms_h264_annexb_prepend_sps_pps(const uint8_t *sps, size_t sps_len, const uint8_t *pps,
+zn_err_t zcs_h264_annexb_prepend_sps_pps(const uint8_t *sps, size_t sps_len, const uint8_t *pps,
                                           size_t pps_len, const uint8_t *body, size_t body_len,
                                           uint8_t *out, size_t cap, size_t *out_len)
 {
@@ -528,7 +528,7 @@ zn_err_t zms_h264_annexb_prepend_sps_pps(const uint8_t *sps, size_t sps_len, con
         size_t bsl = 0;
         size_t bpl = 0;
 
-        if (zms_h264_annexb_extract_sps_pps(body, body_len, &bs, &bsl, &bp, &bpl)) {
+        if (zcs_h264_annexb_extract_sps_pps(body, body_len, &bs, &bsl, &bp, &bpl)) {
             if (body_len > cap) {
                 return ZN_ERR_BUFFER_TOO_SMALL;
             }
@@ -583,7 +583,7 @@ zn_err_t zms_h264_annexb_prepend_sps_pps(const uint8_t *sps, size_t sps_len, con
     }
 }
 
-int zms_h264_avcc_extract_sps_pps(const uint8_t *avcc, size_t len, const uint8_t **sps,
+int zcs_h264_avcc_extract_sps_pps(const uint8_t *avcc, size_t len, const uint8_t **sps,
                                   size_t *sps_len, const uint8_t **pps, size_t *pps_len)
 {
     struct mpeg4_avc_t avc;
@@ -608,7 +608,7 @@ int zms_h264_avcc_extract_sps_pps(const uint8_t *avcc, size_t len, const uint8_t
     return 1;
 }
 
-zn_err_t zms_h264_annexb_copy_vcl(const uint8_t *annexb, size_t len, uint8_t *out, size_t cap,
+zn_err_t zcs_h264_annexb_copy_vcl(const uint8_t *annexb, size_t len, uint8_t *out, size_t cap,
                                    size_t *out_len)
 {
     h264_vcl_ctx ctx;

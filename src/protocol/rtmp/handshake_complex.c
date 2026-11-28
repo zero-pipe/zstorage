@@ -289,7 +289,7 @@ static int hs_calc_digest(const hs_c1s1 *p, const uint8_t *key, size_t key_len, 
     if (hs_joined(p, joined, 0) != (int)sizeof(joined)) {
         return 0;
     }
-    zms_rtmp_handshake_hmac_sha256(key, key_len, joined, sizeof(joined), digest);
+    zcs_rtmp_handshake_hmac_sha256(key, key_len, joined, sizeof(joined), digest);
     return 1;
 }
 
@@ -363,12 +363,12 @@ static int hs_create_s2(uint8_t s2[HS_SIZE], const hs_c1s1 *c1)
 {
     hs_random(s2, HS_SIZE - 32);
     uint8_t temp[32];
-    zms_rtmp_handshake_hmac_sha256(k_fms_key, 68, c1->digest.digest, 32, temp);
-    zms_rtmp_handshake_hmac_sha256(temp, 32, s2, HS_SIZE - 32, s2 + HS_SIZE - 32);
+    zcs_rtmp_handshake_hmac_sha256(k_fms_key, 68, c1->digest.digest, 32, temp);
+    zcs_rtmp_handshake_hmac_sha256(temp, 32, s2, HS_SIZE - 32, s2 + HS_SIZE - 32);
     return 1;
 }
 
-int zms_rtmp_handshake_detect_complex(const uint8_t c1[HS_SIZE])
+int zcs_rtmp_handshake_detect_complex(const uint8_t c1[HS_SIZE])
 {
     hs_c1s1 c1p = {0};
     if (hs_parse(&c1p, c1, 0) && hs_validate_c1(&c1p)) {
@@ -385,7 +385,7 @@ int zms_rtmp_handshake_detect_complex(const uint8_t c1[HS_SIZE])
     return 0;
 }
 
-int zms_rtmp_handshake_build_complex(const uint8_t c1[HS_SIZE], uint8_t s1[HS_SIZE], uint8_t s2[HS_SIZE])
+int zcs_rtmp_handshake_build_complex(const uint8_t c1[HS_SIZE], uint8_t s1[HS_SIZE], uint8_t s2[HS_SIZE])
 {
     hs_c1s1 c1p = {0}, s1p = {0};
     int ok = 0;
@@ -417,7 +417,7 @@ out:
     return 0;
 }
 
-int zms_rtmp_handshake_validate_c2(const uint8_t s1[HS_SIZE], const uint8_t c2[HS_SIZE])
+int zcs_rtmp_handshake_validate_c2(const uint8_t s1[HS_SIZE], const uint8_t c2[HS_SIZE])
 {
     hs_c1s1 s1p = {0};
     uint8_t temp[32], sig[32];
@@ -429,8 +429,8 @@ int zms_rtmp_handshake_validate_c2(const uint8_t s1[HS_SIZE], const uint8_t c2[H
             return 0;
         }
     }
-    zms_rtmp_handshake_hmac_sha256(k_fp_key, 62, s1p.digest.digest, 32, temp);
-    zms_rtmp_handshake_hmac_sha256(temp, 32, c2, HS_SIZE - 32, sig);
+    zcs_rtmp_handshake_hmac_sha256(k_fp_key, 62, s1p.digest.digest, 32, temp);
+    zcs_rtmp_handshake_hmac_sha256(temp, 32, c2, HS_SIZE - 32, sig);
     int ok = memcmp(sig, c2 + HS_SIZE - 32, 32) == 0;
     hs_free(&s1p);
     return ok;

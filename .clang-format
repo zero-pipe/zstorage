@@ -1,4 +1,4 @@
-# ZMS 代码风格（clang-format）
+# ZCS 代码风格（clang-format）
 #
 # 用途：CI 上以 --dry-run 做「格式漂移检查」，不强制本地格式化。
 # 规则与现有代码保持一致（抽样统计：4 空格缩进、int *x、Allman 与 K&R 混合、

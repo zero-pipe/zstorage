@@ -12,8 +12,8 @@
  * 启动时扫描目录：状态为 WRITING 的槽位说明上次进程是异常退出，先做崩溃
  * 恢复再封口，不再继续追加（避免跨进程时间线错乱）。
  */
-#ifndef ZMS_SRC_STORAGE_ZS_POOL_H
-#define ZMS_SRC_STORAGE_ZS_POOL_H
+#ifndef ZCS_SRC_STORAGE_ZS_POOL_H
+#define ZCS_SRC_STORAGE_ZS_POOL_H
 
 #include "storage/zs_slot.h"
 
@@ -117,4 +117,4 @@ zs_slot *zs_pool_open_slot(zs_pool *p, uint32_t id);
 }
 #endif
 
-#endif /* ZMS_SRC_STORAGE_ZS_POOL_H */
+#endif /* ZCS_SRC_STORAGE_ZS_POOL_H */

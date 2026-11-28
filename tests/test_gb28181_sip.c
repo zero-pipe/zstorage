@@ -3,7 +3,7 @@
  * @brief GB28181 信令层：SIP 解析/构造、Digest、MANSCDP。
  */
 #include "device/gb28181/gb28181_internal.h"
-#include "zms/util/md5.h"
+#include "zcs/util/md5.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -122,12 +122,12 @@ static int test_digest(void)
     CHECK(strstr(auth, "nonce=\"abcdef\"") != NULL);
 
     snprintf(src, sizeof(src), "%s:%s:%s", "34020000001320000001", "3402000000", "12345678");
-    zms_md5_hex_str(src, ha1);
+    zcs_md5_hex_str(src, ha1);
     snprintf(src, sizeof(src), "%s:%s", "REGISTER",
              "sip:34020000002000000001@3402000000");
-    zms_md5_hex_str(src, ha2);
+    zcs_md5_hex_str(src, ha2);
     snprintf(kd, sizeof(kd), "%s:%s:%s", ha1, "abcdef", ha2);
-    zms_md5_hex_str(kd, expected);
+    zcs_md5_hex_str(kd, expected);
     CHECK(strstr(auth, expected) != NULL);
 
     /* qop=auth */

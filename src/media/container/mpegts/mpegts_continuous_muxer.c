@@ -1,13 +1,13 @@
 /**
  * @file mpegts_continuous_muxer.c
- * @brief 连续 MPEG-TS mux 后端（zms_container_muxer_ops，基于 zm libmpeg / mpeg_ts_*）。
+ * @brief 连续 MPEG-TS mux 后端（zcs_container_muxer_ops，基于 zm libmpeg / mpeg_ts_*）。
  *        与分段 HLS 后端（mpegts_segment_muxer.c / libhls）不同，本实现输出一路连续 TS，
  *        供 SRT 出站使用；通过容器 mux 抽象与 HLS 共用同一套 codec-feed。
  *
  * Copyright (c) zero-media-server
  */
-#include "zms/media/container/mpegts/mpegts_mux_feed.h"
-#include "zms/media/clock.h"
+#include "zcs/media/container/mpegts/mpegts_mux_feed.h"
+#include "zcs/media/clock.h"
 #include "zm/format/mpeg.h"
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +20,7 @@ typedef struct {
 } ts_cont_stream;
 
 typedef struct {
-    zms_container_mux_opts cfg;
+    zcs_container_mux_opts cfg;
     void *ts;
     ts_cont_stream streams[TS_CONT_MAX_STREAMS];
     int nstreams;
@@ -48,7 +48,7 @@ static int ts_cont_on_write(void *param, const void *packet, size_t bytes)
     return c->cfg.on_segment(c->cfg.user, packet, bytes, 0, 0, 0);
 }
 
-static void *ts_cont_create(const zms_container_mux_opts *opts)
+static void *ts_cont_create(const zcs_container_mux_opts *opts)
 {
     ts_cont_ctx *c;
     struct mpeg_ts_func_t func;
@@ -132,10 +132,10 @@ static zn_err_t ts_cont_input(void *ctx, int stream_type, const void *data, size
     if (sid <= 0) {
         return ZN_ERR_INVALID;
     }
-    key = (flags & ZMS_CONTAINER_MUX_FLAG_KEYFRAME) ? 1 : 0;
+    key = (flags & ZCS_CONTAINER_MUX_FLAG_KEYFRAME) ? 1 : 0;
     {
-        int64_t pts_90k = (int64_t)zms_ms_to_mpegts_90k((uint32_t)pts_ms);
-        int64_t dts_90k = (int64_t)zms_ms_to_mpegts_90k((uint32_t)dts_ms);
+        int64_t pts_90k = (int64_t)zcs_ms_to_mpegts_90k((uint32_t)pts_ms);
+        int64_t dts_90k = (int64_t)zcs_ms_to_mpegts_90k((uint32_t)dts_ms);
 
         if (mpeg_ts_write(c->ts, sid, key, pts_90k, dts_90k, data, len) != 0) {
             return ZN_ERR_INVALID;
@@ -151,7 +151,7 @@ static void ts_cont_flush(void *ctx, int stream_type, int64_t pts_ms)
     (void)pts_ms;
 }
 
-const zms_container_muxer_ops zms_container_mpegts_continuous_muxer_ops = {
-    ZMS_CONTAINER_MPEGTS,  "mpegts-continuous", ts_cont_create, ts_cont_destroy,
+const zcs_container_muxer_ops zcs_container_mpegts_continuous_muxer_ops = {
+    ZCS_CONTAINER_MPEGTS,  "mpegts-continuous", ts_cont_create, ts_cont_destroy,
     ts_cont_set_extradata, ts_cont_input,       ts_cont_flush,
 };

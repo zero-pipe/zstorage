@@ -7,9 +7,9 @@
 #include "zn/util/log.h"
 #include "zn/util/timer.h"
 
-#define ZMS_SRT_EPOLL_MAX 64
-#define ZMS_SRT_POLL_MS 5
-#define ZMS_SRT_STALL_TICK 500
+#define ZCS_SRT_EPOLL_MAX 64
+#define ZCS_SRT_POLL_MS 5
+#define ZCS_SRT_STALL_TICK 500
 
 static void srt_sock_nonblock(SRTSOCKET sock)
 {
@@ -36,9 +36,9 @@ static int srt_read_streamid(SRTSOCKET sock, char *out, size_t out_cap)
     return 0;
 }
 
-static void srt_service_poll_sessions(zms_srt_server *srv)
+static void srt_service_poll_sessions(zcs_srt_server *srv)
 {
-    zms_srt_session *s;
+    zcs_srt_session *s;
 
     if (!srv) {
         return;
@@ -47,8 +47,8 @@ static void srt_service_poll_sessions(zms_srt_server *srv)
         if (s->stopping || s->destroy_scheduled) {
             continue;
         }
-        if (s->mode == ZMS_SRT_SESSION_MODE_PUBLISH) {
-            zms_srt_session_drain_recv(s);
+        if (s->mode == ZCS_SRT_SESSION_MODE_PUBLISH) {
+            zcs_srt_session_drain_recv(s);
             if (s->logged_recv && !s->logged_recv_stall && s->recv_bytes > 0 &&
                 s->recv_bytes < 65536) {
                 if (s->recv_bytes == s->last_recv_bytes) {
@@ -57,7 +57,7 @@ static void srt_service_poll_sessions(zms_srt_server *srv)
                     s->last_recv_bytes = s->recv_bytes;
                     s->stall_polls = 0;
                 }
-                if (s->stall_polls >= ZMS_SRT_STALL_TICK) {
+                if (s->stall_polls >= ZCS_SRT_STALL_TICK) {
                     s->logged_recv_stall = 1;
                     zn_warn("SRT #%d recv stalled at %llu bytes (need ~750B+ for H264 SPS); use "
                              "latency=1200000&repeat-headers=1",
@@ -65,18 +65,18 @@ static void srt_service_poll_sessions(zms_srt_server *srv)
                 }
             }
         } else {
-            zms_srt_session_pump_send(s);
+            zcs_srt_session_pump_send(s);
         }
     }
 }
 
-static void srt_service_on_listen(zms_srt_server *srv)
+static void srt_service_on_listen(zcs_srt_server *srv)
 {
     struct sockaddr_storage addr;
     int addrlen = (int)sizeof(addr);
     SRTSOCKET client;
     char streamid[512];
-    zms_srt_session *sess;
+    zcs_srt_session *sess;
 
     client = srt_accept(srv->listen_sock, (struct sockaddr *)&addr, &addrlen);
     if (client == SRT_INVALID_SOCK) {
@@ -87,7 +87,7 @@ static void srt_service_on_listen(zms_srt_server *srv)
     (void)srt_read_streamid(client, streamid, sizeof(streamid));
     zn_info("SRT accept sock=%d streamid=%s", (int)client, streamid[0] ? streamid : "(empty)");
 
-    sess = zms_srt_session_accept(srv, client, streamid[0] ? streamid : NULL);
+    sess = zcs_srt_session_accept(srv, client, streamid[0] ? streamid : NULL);
     if (!sess) {
         zn_warn("SRT reject client sock=%d", (int)client);
         srt_close(client);
@@ -96,9 +96,9 @@ static void srt_service_on_listen(zms_srt_server *srv)
 
 static void srt_poller_tick(void *user)
 {
-    zms_srt_server *srv = (zms_srt_server *)user;
-    SRTSOCKET ready[ZMS_SRT_EPOLL_MAX];
-    int ready_len = ZMS_SRT_EPOLL_MAX;
+    zcs_srt_server *srv = (zcs_srt_server *)user;
+    SRTSOCKET ready[ZCS_SRT_EPOLL_MAX];
+    int ready_len = ZCS_SRT_EPOLL_MAX;
     int i;
 
     if (!srv || !srv->running) {
@@ -119,9 +119,9 @@ static void srt_poller_tick(void *user)
                 if (sock == srv->listen_sock) {
                     continue;
                 }
-                zms_srt_session *sess = zms_srt_session_find(srv, sock);
+                zcs_srt_session *sess = zcs_srt_session_find(srv, sock);
                 if (sess) {
-                    zms_srt_session_schedule_destroy(sess);
+                    zcs_srt_session_schedule_destroy(sess);
                 } else {
                     srt_close(sock);
                 }
@@ -130,12 +130,12 @@ static void srt_poller_tick(void *user)
             if (sock == srv->listen_sock) {
                 srt_service_on_listen(srv);
             } else {
-                zms_srt_session *sess = zms_srt_session_find(srv, sock);
+                zcs_srt_session *sess = zcs_srt_session_find(srv, sock);
                 if (sess) {
-                    if (sess->mode == ZMS_SRT_SESSION_MODE_PUBLISH) {
-                        zms_srt_session_drain_recv(sess);
+                    if (sess->mode == ZCS_SRT_SESSION_MODE_PUBLISH) {
+                        zcs_srt_session_drain_recv(sess);
                     } else {
-                        zms_srt_session_pump_send(sess);
+                        zcs_srt_session_pump_send(sess);
                     }
                 }
             }
@@ -144,7 +144,7 @@ static void srt_poller_tick(void *user)
     srt_service_poll_sessions(srv);
 }
 
-void zms_srt_poller_init(zms_srt_server *srv)
+void zcs_srt_poller_init(zcs_srt_server *srv)
 {
     int events = SRT_EPOLL_IN | SRT_EPOLL_ERR;
 
@@ -164,17 +164,17 @@ void zms_srt_poller_init(zms_srt_server *srv)
         return;
     }
 
-    srv->io_timer = zn_timer_start(srv->poller, ZMS_SRT_POLL_MS, 1, srt_poller_tick, srv);
+    srv->io_timer = zn_timer_start(srv->poller, ZCS_SRT_POLL_MS, 1, srt_poller_tick, srv);
     if (!srv->io_timer) {
         srt_epoll_release(srv->epoll_id);
         srv->epoll_id = -1;
     }
 }
 
-void zms_srt_poller_fini(zms_srt_server *srv)
+void zcs_srt_poller_fini(zcs_srt_server *srv)
 {
-    zms_srt_session *s;
-    zms_srt_session *next;
+    zcs_srt_session *s;
+    zcs_srt_session *next;
 
     if (!srv) {
         return;
@@ -187,7 +187,7 @@ void zms_srt_poller_fini(zms_srt_server *srv)
 
     for (s = srv->sessions; s; s = next) {
         next = s->next;
-        zms_srt_session_destroy_now(s);
+        zcs_srt_session_destroy_now(s);
     }
     srv->sessions = NULL;
 

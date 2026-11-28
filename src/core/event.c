@@ -3,11 +3,11 @@
  * @brief 媒体事件与 tuple 构造（源/端口）。
  */
 
-#include "zms/core/event.h"
-#include "zms/core/stream/url.h"
-#include "zms/ops/api/webhook/webhook_client.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/core/stream/vod_source_port.h"
+#include "zcs/core/event.h"
+#include "zcs/core/stream/url.h"
+#include "zcs/ops/api/webhook/webhook_client.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/core/stream/vod_source_port.h"
 #include "zn/poller/poller.h"
 #include "zn/platform.h"
 #include "zb/os/sync.h"
@@ -18,44 +18,44 @@
 
 /*
  * 全局媒体事件上下文。
- * 启动时由 zms_media_events_set() / zms_media_events_set_server_ports() 设置一次，
+ * 启动时由 zcs_media_events_set() / zcs_media_events_set_server_ports() 设置一次，
  * 须在任何工作线程启动前完成，故无需互斥锁。
  */
-typedef struct zms_media_event_ctx {
-    zms_media_events events;
+typedef struct zcs_media_event_ctx {
+    zcs_media_events events;
     zn_poller *poller;
     int none_reader_delay_ms;
     int continue_push_ms;
-    zms_media_server_ports server_ports;
+    zcs_media_server_ports server_ports;
     int has_server_ports;
-} zms_media_event_ctx;
+} zcs_media_event_ctx;
 
-static zms_media_event_ctx g_ctx = {
+static zcs_media_event_ctx g_ctx = {
     {NULL, NULL, NULL, NULL, NULL, NULL, NULL}, NULL, 20000, 15000, {0, 0, 0, 0}, 0};
 
-ZMS_API const char *zms_media_origin_str(zms_media_origin origin)
+ZCS_API const char *zcs_media_origin_str(zcs_media_origin origin)
 {
     switch (origin) {
-    case ZMS_ORIGIN_RTMP_PUSH:
+    case ZCS_ORIGIN_RTMP_PUSH:
         return "rtmp_push";
-    case ZMS_ORIGIN_RTSP_PUSH:
+    case ZCS_ORIGIN_RTSP_PUSH:
         return "rtsp_push";
-    case ZMS_ORIGIN_SRT_PUSH:
+    case ZCS_ORIGIN_SRT_PUSH:
         return "srt_push";
-    case ZMS_ORIGIN_RTP_PS_PUSH:
+    case ZCS_ORIGIN_RTP_PS_PUSH:
         return "rtp_ps_push";
-    case ZMS_ORIGIN_WEBRTC_PUSH:
+    case ZCS_ORIGIN_WEBRTC_PUSH:
         return "webrtc_push";
-    case ZMS_ORIGIN_PULL:
+    case ZCS_ORIGIN_PULL:
         return "pull";
-    case ZMS_ORIGIN_MP4_VOD:
+    case ZCS_ORIGIN_MP4_VOD:
         return "mp4_vod";
     default:
         return "unknown";
     }
 }
 
-void zms_media_events_set_server_ports(const zms_media_server_ports *ports)
+void zcs_media_events_set_server_ports(const zcs_media_server_ports *ports)
 {
     if (!ports) {
         return;
@@ -64,12 +64,12 @@ void zms_media_events_set_server_ports(const zms_media_server_ports *ports)
     g_ctx.has_server_ports = 1;
 }
 
-const zms_media_server_ports *zms_media_events_server_ports(void)
+const zcs_media_server_ports *zcs_media_events_server_ports(void)
 {
     return g_ctx.has_server_ports ? &g_ctx.server_ports : NULL;
 }
 
-void zms_media_events_set(zn_poller *poller, const zms_media_events *events,
+void zcs_media_events_set(zn_poller *poller, const zcs_media_events *events,
                           int none_reader_delay_ms)
 {
     g_ctx.poller = poller;
@@ -83,12 +83,12 @@ void zms_media_events_set(zn_poller *poller, const zms_media_events *events,
     }
 }
 
-zn_poller *zms_media_events_poller(void)
+zn_poller *zcs_media_events_poller(void)
 {
     return g_ctx.poller;
 }
 
-void zms_media_tuple_from_source(const zms_media_source *src, zms_media_tuple *tuple)
+void zcs_media_tuple_from_source(const zcs_media_source *src, zcs_media_tuple *tuple)
 {
     if (!tuple) {
         return;
@@ -103,13 +103,13 @@ void zms_media_tuple_from_source(const zms_media_source *src, zms_media_tuple *t
     strncpy(tuple->stream, src->stream, sizeof(tuple->stream) - 1);
 }
 
-typedef struct zms_media_none_reader_ctx {
-    zms_media_tuple tuple;
+typedef struct zcs_media_none_reader_ctx {
+    zcs_media_tuple tuple;
     zn_poller_timer *timer;
-    struct zms_media_none_reader_ctx *next;
-} zms_media_none_reader_ctx;
+    struct zcs_media_none_reader_ctx *next;
+} zcs_media_none_reader_ctx;
 
-static zms_media_none_reader_ctx *g_none_reader_pending;
+static zcs_media_none_reader_ctx *g_none_reader_pending;
 static zb_mutex *g_none_reader_mtx;
 static int g_media_events_fini;
 
@@ -120,7 +120,7 @@ static void none_reader_pending_init(void)
     }
 }
 
-static void none_reader_pending_add(zms_media_none_reader_ctx *ctx)
+static void none_reader_pending_add(zcs_media_none_reader_ctx *ctx)
 {
     if (!ctx) {
         return;
@@ -138,9 +138,9 @@ static void none_reader_pending_add(zms_media_none_reader_ctx *ctx)
  * 在同一 ctx 上重复 cancel/free，与 fire 产生 use-after-free。链表操作加
  * g_none_reader_mtx，因为 add/remove 来自不同线程（推流线程 vs poller）。
  */
-static void none_reader_pending_remove(zms_media_none_reader_ctx *ctx)
+static void none_reader_pending_remove(zcs_media_none_reader_ctx *ctx)
 {
-    zms_media_none_reader_ctx **pp;
+    zcs_media_none_reader_ctx **pp;
 
     if (!ctx || !g_none_reader_mtx) {
         return;
@@ -169,7 +169,7 @@ static void none_reader_pending_remove(zms_media_none_reader_ctx *ctx)
  */
 static uint64_t on_none_reader_fire(void *user)
 {
-    zms_media_none_reader_ctx *ctx = (zms_media_none_reader_ctx *)user;
+    zcs_media_none_reader_ctx *ctx = (zcs_media_none_reader_ctx *)user;
 
     if (!ctx) {
         return 0;
@@ -182,9 +182,9 @@ static uint64_t on_none_reader_fire(void *user)
         return 0;
     }
 
-    zms_media_source *src =
-        zms_media_source_find(ctx->tuple.schema, ctx->tuple.app, ctx->tuple.stream);
-    int readers = src ? zms_media_source_reader_count(src) : 0;
+    zcs_media_source *src =
+        zcs_media_source_find(ctx->tuple.schema, ctx->tuple.app, ctx->tuple.stream);
+    int readers = src ? zcs_media_source_reader_count(src) : 0;
     if (readers > 0) {
         free(ctx);
         return 0;
@@ -194,17 +194,17 @@ static uint64_t on_none_reader_fire(void *user)
     if (g_ctx.events.on_media_none_reader) {
         g_ctx.events.on_media_none_reader(&ctx->tuple, g_ctx.events.user);
     }
-    zms_webhook_on_none_reader(&ctx->tuple);
-    if (src && zms_media_source_is_vod(src)) {
-        zms_vod_source_stop(src);
+    zcs_webhook_on_none_reader(&ctx->tuple);
+    if (src && zcs_media_source_is_vod(src)) {
+        zcs_vod_source_stop(src);
     }
     free(ctx);
     return 0;
 }
 
-static void schedule_none_reader_check(const zms_media_tuple *tuple)
+static void schedule_none_reader_check(const zcs_media_tuple *tuple)
 {
-    zms_media_none_reader_ctx *ctx;
+    zcs_media_none_reader_ctx *ctx;
 
     if (g_media_events_fini || !g_ctx.poller || g_ctx.none_reader_delay_ms <= 0 || !tuple) {
         return;
@@ -212,14 +212,14 @@ static void schedule_none_reader_check(const zms_media_tuple *tuple)
     {
         /* 早退：既没有注册回调、也没配 webhook、又不是 VOD，则本次判定
          * 没有任何副作用，不必白占一个定时器槽。 */
-        zms_media_source *src = zms_media_source_find(tuple->schema, tuple->app, tuple->stream);
-        int is_vod = src && zms_media_source_is_vod(src);
+        zcs_media_source *src = zcs_media_source_find(tuple->schema, tuple->app, tuple->stream);
+        int is_vod = src && zcs_media_source_is_vod(src);
         if (!is_vod && !g_ctx.events.on_media_none_reader &&
-            !zms_webhook_none_reader_configured()) {
+            !zcs_webhook_none_reader_configured()) {
             return;
         }
     }
-    ctx = (zms_media_none_reader_ctx *)malloc(sizeof(*ctx));
+    ctx = (zcs_media_none_reader_ctx *)malloc(sizeof(*ctx));
     if (!ctx) {
         return;
     }
@@ -239,14 +239,14 @@ static void schedule_none_reader_check(const zms_media_tuple *tuple)
  * 回升（>0）不取消已排队的检查——交给 fire 时复查去兜底，这样能省掉
  * “回溯待触发链表并 cancel 定时器”的复杂逻辑，代价只是偶尔一次空转。
  */
-static void notify_reader_changed(zms_media_source *src)
+static void notify_reader_changed(zcs_media_source *src)
 {
     if (!src) {
         return;
     }
-    zms_media_tuple tuple;
-    zms_media_tuple_from_source(src, &tuple);
-    int count = zms_media_source_reader_count(src);
+    zcs_media_tuple tuple;
+    zcs_media_tuple_from_source(src, &tuple);
+    int count = zcs_media_source_reader_count(src);
     if (g_ctx.events.on_media_reader_changed) {
         g_ctx.events.on_media_reader_changed(&tuple, count, g_ctx.events.user);
     }
@@ -258,24 +258,24 @@ static void notify_reader_changed(zms_media_source *src)
 }
 
 
-void zms_media_events_set_continue_push_ms(int ms)
+void zcs_media_events_set_continue_push_ms(int ms)
 {
     g_ctx.continue_push_ms = ms > 0 ? ms : 0;
 }
 
-int zms_media_continue_push_ms(void)
+int zcs_media_continue_push_ms(void)
 {
     return g_ctx.continue_push_ms;
 }
 
-typedef struct zms_media_linger_ctx {
-    zms_media_tuple tuple;
-    zms_media_origin origin;
+typedef struct zcs_media_linger_ctx {
+    zcs_media_tuple tuple;
+    zcs_media_origin origin;
     zn_poller_timer *timer;
-    struct zms_media_linger_ctx *next;
-} zms_media_linger_ctx;
+    struct zcs_media_linger_ctx *next;
+} zcs_media_linger_ctx;
 
-static zms_media_linger_ctx *g_linger_pending;
+static zcs_media_linger_ctx *g_linger_pending;
 static zb_mutex *g_linger_mtx;
 
 static void linger_pending_init(void)
@@ -285,9 +285,9 @@ static void linger_pending_init(void)
     }
 }
 
-static void linger_pending_remove(zms_media_linger_ctx *ctx)
+static void linger_pending_remove(zcs_media_linger_ctx *ctx)
 {
-    zms_media_linger_ctx **pp;
+    zcs_media_linger_ctx **pp;
 
     if (!ctx || !g_linger_mtx) {
         return;
@@ -313,8 +313,8 @@ static void linger_pending_remove(zms_media_linger_ctx *ctx)
  */
 static uint64_t on_linger_fire(void *user)
 {
-    zms_media_linger_ctx *ctx = (zms_media_linger_ctx *)user;
-    zms_media_source *src;
+    zcs_media_linger_ctx *ctx = (zcs_media_linger_ctx *)user;
+    zcs_media_source *src;
 
     if (!ctx) {
         return 0;
@@ -322,22 +322,22 @@ static uint64_t on_linger_fire(void *user)
     linger_pending_remove(ctx);
     ctx->timer = NULL;
     if (!g_media_events_fini && g_ctx.poller) {
-        src = zms_media_source_find(ctx->tuple.schema, ctx->tuple.app, ctx->tuple.stream);
+        src = zcs_media_source_find(ctx->tuple.schema, ctx->tuple.app, ctx->tuple.stream);
         if (src && !src->publishing) {
             zn_info("[event] linger expired app=%s stream=%s", ctx->tuple.app,
                      ctx->tuple.stream);
-            zms_media_event_publish_fini(src, ctx->origin);
-            zms_media_source_clear(src);
+            zcs_media_event_publish_fini(src, ctx->origin);
+            zcs_media_source_clear(src);
         }
     }
     free(ctx);
     return 0;
 }
 
-void zms_media_linger_cancel(const char *app, const char *stream)
+void zcs_media_linger_cancel(const char *app, const char *stream)
 {
-    zms_media_linger_ctx *ctx;
-    zms_media_linger_ctx *hit = NULL;
+    zcs_media_linger_ctx *ctx;
+    zcs_media_linger_ctx *hit = NULL;
 
     if (!app || !stream || !g_linger_mtx) {
         return;
@@ -370,21 +370,21 @@ void zms_media_linger_cancel(const char *app, const char *stream)
  * （mp4 文件需要写 moov 尾部），不能跟着 linger 一起延迟，否则录像文件会
  * 一直缺索引、客户端读不了。
  */
-int zms_media_source_linger(zms_media_source *src, zms_media_origin origin)
+int zcs_media_source_linger(zcs_media_source *src, zcs_media_origin origin)
 {
-    zms_media_linger_ctx *ctx;
+    zcs_media_linger_ctx *ctx;
 
     if (!src || g_ctx.continue_push_ms <= 0 || !g_ctx.poller || !src->gop_queue) {
         return 0;
     }
-    if (zms_media_source_is_vod(src)) {
+    if (zcs_media_source_is_vod(src)) {
         return 0;
     }
-    ctx = (zms_media_linger_ctx *)calloc(1, sizeof(*ctx));
+    ctx = (zcs_media_linger_ctx *)calloc(1, sizeof(*ctx));
     if (!ctx) {
         return 0;
     }
-    zms_media_tuple_from_source(src, &ctx->tuple);
+    zcs_media_tuple_from_source(src, &ctx->tuple);
     ctx->origin = origin;
     linger_pending_init();
     if (!g_linger_mtx) {
@@ -401,9 +401,9 @@ int zms_media_source_linger(zms_media_source *src, zms_media_origin origin)
     ctx->next = g_linger_pending;
     g_linger_pending = ctx;
     zb_mutex_unlock(g_linger_mtx);
-    zms_media_source_registry_lock();
+    zcs_media_source_registry_lock();
     src->publishing = 0; /* 保留 GOP/轨道，但不再视为在推 */
-    zms_media_source_registry_unlock();
+    zcs_media_source_registry_unlock();
     if (src->mp4_recorder_stop) {
         src->mp4_recorder_stop(src); /* 录像在断流时收尾，不跟随 linger 延迟 */
     }
@@ -411,38 +411,38 @@ int zms_media_source_linger(zms_media_source *src, zms_media_origin origin)
         src->zs_recorder_stop(src); /* 云存储同样在断流时封口 */
     }
     zn_info("[event] linger app=%s stream=%s ms=%d origin=%s", ctx->tuple.app, ctx->tuple.stream,
-             g_ctx.continue_push_ms, zms_media_origin_str(origin));
+             g_ctx.continue_push_ms, zcs_media_origin_str(origin));
     return 1;
 }
 
-void zms_media_event_publish(zms_media_source *src, zms_media_origin origin)
+void zcs_media_event_publish(zcs_media_source *src, zcs_media_origin origin)
 {
     if (!src) {
         return;
     }
-    zms_media_source_registry_lock();
+    zcs_media_source_registry_lock();
     src->publish_origin = (int)origin;
     src->publishing = 1;
-    zms_media_source_registry_unlock();
-    zms_media_tuple tuple;
-    zms_media_tuple_from_source(src, &tuple);
+    zcs_media_source_registry_unlock();
+    zcs_media_tuple tuple;
+    zcs_media_tuple_from_source(src, &tuple);
     zn_info("[event] publish app=%s stream=%s origin=%s video=%s %dx%d audio=%s %dHz", tuple.app,
-             tuple.stream, zms_media_origin_str(origin),
-             src->has_video ? zms_codec_name(src->video.codec) : "-",
+             tuple.stream, zcs_media_origin_str(origin),
+             src->has_video ? zcs_codec_name(src->video.codec) : "-",
              src->has_video ? (int)src->video.width : 0,
              src->has_video ? (int)src->video.height : 0,
-             src->has_audio ? zms_codec_name(src->audio.codec) : "-",
+             src->has_audio ? zcs_codec_name(src->audio.codec) : "-",
              src->has_audio ? (int)src->audio.sample_rate : 0);
     if (g_ctx.has_server_ports) {
-        zms_media_urls_log_publish(src, &g_ctx.server_ports);
+        zcs_media_urls_log_publish(src, &g_ctx.server_ports);
     }
     if (g_ctx.events.on_media_publish) {
         g_ctx.events.on_media_publish(&tuple, origin, g_ctx.events.user);
     }
-    zms_webhook_on_stream_register(src, origin);
+    zcs_webhook_on_stream_register(src, origin);
 }
 
-void zms_media_event_publish_fini(zms_media_source *src, zms_media_origin origin)
+void zcs_media_event_publish_fini(zcs_media_source *src, zcs_media_origin origin)
 {
     if (!src) {
         return;
@@ -456,30 +456,30 @@ void zms_media_event_publish_fini(zms_media_source *src, zms_media_origin origin
     if (src->zs_recorder_stop) {
         src->zs_recorder_stop(src);
     }
-    zms_media_source_registry_lock();
+    zcs_media_source_registry_lock();
     if (!src->publishing) {
-        zms_media_source_registry_unlock();
+        zcs_media_source_registry_unlock();
         return;
     }
     src->publishing = 0;
-    zms_media_source_registry_unlock();
-    zms_media_tuple tuple;
-    zms_media_tuple_from_source(src, &tuple);
+    zcs_media_source_registry_unlock();
+    zcs_media_tuple tuple;
+    zcs_media_tuple_from_source(src, &tuple);
     zn_debug("[event] publish_fini app=%s stream=%s origin=%s", tuple.app, tuple.stream,
-              zms_media_origin_str(origin));
+              zcs_media_origin_str(origin));
     if (g_ctx.events.on_media_publish_fini) {
         g_ctx.events.on_media_publish_fini(&tuple, origin, g_ctx.events.user);
     }
-    zms_webhook_on_stream_unregister(src, origin);
+    zcs_webhook_on_stream_unregister(src, origin);
 }
 
-void zms_media_event_play(zms_media_source *src, const char *player_schema)
+void zcs_media_event_play(zcs_media_source *src, const char *player_schema)
 {
     if (!src) {
         return;
     }
-    zms_media_tuple tuple;
-    zms_media_tuple_from_source(src, &tuple);
+    zcs_media_tuple tuple;
+    zcs_media_tuple_from_source(src, &tuple);
     zn_debug("[event] play app=%s stream=%s player=%s", tuple.app, tuple.stream,
               player_schema ? player_schema : "?");
     if (g_ctx.events.on_media_play) {
@@ -487,61 +487,61 @@ void zms_media_event_play(zms_media_source *src, const char *player_schema)
     }
 }
 
-void zms_media_event_stop(zms_media_source *src, const char *player_schema, uint64_t play_start_ms)
+void zcs_media_event_stop(zcs_media_source *src, const char *player_schema, uint64_t play_start_ms)
 {
     uint64_t duration_ms;
 
     if (!src) {
         return;
     }
-    zms_media_tuple tuple;
-    zms_media_tuple_from_source(src, &tuple);
+    zcs_media_tuple tuple;
+    zcs_media_tuple_from_source(src, &tuple);
     zn_debug("[event] stop app=%s stream=%s player=%s", tuple.app, tuple.stream,
               player_schema ? player_schema : "?");
     if (g_ctx.events.on_media_stop) {
         g_ctx.events.on_media_stop(&tuple, player_schema, g_ctx.events.user);
     }
     duration_ms = (play_start_ms > 0) ? (zn_monotonic_ms() - play_start_ms) : 0;
-    zms_webhook_on_play_stop(&tuple, player_schema, duration_ms);
+    zcs_webhook_on_play_stop(&tuple, player_schema, duration_ms);
 }
 
-void zms_media_source_reader_add(zms_media_source *src)
+void zcs_media_source_reader_add(zcs_media_source *src)
 {
     if (!src) {
         return;
     }
     /* 计数在 registry 锁内维护，通知在锁外做：回调/webhook 可能阻塞或反查
      * 其它源，若持锁调用极易死锁。 */
-    zms_media_source_registry_lock();
+    zcs_media_source_registry_lock();
     ++src->reader_count;
-    zms_media_source_registry_unlock();
+    zcs_media_source_registry_unlock();
     notify_reader_changed(src);
 }
 
-void zms_media_source_reader_remove(zms_media_source *src)
+void zcs_media_source_reader_remove(zcs_media_source *src)
 {
     if (!src) {
         return;
     }
     /* 防御下溢：重复 remove 不应把计数变负，否则“无人观看”判定失真。 */
-    zms_media_source_registry_lock();
+    zcs_media_source_registry_lock();
     if (src->reader_count <= 0) {
-        zms_media_source_registry_unlock();
+        zcs_media_source_registry_unlock();
         return;
     }
     --src->reader_count;
-    zms_media_source_registry_unlock();
+    zcs_media_source_registry_unlock();
     notify_reader_changed(src);
 }
 
-int zms_media_source_reader_count(const zms_media_source *src)
+int zcs_media_source_reader_count(const zcs_media_source *src)
 {
     if (!src) {
         return 0;
     }
-    zms_media_source_registry_lock();
+    zcs_media_source_registry_lock();
     int n = src->reader_count;
-    zms_media_source_registry_unlock();
+    zcs_media_source_registry_unlock();
     return n;
 }
 
@@ -550,10 +550,10 @@ int zms_media_source_reader_count(const zms_media_source *src)
  * 从而与正在排空的定时器安全竞争。取链表头后解锁再逐个 cancel/free，
  * 避免在持锁期间调用 poller 的 cancel（可能与 poller 自身锁序冲突）。
  */
-void zms_media_events_fini(void)
+void zcs_media_events_fini(void)
 {
-    zms_media_none_reader_ctx *pending;
-    zms_media_none_reader_ctx *next;
+    zcs_media_none_reader_ctx *pending;
+    zcs_media_none_reader_ctx *next;
 
     g_media_events_fini = 1;
     g_ctx.poller = NULL;
@@ -577,12 +577,12 @@ void zms_media_events_fini(void)
     linger_pending_init();
     zb_mutex_lock(g_linger_mtx);
     {
-        zms_media_linger_ctx *lc = g_linger_pending;
+        zcs_media_linger_ctx *lc = g_linger_pending;
 
         g_linger_pending = NULL;
         zb_mutex_unlock(g_linger_mtx);
         while (lc) {
-            zms_media_linger_ctx *ln = lc->next;
+            zcs_media_linger_ctx *ln = lc->next;
 
             if (lc->timer) {
                 zn_poller_timer_cancel(lc->timer);

@@ -1,6 +1,6 @@
 /**
  * @file mpegts_segment_muxer.c
- * @brief MPEG-TS 分段 muxer 后端，实现 zms_container_muxer_ops vtable。
+ * @brief MPEG-TS 分段 muxer 后端，实现 zcs_container_muxer_ops vtable。
  *
  * 包装 zmedia libhls 的 hls_media_t，将 ES 帧写入 libhls，
  * 由 libhls 按 segment_duration_ms 自动切段并通过 on_segment 回调吐出 TS 分段。
@@ -8,15 +8,15 @@
  *
  * 对应的连续流版本见 mpegts_continuous_muxer.c（基于 libmpeg，用于 SRT 输出）。
  *
- * 注册名：ZMS_CONTAINER_MPEGTS / "mpegts"
- * 全局实例：zms_container_mpegts_muxer_ops
+ * 注册名：ZCS_CONTAINER_MPEGTS / "mpegts"
+ * 全局实例：zcs_container_mpegts_muxer_ops
  */
-#include "zms/media/container/container_registry.h"
+#include "zcs/media/container/container_registry.h"
 #include "zm/format/hls.h"
 #include <stdlib.h>
 
 typedef struct {
-    zms_container_mux_opts cfg;
+    zcs_container_mux_opts cfg;
     hls_media_t *hls;
 } mpegts_mux_ctx;
 
@@ -31,7 +31,7 @@ static int mpegts_segment_bridge(void *param, const void *data, size_t bytes, in
     return c->cfg.on_segment(c->cfg.user, data, bytes, pts_ms, dts_ms, duration);
 }
 
-static void *mpegts_mux_create(const zms_container_mux_opts *opts)
+static void *mpegts_mux_create(const zcs_container_mux_opts *opts)
 {
     mpegts_mux_ctx *c;
 
@@ -83,7 +83,7 @@ static zn_err_t mpegts_mux_write_frame(void *ctx, int stream_type, const void *d
     if (!c || !c->hls) {
         return ZN_ERR_INVALID;
     }
-    if (flags & ZMS_CONTAINER_MUX_FLAG_KEYFRAME) {
+    if (flags & ZCS_CONTAINER_MUX_FLAG_KEYFRAME) {
         hls_flags |= HLS_FLAGS_KEYFRAME;
     }
     if (hls_media_input(c->hls, stream_type, data, len, pts_ms, dts_ms, hls_flags) != 0) {
@@ -102,8 +102,8 @@ static void mpegts_mux_flush(void *ctx, int stream_type, int64_t pts_ms)
     (void)hls_media_input(c->hls, stream_type, NULL, 0, pts_ms, pts_ms, 0);
 }
 
-const zms_container_muxer_ops zms_container_mpegts_muxer_ops = {
-    ZMS_CONTAINER_MPEGTS,     "mpegts",
+const zcs_container_muxer_ops zcs_container_mpegts_muxer_ops = {
+    ZCS_CONTAINER_MPEGTS,     "mpegts",
     mpegts_mux_create,        mpegts_mux_destroy,
     mpegts_mux_set_extradata, mpegts_mux_write_frame,
     mpegts_mux_flush,

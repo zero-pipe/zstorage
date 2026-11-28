@@ -2,12 +2,12 @@
  * @file h264_ingest.c
  * @brief H.264 入站：SPS/PPS、Annex-B 帧与关键帧标记。
  */
-#include "zms/publish/ingest/common/stream_ingest.h"
-#include "zms/publish/ingest/common/ingest_codec.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h264/h264_sps.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
+#include "zcs/publish/ingest/common/stream_ingest.h"
+#include "zcs/publish/ingest/common/ingest_codec.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h264/h264_sps.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
 #include "publish/ingest/common/ingest_internal.h"
 #include "zn/util/log.h"
 #include <string.h>
@@ -81,7 +81,7 @@ static int h264_annexb_first_slice(const uint8_t *annexb, size_t len)
     return 1;
 }
 
-void zms_live_ingest_h264_annexb_frame_flags(const uint8_t *annexb, size_t len, int *config_frame,
+void zcs_live_ingest_h264_annexb_frame_flags(const uint8_t *annexb, size_t len, int *config_frame,
                                              int *drop_able)
 {
     if (config_frame) {
@@ -106,10 +106,10 @@ void zms_live_ingest_h264_annexb_frame_flags(const uint8_t *annexb, size_t len, 
     }
 }
 
-zn_err_t zms_live_ingest_set_h264_sps_pps(zms_live_ingest *ch, const uint8_t *sps, size_t sps_len,
+zn_err_t zcs_live_ingest_set_h264_sps_pps(zcs_live_ingest *ch, const uint8_t *sps, size_t sps_len,
                                            const uint8_t *pps, size_t pps_len)
 {
-    zms_h264_sps_info sps_info;
+    zcs_h264_sps_info sps_info;
     int have_sps = 0;
     uint32_t cur_w;
     uint32_t cur_h;
@@ -121,11 +121,11 @@ zn_err_t zms_live_ingest_set_h264_sps_pps(zms_live_ingest *ch, const uint8_t *sp
         return ZN_ERR_INVALID;
     }
 
-    have_sps = zms_h264_sps_parse(sps, sps_len, &sps_info);
+    have_sps = zcs_h264_sps_parse(sps, sps_len, &sps_info);
     cur_w = ch->source->video.width;
     cur_h = ch->source->video.height;
     if (have_sps) {
-        size_better = zms_video_size_should_replace(cur_w, cur_h, (uint32_t)sps_info.width,
+        size_better = zcs_video_size_should_replace(cur_w, cur_h, (uint32_t)sps_info.width,
                                                     (uint32_t)sps_info.height);
         if (sps_info.fps > 0.0f &&
             (ch->source->video.fps <= 0.0f ||
@@ -143,8 +143,8 @@ zn_err_t zms_live_ingest_set_h264_sps_pps(zms_live_ingest *ch, const uint8_t *sp
     {
         uint8_t *buf = live_ingest_work_buf(ch);
         size_t cfg_len = 0;
-        zn_err_t err = zms_rtmp_avc_seq_header(sps, sps_len, pps, pps_len, buf,
-                                                ZMS_LIVE_INGEST_WORK_BUF, &cfg_len);
+        zn_err_t err = zcs_rtmp_avc_seq_header(sps, sps_len, pps, pps_len, buf,
+                                                ZCS_LIVE_INGEST_WORK_BUF, &cfg_len);
         if (err != ZN_OK) {
             return err;
         }
@@ -160,7 +160,7 @@ zn_err_t zms_live_ingest_set_h264_sps_pps(zms_live_ingest *ch, const uint8_t *sp
             ch->source->has_video = 1;
 
             if (need_cfg || !ch->source->video.ready) {
-                (void)zms_video_track_from_avc(&ch->source->video, buf, cfg_len);
+                (void)zcs_video_track_from_avc(&ch->source->video, buf, cfg_len);
             } else if (size_better && have_sps) {
                 /* 保留 ready/codec，仅升级尺寸，避免占位→真实时丢元数据 */
                 ch->source->video.width = (uint32_t)sps_info.width;
@@ -168,7 +168,7 @@ zn_err_t zms_live_ingest_set_h264_sps_pps(zms_live_ingest *ch, const uint8_t *sp
                 if (sps_info.fps > 0.0f) {
                     ch->source->video.fps = sps_info.fps;
                 }
-                if (!zms_rtmp_avc_profile_level_id(buf, cfg_len,
+                if (!zcs_rtmp_avc_profile_level_id(buf, cfg_len,
                                                    ch->source->video.profile_level_id)) {
                     /* keep previous profile_level_id */
                 }
@@ -182,7 +182,7 @@ zn_err_t zms_live_ingest_set_h264_sps_pps(zms_live_ingest *ch, const uint8_t *sp
 
         /* from_avc 后若仍可疑，再用裸 SPS 补一次（极端 AVCC 解析失败场景） */
         if (have_sps &&
-            zms_video_size_should_replace(ch->source->video.width, ch->source->video.height,
+            zcs_video_size_should_replace(ch->source->video.width, ch->source->video.height,
                                           (uint32_t)sps_info.width, (uint32_t)sps_info.height)) {
             uint32_t before_w = ch->source->video.width;
             uint32_t before_h = ch->source->video.height;
@@ -194,12 +194,12 @@ zn_err_t zms_live_ingest_set_h264_sps_pps(zms_live_ingest *ch, const uint8_t *sp
             zn_info("track video: %ux%u -> %ux%u fps=%.2f profile=%s (from SPS)", before_w,
                      before_h, ch->source->video.width, ch->source->video.height,
                      (double)ch->source->video.fps, ch->source->video.profile_level_id);
-        } else if (need_cfg && ch->source->video.width >= ZMS_VIDEO_WIDTH_MIN_VALID &&
+        } else if (need_cfg && ch->source->video.width >= ZCS_VIDEO_WIDTH_MIN_VALID &&
                    ch->source->video.height > 0) {
             zn_info("track video: %ux%u fps=%.2f profile=%s%s", ch->source->video.width,
                      ch->source->video.height, (double)ch->source->video.fps,
                      ch->source->video.profile_level_id,
-                     zms_video_size_is_suspicious(ch->source->video.width, ch->source->video.height)
+                     zcs_video_size_is_suspicious(ch->source->video.width, ch->source->video.height)
                          ? " (suspicious, wait in-band SPS)"
                          : "");
         }
@@ -207,7 +207,7 @@ zn_err_t zms_live_ingest_set_h264_sps_pps(zms_live_ingest *ch, const uint8_t *sp
     return ZN_OK;
 }
 
-zn_err_t zms_live_ingest_input_h264_annexb(zms_live_ingest *ch, const uint8_t *annexb, size_t len,
+zn_err_t zcs_live_ingest_input_h264_annexb(zcs_live_ingest *ch, const uint8_t *annexb, size_t len,
                                             uint32_t dts_ms, uint32_t pts_ms, int keyframe)
 {
     if (!ch || !annexb || len == 0) {
@@ -218,13 +218,13 @@ zn_err_t zms_live_ingest_input_h264_annexb(zms_live_ingest *ch, const uint8_t *a
     {
         const uint8_t *sps = NULL, *pps = NULL;
         size_t sps_len = 0, pps_len = 0;
-        if (zms_h264_annexb_extract_sps_pps(annexb, len, &sps, &sps_len, &pps, &pps_len) && sps &&
+        if (zcs_h264_annexb_extract_sps_pps(annexb, len, &sps, &sps_len, &pps, &pps_len) && sps &&
             pps) {
-            (void)zms_live_ingest_set_h264_sps_pps(ch, sps, sps_len, pps, pps_len);
+            (void)zcs_live_ingest_set_h264_sps_pps(ch, sps, sps_len, pps, pps_len);
         }
     }
 
-    int idr = zms_h264_annexb_is_idr(annexb, len);
+    int idr = zcs_h264_annexb_is_idr(annexb, len);
     /* 容器已给出帧类型（FLV/RTSP/MPEG-TS 的 keyframe 标志）时以它为准，
      * 扫描 ES 只作兜底：AVCC 转 Annex-B 失败或非标准码流时扫描会漏判，
      * 漏判会导致 GOP 边界永不推进、缓存无法按时间窗回收。 */
@@ -263,8 +263,8 @@ zn_err_t zms_live_ingest_input_h264_annexb(zms_live_ingest *ch, const uint8_t *a
         return ZN_ERR_INVALID;
     }
 
-    zms_frame frame;
-    zms_frame_init(&frame);
+    zcs_frame frame;
+    zcs_frame_init(&frame);
     frame.data = (uint8_t *)annexb;
     frame.size = len;
     norm_dts = live_ingest_video_pts(ch, raw_dts);
@@ -288,10 +288,10 @@ zn_err_t zms_live_ingest_input_h264_annexb(zms_live_ingest *ch, const uint8_t *a
     }
     frame.dts_ms = norm_dts;
     frame.pts_ms = norm_pts;
-    frame.codec = ZMS_CODEC_H264;
-    frame.track = ZMS_TRACK_VIDEO;
+    frame.codec = ZCS_CODEC_H264;
+    frame.track = ZCS_TRACK_VIDEO;
     frame.keyframe = key;
-    zms_live_ingest_h264_annexb_frame_flags(annexb, len, &config_frame, &drop_able);
+    zcs_live_ingest_h264_annexb_frame_flags(annexb, len, &config_frame, &drop_able);
     frame.config_frame = config_frame;
     frame.drop_able = drop_able;
     if (drop_able || config_frame) {

@@ -9,14 +9,14 @@
 #include "session/webrtc/session_internal.h"
 #include "protocol/webrtc/media_internal.h"
 #include "protocol/webrtc/ice_internal.h"
-#include "zms/publish/ingest/common/stream_ingest.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/core/gop/queue.h"
-#include "zms/core/stream/hub.h"
-#include "zms/session/webrtc/webrtc_server.h"
-#include "zms/protocol/rtsp/sdp.h"
+#include "zcs/publish/ingest/common/stream_ingest.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/session/webrtc/webrtc_server.h"
+#include "zcs/protocol/rtsp/sdp.h"
 #include "sdp.h"
 #include "sdp_internal.h"
 #include "sdp-a-fmtp.h"
@@ -40,14 +40,14 @@
 /* DTLS 角色由 offer 的 a=setup 决定：对方要求 passive（即对方愿做 server）时
  * 我们回 active 主动发起握手；否则我们做 server。角色必须与 offer 互补，
  * 否则两端都等对方先发 ClientHello，DTLS 永远握不上手。 */
-static const char *webrtc_dtls_setup_answer(const zms_webrtc_session *s)
+static const char *webrtc_dtls_setup_answer(const zcs_webrtc_session *s)
 {
     return s && s->dtls_as_client ? "active" : "passive";
 }
 
 /* 拼 a=group:BUNDLE 行，按 offer 的 mid 顺序列出。若一个有效 mid 都没有（异常
  * offer），退回一个占位 "0"，保证这一行语法合法、不至于让整个 answer 无效。 */
-static int webrtc_snprintf_bundle(char *buf, size_t cap, const zms_webrtc_session *s)
+static int webrtc_snprintf_bundle(char *buf, size_t cap, const zcs_webrtc_session *s)
 {
     int n;
     int i;
@@ -78,7 +78,7 @@ static int webrtc_snprintf_bundle(char *buf, size_t cap, const zms_webrtc_sessio
 }
 
 static int webrtc_append_rejected_audio_play(char *answer, size_t answer_cap, size_t n,
-                                             const zms_webrtc_session *s, const char *mid)
+                                             const zcs_webrtc_session *s, const char *mid)
 {
     if (!s || !mid || !mid[0] || !s->local_ufrag[0] || !s->local_pwd[0]) {
         return -1;
@@ -94,7 +94,7 @@ static int webrtc_append_rejected_audio_play(char *answer, size_t answer_cap, si
 }
 
 static int webrtc_append_rejected_application(char *answer, size_t answer_cap, size_t n,
-                                              const zms_webrtc_session *s, const char *mid)
+                                              const zcs_webrtc_session *s, const char *mid)
 {
     if (!s || !mid || !mid[0] || !s->local_ufrag[0] || !s->local_pwd[0]) {
         return -1;
@@ -116,7 +116,7 @@ static int webrtc_append_rejected_application(char *answer, size_t answer_cap, s
  * 是轻量 ICE 实现（不主动发 connectivity check）。
  */
 static int webrtc_append_video_play(char *answer, size_t answer_cap, size_t n,
-                                    const zms_webrtc_session *s, const char *host, const char *fp,
+                                    const zcs_webrtc_session *s, const char *host, const char *fp,
                                     const webrtc_neg_track *v, const char *mid)
 {
     char profile[16];
@@ -124,7 +124,7 @@ static int webrtc_append_video_play(char *answer, size_t answer_cap, size_t n,
     char fmtp_line[1792];
 
     switch (v->codec) {
-    case ZMS_CODEC_VP8:
+    case ZCS_CODEC_VP8:
         return (int)n + snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                                  "m=video %u UDP/TLS/RTP/SAVPF %u\r\n"
                                  "c=IN IP4 %s\r\n"
@@ -140,15 +140,15 @@ static int webrtc_append_video_play(char *answer, size_t answer_cap, size_t n,
                                  "a=rtpmap:%u VP8/90000\r\n"
                                  "a=rtcp-fb:%u nack\r\n"
                                  "a=rtcp-fb:%u nack pli\r\n"
-                                 "a=ssrc:1 cname:zms\r\n"
-                                 "a=ssrc:1 msid:zms zmsv\r\n"
-                                 "a=ssrc:1 mslabel:zms\r\n"
-                                 "a=ssrc:1 label:zmsv\r\n"
+                                 "a=ssrc:1 cname:zcs\r\n"
+                                 "a=ssrc:1 msid:zcs zcsv\r\n"
+                                 "a=ssrc:1 mslabel:zcs\r\n"
+                                 "a=ssrc:1 label:zcsv\r\n"
                                  "a=candidate:1 1 udp 2130706431 %s %u typ host generation 0\r\n",
                                  (unsigned)s->port, (unsigned)v->pt, host, s->local_ufrag,
                                  s->local_pwd, fp, mid, (unsigned)v->pt, (unsigned)v->pt,
                                  (unsigned)v->pt, host, (unsigned)s->port);
-    case ZMS_CODEC_VP9:
+    case ZCS_CODEC_VP9:
         return (int)n + snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                                  "m=video %u UDP/TLS/RTP/SAVPF %u\r\n"
                                  "c=IN IP4 %s\r\n"
@@ -164,15 +164,15 @@ static int webrtc_append_video_play(char *answer, size_t answer_cap, size_t n,
                                  "a=rtpmap:%u VP9/90000\r\n"
                                  "a=rtcp-fb:%u nack\r\n"
                                  "a=rtcp-fb:%u nack pli\r\n"
-                                 "a=ssrc:1 cname:zms\r\n"
-                                 "a=ssrc:1 msid:zms zmsv\r\n"
-                                 "a=ssrc:1 mslabel:zms\r\n"
-                                 "a=ssrc:1 label:zmsv\r\n"
+                                 "a=ssrc:1 cname:zcs\r\n"
+                                 "a=ssrc:1 msid:zcs zcsv\r\n"
+                                 "a=ssrc:1 mslabel:zcs\r\n"
+                                 "a=ssrc:1 label:zcsv\r\n"
                                  "a=candidate:1 1 udp 2130706431 %s %u typ host generation 0\r\n",
                                  (unsigned)s->port, (unsigned)v->pt, host, s->local_ufrag,
                                  s->local_pwd, fp, mid, (unsigned)v->pt, (unsigned)v->pt,
                                  (unsigned)v->pt, host, (unsigned)s->port);
-    case ZMS_CODEC_H264:
+    case ZCS_CODEC_H264:
     default: {
         int r;
 
@@ -202,10 +202,10 @@ static int webrtc_append_video_play(char *answer, size_t answer_cap, size_t n,
                               "a=fmtp:%u %s\r\n"
                               "a=rtcp-fb:%u nack\r\n"
                               "a=rtcp-fb:%u nack pli\r\n"
-                              "a=ssrc:1 cname:zms\r\n"
-                              "a=ssrc:1 msid:zms zmsv\r\n"
-                              "a=ssrc:1 mslabel:zms\r\n"
-                              "a=ssrc:1 label:zmsv\r\n"
+                              "a=ssrc:1 cname:zcs\r\n"
+                              "a=ssrc:1 msid:zcs zcsv\r\n"
+                              "a=ssrc:1 mslabel:zcs\r\n"
+                              "a=ssrc:1 label:zcsv\r\n"
                               "a=candidate:1 1 udp 2130706431 %s %u typ host generation 0\r\n",
                               (unsigned)s->port, (unsigned)v->pt, host, s->local_ufrag,
                               s->local_pwd, fp, mid, (unsigned)v->pt, (unsigned)v->pt, fmtp_line,
@@ -219,11 +219,11 @@ static int webrtc_append_video_play(char *answer, size_t answer_cap, size_t n,
 }
 
 static int webrtc_append_video_publish(char *answer, size_t answer_cap, size_t n,
-                                       const zms_webrtc_session *s, const char *host,
+                                       const zcs_webrtc_session *s, const char *host,
                                        const char *fp, const webrtc_neg_track *v, const char *mid)
 {
     switch (v->codec) {
-    case ZMS_CODEC_VP8:
+    case ZCS_CODEC_VP8:
         return (int)n + snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                                  "m=video %u UDP/TLS/RTP/SAVPF %u\r\n"
                                  "c=IN IP4 %s\r\n"
@@ -240,7 +240,7 @@ static int webrtc_append_video_publish(char *answer, size_t answer_cap, size_t n
                                  (unsigned)s->port, (unsigned)v->pt, host, s->local_ufrag,
                                  s->local_pwd, fp, webrtc_dtls_setup_answer(s), mid,
                                  (unsigned)v->pt, host, (unsigned)s->port);
-    case ZMS_CODEC_VP9:
+    case ZCS_CODEC_VP9:
         return (int)n + snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                                  "m=video %u UDP/TLS/RTP/SAVPF %u\r\n"
                                  "c=IN IP4 %s\r\n"
@@ -257,7 +257,7 @@ static int webrtc_append_video_publish(char *answer, size_t answer_cap, size_t n
                                  (unsigned)s->port, (unsigned)v->pt, host, s->local_ufrag,
                                  s->local_pwd, fp, webrtc_dtls_setup_answer(s), mid,
                                  (unsigned)v->pt, host, (unsigned)s->port);
-    case ZMS_CODEC_H264:
+    case ZCS_CODEC_H264:
     default:
         return (int)n +
                snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
@@ -291,7 +291,7 @@ static int webrtc_append_video_publish(char *answer, size_t answer_cap, size_t n
  * 且无真实消费方时启用。
  */
 static int webrtc_append_audio_play(char *answer, size_t answer_cap, size_t n,
-                                    const zms_webrtc_session *s, const char *host, const char *fp,
+                                    const zcs_webrtc_session *s, const char *host, const char *fp,
                                     const webrtc_neg_track *a, const char *asc_hex, const char *mid)
 {
     char fmts[48];
@@ -303,15 +303,15 @@ static int webrtc_append_audio_play(char *answer, size_t answer_cap, size_t n,
     size_t used = 0;
 
     (void)asc_hex;
-    send = a && a->codec != ZMS_CODEC_INVALID && s->answer_has_audio;
+    send = a && a->codec != ZCS_CODEC_INVALID && s->answer_has_audio;
     recv = s->talk_enabled;
     if (!send && !recv) {
         zn_warn("[webrtc] no play audio to answer app=%s stream=%s", s->app, s->stream);
         return -1;
     }
     /* 无对讲消费者且源流无音轨时，回环给同一 viewer 便于浏览器自测。 */
-    loopback = recv && !send && !zms_webrtc_server_has_talk_audio_cb() &&
-               (s->talk_codec == ZMS_CODEC_G711U || s->talk_codec == ZMS_CODEC_G711A);
+    loopback = recv && !send && !zcs_webrtc_server_has_talk_audio_cb() &&
+               (s->talk_codec == ZCS_CODEC_G711U || s->talk_codec == ZCS_CODEC_G711A);
     fmts[0] = '\0';
     if (send) {
         used += (size_t)snprintf(fmts + used, sizeof(fmts) - used, " %u", (unsigned)a->pt);
@@ -339,19 +339,19 @@ static int webrtc_append_audio_play(char *answer, size_t answer_cap, size_t n,
     n += (size_t)r;
 
     if (send) {
-        if (a->codec == ZMS_CODEC_OPUS) {
+        if (a->codec == ZCS_CODEC_OPUS) {
             r = snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                          "a=rtpmap:%u opus/%d/2\r\n"
                          "a=fmtp:%u minptime=10;useinbandfec=1\r\n",
                          (unsigned)a->pt, a->rate > 0 ? a->rate : 48000, (unsigned)a->pt);
-        } else if (a->codec == ZMS_CODEC_G711A) {
+        } else if (a->codec == ZCS_CODEC_G711A) {
             r = snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                          "a=rtpmap:%u PCMA/8000/1\r\n", (unsigned)a->pt);
-        } else if (a->codec == ZMS_CODEC_G711U) {
+        } else if (a->codec == ZCS_CODEC_G711U) {
             r = snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                          "a=rtpmap:%u PCMU/8000/1\r\n", (unsigned)a->pt);
         } else {
-            zn_warn("[webrtc] refuse play audio codec=%s", zms_codec_name(a->codec));
+            zn_warn("[webrtc] refuse play audio codec=%s", zcs_codec_name(a->codec));
             return -1;
         }
         if (r < 0 || (size_t)r >= answer_cap - n) {
@@ -361,23 +361,23 @@ static int webrtc_append_audio_play(char *answer, size_t answer_cap, size_t n,
     }
     if (send || loopback) {
         r = snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
-                     "a=ssrc:2 cname:zms\r\n"
-                     "a=ssrc:2 msid:zms zmsa\r\n"
-                     "a=ssrc:2 mslabel:zms\r\n"
-                     "a=ssrc:2 label:zmsa\r\n");
+                     "a=ssrc:2 cname:zcs\r\n"
+                     "a=ssrc:2 msid:zcs zcsa\r\n"
+                     "a=ssrc:2 mslabel:zcs\r\n"
+                     "a=ssrc:2 label:zcsa\r\n");
         if (r < 0 || (size_t)r >= answer_cap - n) {
             return -1;
         }
         n += (size_t)r;
     }
     if (recv && (!send || s->talk_pt != a->pt)) {
-        if (s->talk_codec == ZMS_CODEC_G711U) {
+        if (s->talk_codec == ZCS_CODEC_G711U) {
             r = snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                          "a=rtpmap:%u PCMU/8000/1\r\n", (unsigned)s->talk_pt);
-        } else if (s->talk_codec == ZMS_CODEC_G711A) {
+        } else if (s->talk_codec == ZCS_CODEC_G711A) {
             r = snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                          "a=rtpmap:%u PCMA/8000/1\r\n", (unsigned)s->talk_pt);
-        } else if (s->talk_codec == ZMS_CODEC_OPUS) {
+        } else if (s->talk_codec == ZCS_CODEC_OPUS) {
             r = snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                          "a=rtpmap:%u opus/%d/2\r\n", (unsigned)s->talk_pt,
                          s->talk_rate > 0 ? s->talk_rate : 48000);
@@ -403,10 +403,10 @@ static int webrtc_append_audio_play(char *answer, size_t answer_cap, size_t n,
  * 其余（AAC）分支保留 mpeg4-generic 描述，供非浏览器推流端使用——浏览器 WHIP
  * 一般只推 Opus，但 RTP 推流网关可能用 AAC。 */
 static int webrtc_append_audio_publish(char *answer, size_t answer_cap, size_t n,
-                                       const zms_webrtc_session *s, const char *host,
+                                       const zcs_webrtc_session *s, const char *host,
                                        const char *fp, const webrtc_neg_track *a, const char *mid)
 {
-    if (a->codec == ZMS_CODEC_OPUS) {
+    if (a->codec == ZCS_CODEC_OPUS) {
         return (int)n + snprintf(answer + n, answer_cap > n ? answer_cap - n : 0,
                                  "m=audio %u UDP/TLS/RTP/SAVPF %u\r\n"
                                  "c=IN IP4 %s\r\n"
@@ -456,7 +456,7 @@ static int webrtc_append_audio_publish(char *answer, size_t answer_cap, size_t n
  * offer_audio_before_video 这个粗粒度标志来还原大概顺序。
  */
 static int webrtc_append_play_media(char *answer, size_t answer_cap, size_t n,
-                                    const zms_webrtc_session *s, const char *host, const char *fp,
+                                    const zcs_webrtc_session *s, const char *host, const char *fp,
                                     const webrtc_neg_track *v, const webrtc_neg_track *a,
                                     const char *asc_hex)
 {
@@ -549,7 +549,7 @@ static int webrtc_append_play_media(char *answer, size_t answer_cap, size_t n,
  * 音频，粗粒度顺序已足够；关键是不能凭空多出 m-line，故只按 answer_has_* 输出。
  */
 static int webrtc_append_publish_media(char *answer, size_t answer_cap, size_t n,
-                                       const zms_webrtc_session *s, const char *host,
+                                       const zcs_webrtc_session *s, const char *host,
                                        const char *fp, const webrtc_neg_track *v,
                                        const webrtc_neg_track *a)
 {
@@ -575,7 +575,7 @@ static int webrtc_append_publish_media(char *answer, size_t answer_cap, size_t n
     return (int)n;
 }
 
-static int webrtc_insert_gathered_candidates(zms_webrtc_session *s, char *answer, size_t cap)
+static int webrtc_insert_gathered_candidates(zcs_webrtc_session *s, char *answer, size_t cap)
 {
     char extra[512];
     char *first;
@@ -591,7 +591,7 @@ static int webrtc_insert_gathered_candidates(zms_webrtc_session *s, char *answer
     /* 只插入"已经 gather 到"的候选，不等待：本函数在 poller 上，
      * 每个 answer 阻塞 300ms × 千路并发会把事件循环拖死。 */
     (void)i;
-    extra_len = zms_webrtc_ice_sdp_candidates(s->ice_host.ctx, extra, sizeof(extra));
+    extra_len = zcs_webrtc_ice_sdp_candidates(s->ice_host.ctx, extra, sizeof(extra));
     if (extra_len == 0) {
         return 0;
     }
@@ -619,7 +619,7 @@ static int webrtc_insert_gathered_candidates(zms_webrtc_session *s, char *answer
  * 编号是两端协商的，answer 用不同 id 会让对端的 TWCC 反馈对不上。
  * 插入点选在 a=rtcp-mux 之后、同属视频段内，保证这些属性归属正确的 m-line。
  */
-static int webrtc_answer_enable_twcc(const zms_webrtc_session *s, char *answer, size_t cap)
+static int webrtc_answer_enable_twcc(const zcs_webrtc_session *s, char *answer, size_t cap)
 {
     char extra[192];
     char *video;
@@ -666,7 +666,7 @@ static int webrtc_answer_enable_twcc(const zms_webrtc_session *s, char *answer, 
  *   5. 最后才做 ICE setup 并把“已 gather 到的候选”插进正文。
  * 第 5 步必须在正文成型后：候选是往已写好的 a=candidate 行后插入的。
  */
-int zms_webrtc_session_build_answer(const zms_webrtc_session *s, const char *offer,
+int zcs_webrtc_session_build_answer(const zcs_webrtc_session *s, const char *offer,
                                     size_t offer_len, char *answer, size_t answer_cap,
                                     size_t *answer_len)
 {
@@ -677,13 +677,13 @@ int zms_webrtc_session_build_answer(const zms_webrtc_session *s, const char *off
     char bundle_line[64];
     char asc_hex[128];
     webrtc_neg_track v, a;
-    zms_webrtc_session *mut = (zms_webrtc_session *)s;
+    zcs_webrtc_session *mut = (zcs_webrtc_session *)s;
 
     if (!s || !offer || offer_len == 0 || !answer || answer_cap == 0) {
         return -1;
     }
-    host = zms_webrtc_server_advertise_host(zms_webrtc_server_instance());
-    fp = zms_webrtc_dtls_fingerprint();
+    host = zcs_webrtc_server_advertise_host(zcs_webrtc_server_instance());
+    fp = zcs_webrtc_dtls_fingerprint();
     sdp = sdp_parse(offer, (int)offer_len);
     if (!sdp) {
         return -1;
@@ -739,7 +739,7 @@ int zms_webrtc_session_build_answer(const zms_webrtc_session *s, const char *off
                      s->stream);
             return -1;
         }
-        if (zms_webrtc_ice_setup(mut->ice_host.ctx, offer, offer_len, mut->local_ufrag, mut->local_pwd,
+        if (zcs_webrtc_ice_setup(mut->ice_host.ctx, offer, offer_len, mut->local_ufrag, mut->local_pwd,
                                  mut->remote_ufrag, mut->remote_pwd, host, s->port) != 0) {
             zn_warn("[webrtc] ICE setup failed app=%s stream=%s", s->app, s->stream);
             return -1;
@@ -755,12 +755,12 @@ int zms_webrtc_session_build_answer(const zms_webrtc_session *s, const char *off
         *answer_len = (size_t)n;
     }
     zn_info("[webrtc] WHEP answer video=%s audio=%s app=%s stream=%s",
-             zms_codec_name(mut->video_codec),
-             mut->answer_has_audio ? zms_codec_name(mut->audio_codec) : "none", s->app, s->stream);
+             zcs_codec_name(mut->video_codec),
+             mut->answer_has_audio ? zcs_codec_name(mut->audio_codec) : "none", s->app, s->stream);
     return 0;
 }
 
-int zms_webrtc_session_build_publish_answer(const zms_webrtc_session *s, const char *offer,
+int zcs_webrtc_session_build_publish_answer(const zcs_webrtc_session *s, const char *offer,
                                             size_t offer_len, char *answer, size_t answer_cap,
                                             size_t *answer_len)
 {
@@ -770,13 +770,13 @@ int zms_webrtc_session_build_publish_answer(const zms_webrtc_session *s, const c
     const char *fp;
     char bundle_line[64];
     webrtc_neg_track v, a;
-    zms_webrtc_session *mut = (zms_webrtc_session *)s;
+    zcs_webrtc_session *mut = (zcs_webrtc_session *)s;
 
     if (!s || !offer || offer_len == 0 || !answer || answer_cap == 0) {
         return -1;
     }
-    host = zms_webrtc_server_advertise_host(zms_webrtc_server_instance());
-    fp = zms_webrtc_dtls_fingerprint();
+    host = zcs_webrtc_server_advertise_host(zcs_webrtc_server_instance());
+    fp = zcs_webrtc_dtls_fingerprint();
     sdp = sdp_parse(offer, (int)offer_len);
     if (!sdp) {
         return -1;
@@ -820,7 +820,7 @@ int zms_webrtc_session_build_publish_answer(const zms_webrtc_session *s, const c
         return -1;
     }
     if (mut->ice_host.ctx &&
-        zms_webrtc_ice_setup(mut->ice_host.ctx, offer, offer_len, mut->local_ufrag, mut->local_pwd,
+        zcs_webrtc_ice_setup(mut->ice_host.ctx, offer, offer_len, mut->local_ufrag, mut->local_pwd,
                              mut->remote_ufrag, mut->remote_pwd, host, s->port) != 0) {
         return -1;
     }
@@ -831,7 +831,7 @@ int zms_webrtc_session_build_publish_answer(const zms_webrtc_session *s, const c
         *answer_len = (size_t)n;
     }
     zn_info("[webrtc] WHIP answer video=%s audio=%s dtls=%s app=%s stream=%s",
-             zms_codec_name(mut->video_codec), zms_codec_name(mut->audio_codec),
+             zcs_codec_name(mut->video_codec), zcs_codec_name(mut->audio_codec),
              mut->dtls_as_client ? "client" : "server", s->app, s->stream);
     return 0;
 }

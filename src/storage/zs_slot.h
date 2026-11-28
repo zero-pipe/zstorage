@@ -16,8 +16,8 @@
  *   - 崩溃恢复靠扫描 Zone C 的 pack 链（00 00 01 BA），丢掉末尾半帧。
  *     写路径全程追加，不需要 fsync 也能保证"已刷盘的完整 pack 一定可读"。
  */
-#ifndef ZMS_SRC_STORAGE_ZS_SLOT_H
-#define ZMS_SRC_STORAGE_ZS_SLOT_H
+#ifndef ZCS_SRC_STORAGE_ZS_SLOT_H
+#define ZCS_SRC_STORAGE_ZS_SLOT_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -165,4 +165,4 @@ long zs_ps_pack_len(const uint8_t *buf, size_t avail);
 }
 #endif
 
-#endif /* ZMS_SRC_STORAGE_ZS_SLOT_H */
+#endif /* ZCS_SRC_STORAGE_ZS_SLOT_H */

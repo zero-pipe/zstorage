@@ -2,7 +2,7 @@
  * @file module_registry.c
  * @brief 模块启动入口（组合根 / composition root）。
  *
- * zms_modules_register_all() 为 ZMS 唯一初始化入口，
+ * zcs_modules_register_all() 为 ZCS 唯一初始化入口，
  * 进程启动时由业务层（如 demo_server_runtime）调用一次。
  * 按依赖顺序注册内建实现：
  *
@@ -15,20 +15,20 @@
  *
  * 各子系统 register_* 均幂等；此处无需额外守卫。
  */
-#include "zms/core/module_registry.h"
-#include "zms/play/dispatch.h"
-#include "zms/vod/io/format.h"
+#include "zcs/core/module_registry.h"
+#include "zcs/play/dispatch.h"
+#include "zcs/vod/io/format.h"
 
 /* 前向声明（定义见各自 .c）。 */
-void zms_frame_codec_register_all(void);
-void zms_container_register_all(void);
-void zms_live_ingest_codec_register_all(void);
+void zcs_frame_codec_register_all(void);
+void zcs_container_register_all(void);
+void zcs_live_ingest_codec_register_all(void);
 
 /**
  * 注册所有内建模块。
  * 幂等：多次调用仅执行一次；线程安全由调用方保证（启动单线程）。
  */
-void zms_modules_register_all(void)
+void zcs_modules_register_all(void)
 {
     static int registered; /* 启动阶段，单线程 */
 
@@ -36,9 +36,9 @@ void zms_modules_register_all(void)
         return;
     }
     registered = 1;
-    zms_frame_codec_register_all();       /* 帧 codec 策略 */
-    zms_container_register_all();         /* 容器 demuxer / muxer */
-    zms_live_ingest_codec_register_all(); /* 直播 ingest codec 适配器 */
-    zms_vod_format_register_all();        /* VOD 格式探测 */
-    zms_session_dispatch_register_all();  /* 协议 dispatch */
+    zcs_frame_codec_register_all();       /* 帧 codec 策略 */
+    zcs_container_register_all();         /* 容器 demuxer / muxer */
+    zcs_live_ingest_codec_register_all(); /* 直播 ingest codec 适配器 */
+    zcs_vod_format_register_all();        /* VOD 格式探测 */
+    zcs_session_dispatch_register_all();  /* 协议 dispatch */
 }

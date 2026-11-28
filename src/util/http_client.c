@@ -2,7 +2,7 @@
  * @file http_client.c
  * @brief 极简同步 HTTP 客户端实现（见 http_client.h）。
  */
-#include "zms/util/http_client.h"
+#include "zcs/util/http_client.h"
 #include "zn/util/log.h"
 #include <ctype.h>
 #include <errno.h>
@@ -17,10 +17,10 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
-typedef SOCKET zms_hsock_t;
-#define ZMS_HSOCK_INVALID INVALID_SOCKET
-#define zms_hsock_close closesocket
-typedef int zms_socklen_t;
+typedef SOCKET zcs_hsock_t;
+#define ZCS_HSOCK_INVALID INVALID_SOCKET
+#define zcs_hsock_close closesocket
+typedef int zcs_socklen_t;
 #else
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -30,18 +30,18 @@ typedef int zms_socklen_t;
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
-typedef int zms_hsock_t;
-#define ZMS_HSOCK_INVALID (-1)
-#define zms_hsock_close close
-typedef socklen_t zms_socklen_t;
+typedef int zcs_hsock_t;
+#define ZCS_HSOCK_INVALID (-1)
+#define zcs_hsock_close close
+typedef socklen_t zcs_socklen_t;
 #endif
 
-#define ZMS_HTTP_DEFAULT_TIMEOUT_MS 10000
+#define ZCS_HTTP_DEFAULT_TIMEOUT_MS 10000
 /* 上限既是防御（对端恶意/异常时我们不能无限 malloc），也是简化：
  * 头部 64K、正文 16M 覆盖了 webhook/配置拉取等本客户端的全部实际用途。
  * 超出即停止接收、按已收内容尽力解析。 */
-#define ZMS_HTTP_MAX_HEADER (64 * 1024)
-#define ZMS_HTTP_MAX_BODY (16 * 1024 * 1024)
+#define ZCS_HTTP_MAX_HEADER (64 * 1024)
+#define ZCS_HTTP_MAX_BODY (16 * 1024 * 1024)
 
 #if defined(_WIN32)
 static int hsock_last_error(void)
@@ -49,7 +49,7 @@ static int hsock_last_error(void)
     return WSAGetLastError();
 }
 
-/** ZMS/ZN 内部可能尚未初始化 Winsock（如独立 CLI 直接发起请求） */
+/** ZCS/ZN 内部可能尚未初始化 Winsock（如独立 CLI 直接发起请求） */
 static void hsock_global_init(void)
 {
     static int inited;
@@ -70,7 +70,7 @@ static void hsock_global_init(void)
 }
 #endif
 
-static void hsock_set_timeouts(zms_hsock_t fd, int timeout_ms)
+static void hsock_set_timeouts(zcs_hsock_t fd, int timeout_ms)
 {
 #if defined(_WIN32)
     DWORD tv = (DWORD)timeout_ms;
@@ -85,7 +85,7 @@ static void hsock_set_timeouts(zms_hsock_t fd, int timeout_ms)
 #endif
 }
 
-static int hsock_set_nonblock(zms_hsock_t fd, int on)
+static int hsock_set_nonblock(zcs_hsock_t fd, int on)
 {
 #if defined(_WIN32)
     u_long mode = on ? 1u : 0u;
@@ -107,7 +107,7 @@ static int hsock_set_nonblock(zms_hsock_t fd, int on)
  * connect，用 select 监听可写/异常集合来强制执行 timeout_ms。
  * 注意异常集合也必须监听：连接被拒时 fd 会出现在 efds 而非 wfds。
  */
-static int hsock_connect_timeout(zms_hsock_t fd, const struct sockaddr *addr, socklen_t addr_len,
+static int hsock_connect_timeout(zcs_hsock_t fd, const struct sockaddr *addr, socklen_t addr_len,
                                  int timeout_ms)
 {
     fd_set wfds;
@@ -153,7 +153,7 @@ static int hsock_connect_timeout(zms_hsock_t fd, const struct sockaddr *addr, so
 
 /* 循环写直到写满：send 可能只接受部分字节（发送缓冲区满），单次调用不能
  * 假定 len 一次写完；n<=0 且这是阻塞 socket 时代表出错（超时/断开）。 */
-static int hsock_send_all(zms_hsock_t fd, const char *buf, size_t len)
+static int hsock_send_all(zcs_hsock_t fd, const char *buf, size_t len)
 {
     size_t off = 0;
     while (off < len) {
@@ -375,7 +375,7 @@ static char *decode_chunked(const char *data, size_t len, size_t *out_len)
     return out;
 }
 
-void zms_http_resp_free(zms_http_resp *resp)
+void zcs_http_resp_free(zcs_http_resp *resp)
 {
     if (!resp) {
         return;
@@ -385,7 +385,7 @@ void zms_http_resp_free(zms_http_resp *resp)
     memset(resp, 0, sizeof(*resp));
 }
 
-int zms_http_exec(const zms_http_req *req, zms_http_resp *resp)
+int zcs_http_exec(const zcs_http_req *req, zcs_http_resp *resp)
 {
     char host[256];
     char path[1024];
@@ -394,7 +394,7 @@ int zms_http_exec(const zms_http_req *req, zms_http_resp *resp)
     struct addrinfo hints;
     struct addrinfo *res = NULL;
     char port_str[16];
-    zms_hsock_t fd = ZMS_HSOCK_INVALID;
+    zcs_hsock_t fd = ZCS_HSOCK_INVALID;
     char *raw = NULL;
     size_t raw_len = 0;
     size_t raw_cap = 0;
@@ -414,7 +414,7 @@ int zms_http_exec(const zms_http_req *req, zms_http_resp *resp)
         zn_warn("http: unsupported url: %s", req->url);
         return -1;
     }
-    timeout_ms = req->timeout_ms > 0 ? req->timeout_ms : ZMS_HTTP_DEFAULT_TIMEOUT_MS;
+    timeout_ms = req->timeout_ms > 0 ? req->timeout_ms : ZCS_HTTP_DEFAULT_TIMEOUT_MS;
     method = req->method && req->method[0] ? req->method : "POST";
 
     snprintf(port_str, sizeof(port_str), "%u", (unsigned)port);
@@ -430,18 +430,18 @@ int zms_http_exec(const zms_http_req *req, zms_http_resp *resp)
      * 与 IPv4，首个地址连接失败（如无 IPv6 路由）不应直接放弃，换下一个。 */
     for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (fd == ZMS_HSOCK_INVALID) {
+        if (fd == ZCS_HSOCK_INVALID) {
             continue;
         }
-        if (hsock_connect_timeout(fd, ai->ai_addr, (zms_socklen_t)ai->ai_addrlen, timeout_ms) != 0) {
-            zms_hsock_close(fd);
-            fd = ZMS_HSOCK_INVALID;
+        if (hsock_connect_timeout(fd, ai->ai_addr, (zcs_socklen_t)ai->ai_addrlen, timeout_ms) != 0) {
+            zcs_hsock_close(fd);
+            fd = ZCS_HSOCK_INVALID;
             continue;
         }
         break;
     }
     freeaddrinfo(res);
-    if (fd == ZMS_HSOCK_INVALID) {
+    if (fd == ZCS_HSOCK_INVALID) {
         zn_warn("http: connect failed %s:%u", host, (unsigned)port);
         return -1;
     }
@@ -454,13 +454,13 @@ int zms_http_exec(const zms_http_req *req, zms_http_resp *resp)
         int n;
 
         if (!head) {
-            zms_hsock_close(fd);
+            zcs_hsock_close(fd);
             return -1;
         }
         n = snprintf(head, head_cap,
                      "%s %s HTTP/1.1\r\n"
                      "Host: %s:%u\r\n"
-                     "User-Agent: zms-http/0.5\r\n"
+                     "User-Agent: zcs-http/0.5\r\n"
                      "Accept: */*\r\n"
                      "Connection: close\r\n"
                      "%s%s%s"
@@ -474,7 +474,7 @@ int zms_http_exec(const zms_http_req *req, zms_http_resp *resp)
                      req->extra_headers ? req->extra_headers : "", body_len);
         if (n < 0 || (size_t)n >= head_cap) {
             free(head);
-            zms_hsock_close(fd);
+            zcs_hsock_close(fd);
             return -1;
         }
         /* 头与正文分两次发送，避免为大体再拷贝一份 */
@@ -486,7 +486,7 @@ int zms_http_exec(const zms_http_req *req, zms_http_resp *resp)
             rc = hsock_send_all(fd, req->body, body_len);
         }
         if (rc != 0) {
-            zms_hsock_close(fd);
+            zcs_hsock_close(fd);
             return -1;
         }
     }
@@ -496,7 +496,7 @@ int zms_http_exec(const zms_http_req *req, zms_http_resp *resp)
      *          不直接判失败，这样慢服务端返回的完整响应仍能被接受；
      *   n==0 → 对端关闭，正常结束；
      *   完整 → http_response_complete 识别到 Content-Length/chunked 终止。
-     * 缓冲区按需倍增（初始 8K），并受 ZMS_HTTP_MAX_BODY 硬上限约束。 */
+     * 缓冲区按需倍增（初始 8K），并受 ZCS_HTTP_MAX_BODY 硬上限约束。 */
     for (;;) {
         char buf[4096];
         int n;
@@ -511,7 +511,7 @@ int zms_http_exec(const zms_http_req *req, zms_http_resp *resp)
         if (n == 0) {
             break;
         }
-        if (raw_len + (size_t)n + 1 > ZMS_HTTP_MAX_BODY) {
+        if (raw_len + (size_t)n + 1 > ZCS_HTTP_MAX_BODY) {
             break;
         }
         if (raw_len + (size_t)n + 1 > raw_cap) {
@@ -534,7 +534,7 @@ int zms_http_exec(const zms_http_req *req, zms_http_resp *resp)
             break; /* 已完整（keep-alive 服务端不会主动关闭） */
         }
     }
-    zms_hsock_close(fd);
+    zcs_hsock_close(fd);
 
     if (!raw || raw_len == 0) {
         free(raw);

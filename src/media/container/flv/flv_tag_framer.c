@@ -2,7 +2,7 @@
  * @file flv_tag_framer.c
  * @brief FLV tag 组帧（从字节流切分 tag）。
  */
-#include "zms/media/container/flv/flv_tag_framer.h"
+#include "zcs/media/container/flv/flv_tag_framer.h"
 #include "zm/format/flv.h"
 #include <stdlib.h>
 #include <string.h>
@@ -17,7 +17,7 @@ typedef enum {
     FLV_ST_TAG_PREV,
 } flv_parse_st;
 
-struct zms_flv_tag_framer {
+struct zcs_flv_tag_framer {
     flv_parse_st st;
     uint8_t scratch[16];
     size_t scratch_len;
@@ -26,12 +26,12 @@ struct zms_flv_tag_framer {
     size_t tag_body_cap;
 };
 
-zms_flv_tag_framer *zms_flv_tag_framer_create(void)
+zcs_flv_tag_framer *zcs_flv_tag_framer_create(void)
 {
-    return (zms_flv_tag_framer *)calloc(1, sizeof(zms_flv_tag_framer));
+    return (zcs_flv_tag_framer *)calloc(1, sizeof(zcs_flv_tag_framer));
 }
 
-void zms_flv_tag_framer_destroy(zms_flv_tag_framer *s)
+void zcs_flv_tag_framer_destroy(zcs_flv_tag_framer *s)
 {
     if (!s) {
         return;
@@ -40,7 +40,7 @@ void zms_flv_tag_framer_destroy(zms_flv_tag_framer *s)
     free(s);
 }
 
-void zms_flv_tag_framer_reset(zms_flv_tag_framer *s)
+void zcs_flv_tag_framer_reset(zcs_flv_tag_framer *s)
 {
     if (!s) {
         return;
@@ -50,7 +50,7 @@ void zms_flv_tag_framer_reset(zms_flv_tag_framer *s)
     memset(&s->cur_tag, 0, sizeof(s->cur_tag));
 }
 
-static zn_err_t ensure_tag_buf(zms_flv_tag_framer *s, size_t need)
+static zn_err_t ensure_tag_buf(zcs_flv_tag_framer *s, size_t need)
 {
     if (need > FLV_TAG_BODY_MAX) {
         return ZN_ERR_BUFFER_TOO_SMALL;
@@ -71,8 +71,8 @@ static zn_err_t ensure_tag_buf(zms_flv_tag_framer *s, size_t need)
     return ZN_OK;
 }
 
-zn_err_t zms_flv_tag_framer_feed(zms_flv_tag_framer *s, const uint8_t *data, size_t len,
-                                  zms_flv_on_tag on_tag, void *user)
+zn_err_t zcs_flv_tag_framer_feed(zcs_flv_tag_framer *s, const uint8_t *data, size_t len,
+                                  zcs_flv_on_tag on_tag, void *user)
 {
     size_t off = 0;
 

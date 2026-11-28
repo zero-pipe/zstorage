@@ -2,13 +2,13 @@
  * @file param_sets.c
  * @brief codec 参数集缓存。
  */
-#include "zms/media/codec/param_sets.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/param_sets.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/media/codec/h265/h265_es.h"
 #include <stdlib.h>
 #include <string.h>
 
-void zms_codec_param_sets_init(zms_codec_param_sets *ps)
+void zcs_codec_param_sets_init(zcs_codec_param_sets *ps)
 {
     if (!ps) {
         return;
@@ -16,7 +16,7 @@ void zms_codec_param_sets_init(zms_codec_param_sets *ps)
     memset(ps, 0, sizeof(*ps));
 }
 
-void zms_codec_param_sets_clear(zms_codec_param_sets *ps)
+void zcs_codec_param_sets_clear(zcs_codec_param_sets *ps)
 {
     if (!ps) {
         return;
@@ -48,7 +48,7 @@ static int cache_copy(uint8_t **dst, size_t *dst_len, const uint8_t *src, size_t
     return 1;
 }
 
-int zms_codec_param_sets_cache_flv_cfg(zms_codec_param_sets *ps, const uint8_t *cfg, size_t clen)
+int zcs_codec_param_sets_cache_flv_cfg(zcs_codec_param_sets *ps, const uint8_t *cfg, size_t clen)
 {
     const uint8_t *sps = NULL;
     const uint8_t *pps = NULL;
@@ -62,9 +62,9 @@ int zms_codec_param_sets_cache_flv_cfg(zms_codec_param_sets *ps, const uint8_t *
     }
 
     /* HVCC/VVCC 也以 configurationVersion=0x01 开头；先试 HEVC 再 AVCC。 */
-    if (zms_h265_video_config_param_sets(cfg, clen, &vps, &vps_len, &sps, &sps_len, &pps,
+    if (zcs_h265_video_config_param_sets(cfg, clen, &vps, &vps_len, &sps, &sps_len, &pps,
                                          &pps_len)) {
-        zms_codec_param_sets_clear(ps);
+        zcs_codec_param_sets_clear(ps);
         if (vps && vps_len > 0 && !cache_copy(&ps->vps, &ps->vps_len, vps, vps_len)) {
             return 0;
         }
@@ -72,8 +72,8 @@ int zms_codec_param_sets_cache_flv_cfg(zms_codec_param_sets *ps, const uint8_t *
                cache_copy(&ps->pps, &ps->pps_len, pps, pps_len);
     }
 
-    if (zms_rtmp_avc_extract_sps_pps(cfg, clen, &sps, &sps_len, &pps, &pps_len)) {
-        zms_codec_param_sets_clear(ps);
+    if (zcs_rtmp_avc_extract_sps_pps(cfg, clen, &sps, &sps_len, &pps, &pps_len)) {
+        zcs_codec_param_sets_clear(ps);
         return cache_copy(&ps->sps, &ps->sps_len, sps, sps_len) &&
                cache_copy(&ps->pps, &ps->pps_len, pps, pps_len);
     }
@@ -84,18 +84,18 @@ int zms_codec_param_sets_cache_flv_cfg(zms_codec_param_sets *ps, const uint8_t *
 /* ABI compatibility: these three symbols were exported from
  * egress/source/egress_sidecar_param_sets.c.
  * Keep thin aliases so the shared library keeps the old symbols; new code uses
- * the zms_codec_param_sets_* names above. */
-void zms_sidecar_param_sets_init(zms_codec_param_sets *ps)
+ * the zcs_codec_param_sets_* names above. */
+void zcs_sidecar_param_sets_init(zcs_codec_param_sets *ps)
 {
-    zms_codec_param_sets_init(ps);
+    zcs_codec_param_sets_init(ps);
 }
 
-void zms_sidecar_param_sets_clear(zms_codec_param_sets *ps)
+void zcs_sidecar_param_sets_clear(zcs_codec_param_sets *ps)
 {
-    zms_codec_param_sets_clear(ps);
+    zcs_codec_param_sets_clear(ps);
 }
 
-int zms_sidecar_cache_rtmp_video_cfg(zms_codec_param_sets *ps, const uint8_t *cfg, size_t clen)
+int zcs_sidecar_cache_rtmp_video_cfg(zcs_codec_param_sets *ps, const uint8_t *cfg, size_t clen)
 {
-    return zms_codec_param_sets_cache_flv_cfg(ps, cfg, clen);
+    return zcs_codec_param_sets_cache_flv_cfg(ps, cfg, clen);
 }

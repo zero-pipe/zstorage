@@ -7,7 +7,7 @@
 
 #define WEBRTC_TWCC_EXT_ID_DEFAULT 3
 
-size_t zms_webrtc_rtp_add_twcc_ext(uint8_t *rtp, size_t len, size_t cap, int ext_id,
+size_t zcs_webrtc_rtp_add_twcc_ext(uint8_t *rtp, size_t len, size_t cap, int ext_id,
                                    uint16_t twcc_seq, size_t *out_len)
 {
     size_t hdr_len;

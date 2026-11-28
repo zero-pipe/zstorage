@@ -2,8 +2,8 @@
  * @file h266_over_rtmp.c
  * @brief H.266 在 RTMP/FLV 的 VVCC 与序列头。
  */
-#include "zms/media/codec/h266/h266_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/h266/h266_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
 #include "zm/codec/bitstream.h"
 #include "zm/format/flv.h"
 #include <string.h>
@@ -30,7 +30,7 @@ static const uint8_t *locate_vvcc(const uint8_t *data, size_t len, size_t *vvcc_
     if (!data || !vvcc_len || len < 2) {
         return NULL;
     }
-    if (zms_flv_tag_video_codec(data, len) == ZMS_CODEC_H266) {
+    if (zcs_flv_tag_video_codec(data, len) == ZCS_CODEC_H266) {
         hdr = flv_video_tag_header_read(&vh, data, len);
         if (hdr > 0 && vh.avpacket == FLV_SEQUENCE_HEADER && (size_t)hdr < len) {
             *vvcc_len = len - (size_t)hdr;
@@ -41,7 +41,7 @@ static const uint8_t *locate_vvcc(const uint8_t *data, size_t len, size_t *vvcc_
     return data;
 }
 
-int zms_h266_over_rtmp_config_extradata(const uint8_t *data, size_t len, const uint8_t **vvcc,
+int zcs_h266_over_rtmp_config_extradata(const uint8_t *data, size_t len, const uint8_t **vvcc,
                                         size_t *vvcc_len)
 {
     if (!data || len < 2 || !vvcc || !vvcc_len) {
@@ -51,13 +51,13 @@ int zms_h266_over_rtmp_config_extradata(const uint8_t *data, size_t len, const u
     return *vvcc && *vvcc_len > 0;
 }
 
-int zms_h266_video_config_vvcc(const uint8_t *cfg, size_t cfg_len, const uint8_t **vvcc,
+int zcs_h266_video_config_vvcc(const uint8_t *cfg, size_t cfg_len, const uint8_t **vvcc,
                                size_t *vvcc_len)
 {
-    return zms_h266_over_rtmp_config_extradata(cfg, cfg_len, vvcc, vvcc_len);
+    return zcs_h266_over_rtmp_config_extradata(cfg, cfg_len, vvcc, vvcc_len);
 }
 
-zn_err_t zms_h266_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_t *out, size_t cap,
+zn_err_t zcs_h266_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_t *out, size_t cap,
                                        size_t *out_len)
 {
     struct mpeg4_vvc_t vvc;
@@ -70,7 +70,7 @@ zn_err_t zms_h266_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_
         return ZN_ERR_INVALID;
     }
 
-    if (zms_flv_tag_video_codec(cfg, cfg_len) == ZMS_CODEC_H266) {
+    if (zcs_flv_tag_video_codec(cfg, cfg_len) == ZCS_CODEC_H266) {
         struct flv_video_tag_header_t vh;
         int rh = flv_video_tag_header_read(&vh, cfg, cfg_len);
         if (rh > 0 && vh.avpacket == FLV_SEQUENCE_HEADER && cfg_len <= cap) {
@@ -80,7 +80,7 @@ zn_err_t zms_h266_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_
         }
     }
 
-    if (!zms_h266_video_config_vvcc(cfg, cfg_len, &vvcc, &vvcc_len) || !vvcc || vvcc_len < 7) {
+    if (!zcs_h266_video_config_vvcc(cfg, cfg_len, &vvcc, &vvcc_len) || !vvcc || vvcc_len < 7) {
         return ZN_ERR_INVALID;
     }
 
@@ -101,7 +101,7 @@ zn_err_t zms_h266_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_
     return ZN_OK;
 }
 
-zn_err_t zms_h266_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
+zn_err_t zcs_h266_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
                                      const uint8_t *annexb, size_t len, int key, uint8_t *out,
                                      size_t cap, size_t *out_len)
 {
@@ -121,7 +121,7 @@ zn_err_t zms_h266_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
     }
 
     memset(&vvc, 0, sizeof(vvc));
-    if (video_cfg && zms_h266_video_config_vvcc(video_cfg, cfg_len, &vvcc, &vvcc_len) && vvcc &&
+    if (video_cfg && zcs_h266_video_config_vvcc(video_cfg, cfg_len, &vvcc, &vvcc_len) && vvcc &&
         vvcc_len >= 7) {
         (void)mpeg4_vvc_decoder_configuration_record_load(vvcc, vvcc_len, &vvc);
     }

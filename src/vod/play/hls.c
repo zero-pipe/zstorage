@@ -2,20 +2,20 @@
  * @file hls.c
  * @brief VOD HLS 清单/分片解析与静态打包。
  */
-#include "zms/vod/play/hls.h"
-#include "zms/vod/io/source.h"
-#include "zms/vod/play/play_lane.h"
-#include "zms/media/container/flv/flv_index.h"
-#include "zms/media/codec/param_sets.h"
-#include "zms/core/gop/queue.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
-#include "zms/media/codec/aac/aac_over_rtmp.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/media/container/container_registry.h"
-#include "zms/media/codec/aac/aac_config.h"
+#include "zcs/vod/play/hls.h"
+#include "zcs/vod/io/source.h"
+#include "zcs/vod/play/play_lane.h"
+#include "zcs/media/container/flv/flv_index.h"
+#include "zcs/media/codec/param_sets.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/aac/aac_over_rtmp.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/media/container/container_registry.h"
+#include "zcs/media/codec/aac/aac_config.h"
 #include "mpeg4-hevc.h"
 #include "zn/util/log.h"
 #include "zb/os/sync.h"
@@ -27,18 +27,18 @@
 #include <direct.h>
 #include <io.h>
 #include <sys/stat.h>
-#define zms_vod_mkdir(path) _mkdir(path)
-#define zms_vod_is_dir(st) (((st).st_mode & _S_IFDIR) != 0)
+#define zcs_vod_mkdir(path) _mkdir(path)
+#define zcs_vod_is_dir(st) (((st).st_mode & _S_IFDIR) != 0)
 #else
 #include <dirent.h>
 #include <sys/stat.h>
-#define zms_vod_mkdir(path) mkdir(path, 0755)
-#define zms_vod_is_dir(st) S_ISDIR((st).st_mode)
+#define zcs_vod_mkdir(path) mkdir(path, 0755)
+#define zcs_vod_is_dir(st) S_ISDIR((st).st_mode)
 #endif
 
 /** m3u8/TS 格式代际：变更 mux 时间戳策略时递增，并清旧 .ts 缓存 */
-#define ZMS_VOD_HLS_GEN 5
-#define ZMS_VOD_HLS_GEN_LINE "# ZMS-HLS-GEN:5\r\n"
+#define ZCS_VOD_HLS_GEN 5
+#define ZCS_VOD_HLS_GEN_LINE "# ZCS-HLS-GEN:5\r\n"
 
 static zb_mutex *g_vod_hls_mu;
 
@@ -54,8 +54,8 @@ static int file_mtime(const char *path, time_t *out)
 
 static int vod_hls_media_dir(const char *app, const char *stream, char *out, size_t out_cap)
 {
-    const zms_vod_config *cfg = zms_vod_config_get();
-    char rel[ZMS_STREAM_MAX];
+    const zcs_vod_config *cfg = zcs_vod_config_get();
+    char rel[ZCS_STREAM_MAX];
     char *slash;
     size_t n;
 
@@ -94,7 +94,7 @@ static int rel_path_is_ts(const char *rel)
 {
     size_t n;
 
-    if (!rel || !zms_vod_rel_path_safe(rel)) {
+    if (!rel || !zcs_vod_rel_path_safe(rel)) {
         return 0;
     }
     n = strlen(rel);
@@ -103,29 +103,29 @@ static int rel_path_is_ts(const char *rel)
 
 /* 把 stream 名换成 .m3u8 相对路径并解析到磁盘，最后校验文件有效（>16 字节，
  * 排除空壳）。用于判断“是否已有可直接使用的清单”。 */
-int zms_vod_hls_resolve_playlist(const char *app, const char *stream, char *out, size_t out_cap)
+int zcs_vod_hls_resolve_playlist(const char *app, const char *stream, char *out, size_t out_cap)
 {
-    char m3u8_rel[ZMS_STREAM_MAX];
+    char m3u8_rel[ZCS_STREAM_MAX];
 
     if (!app || !stream || !out || out_cap == 0) {
         return 0;
     }
-    if (!zms_vod_mp4_stream_to_m3u8_rel(stream, m3u8_rel, sizeof(m3u8_rel))) {
+    if (!zcs_vod_mp4_stream_to_m3u8_rel(stream, m3u8_rel, sizeof(m3u8_rel))) {
         return 0;
     }
-    if (!zms_vod_resolve_rel_path(app, m3u8_rel, out, out_cap)) {
+    if (!zcs_vod_resolve_rel_path(app, m3u8_rel, out, out_cap)) {
         return 0;
     }
     return playlist_file_valid(out);
 }
 
-int zms_vod_hls_has_static_pack(const char *app, const char *stream)
+int zcs_vod_hls_has_static_pack(const char *app, const char *stream)
 {
     char path[512];
-    return zms_vod_hls_resolve_playlist(app, stream, path, sizeof(path));
+    return zcs_vod_hls_resolve_playlist(app, stream, path, sizeof(path));
 }
 
-int zms_vod_hls_playlist_gen(const char *m3u8_path)
+int zcs_vod_hls_playlist_gen(const char *m3u8_path)
 {
     char buf[512];
     const char *p;
@@ -142,18 +142,18 @@ int zms_vod_hls_playlist_gen(const char *m3u8_path)
     n = fread(buf, 1, sizeof(buf) - 1, fp);
     fclose(fp);
     buf[n] = '\0';
-    p = strstr(buf, "ZMS-HLS-GEN:");
+    p = strstr(buf, "ZCS-HLS-GEN:");
     if (!p) {
         return -1; /* 外部静态包 */
     }
-    return atoi(p + strlen("ZMS-HLS-GEN:"));
+    return atoi(p + strlen("ZCS-HLS-GEN:"));
 }
 
-int zms_vod_hls_playlist_stale(const char *m3u8_path)
+int zcs_vod_hls_playlist_stale(const char *m3u8_path)
 {
-    int gen = zms_vod_hls_playlist_gen(m3u8_path);
+    int gen = zcs_vod_hls_playlist_gen(m3u8_path);
 
-    return gen >= 0 && gen < ZMS_VOD_HLS_GEN;
+    return gen >= 0 && gen < ZCS_VOD_HLS_GEN;
 }
 
 /*
@@ -165,7 +165,7 @@ int zms_vod_hls_playlist_stale(const char *m3u8_path)
  * 之所以要回退而非单一规则：不同打包器写清单的 URI 形态不同，只有逐个试
  * 才能都兼容。任一命中且文件合法即返回。
  */
-int zms_vod_hls_resolve_segment_file(const char *app, const char *stream, const char *rel,
+int zcs_vod_hls_resolve_segment_file(const char *app, const char *stream, const char *rel,
                                      char *out, size_t out_cap)
 {
     char dir[512];
@@ -179,7 +179,7 @@ int zms_vod_hls_resolve_segment_file(const char *app, const char *stream, const 
     if (!app || !rel || !out || out_cap == 0 || !rel_path_is_ts(rel)) {
         return 0;
     }
-    if (zms_vod_resolve_rel_path(app, rel, out, out_cap) && segment_file_valid(out)) {
+    if (zcs_vod_resolve_rel_path(app, rel, out, out_cap) && segment_file_valid(out)) {
         return 1;
     }
 
@@ -198,7 +198,7 @@ int zms_vod_hls_resolve_segment_file(const char *app, const char *stream, const 
     }
     snprintf(alt, sizeof(alt), "%llu.ts", seg_no);
     if (slash) {
-        char rel_alt[ZMS_STREAM_MAX];
+        char rel_alt[ZCS_STREAM_MAX];
         size_t plen = (size_t)(slash - rel);
         if (plen + strlen(alt) + 2 >= sizeof(rel_alt)) {
             return 0;
@@ -206,7 +206,7 @@ int zms_vod_hls_resolve_segment_file(const char *app, const char *stream, const 
         memcpy(rel_alt, rel, plen);
         rel_alt[plen] = '/';
         strcpy(rel_alt + plen + 1, alt);
-        if (zms_vod_resolve_rel_path(app, rel_alt, out, out_cap) && segment_file_valid(out)) {
+        if (zcs_vod_resolve_rel_path(app, rel_alt, out, out_cap) && segment_file_valid(out)) {
             return 1;
         }
     }
@@ -228,7 +228,7 @@ static int vod_hls_ensure_dir(const char *dir)
         return 0;
     }
     if (stat(dir, &st) == 0) {
-        return zms_vod_is_dir(st) ? 1 : 0;
+        return zcs_vod_is_dir(st) ? 1 : 0;
     }
     /* create missing ancestors first (e.g. ./www/vod before ./www/vod/sub) */
     strncpy(tmp, dir, sizeof(tmp) - 1);
@@ -241,27 +241,27 @@ static int vod_hls_ensure_dir(const char *dir)
         *p = '\0';
         int skip = tmp[0] == '\0' || (strlen(tmp) == 2 && tmp[1] == ':');
         if (!skip && stat(tmp, &st) != 0) {
-            (void)zms_vod_mkdir(tmp);
+            (void)zcs_vod_mkdir(tmp);
         }
         *p = sep;
     }
     if (stat(dir, &st) == 0) {
-        return zms_vod_is_dir(st) ? 1 : 0;
+        return zcs_vod_is_dir(st) ? 1 : 0;
     }
-    return zms_vod_mkdir(dir) == 0;
+    return zcs_vod_mkdir(dir) == 0;
 }
 
-int zms_vod_hls_playlist_path(const char *app, const char *stream, char *out, size_t out_cap)
+int zcs_vod_hls_playlist_path(const char *app, const char *stream, char *out, size_t out_cap)
 {
-    char m3u8_rel[ZMS_STREAM_MAX];
+    char m3u8_rel[ZCS_STREAM_MAX];
 
-    if (!zms_vod_mp4_stream_to_m3u8_rel(stream, m3u8_rel, sizeof(m3u8_rel))) {
+    if (!zcs_vod_mp4_stream_to_m3u8_rel(stream, m3u8_rel, sizeof(m3u8_rel))) {
         return 0;
     }
-    return zms_vod_resolve_rel_path(app, m3u8_rel, out, out_cap);
+    return zcs_vod_resolve_rel_path(app, m3u8_rel, out, out_cap);
 }
 
-int zms_vod_hls_segment_path(const char *app, const char *stream, uint64_t seg_no, char *out,
+int zcs_vod_hls_segment_path(const char *app, const char *stream, uint64_t seg_no, char *out,
                              size_t out_cap)
 {
     char dir[512];
@@ -282,7 +282,7 @@ typedef struct {
 } vod_hls_seg_capture;
 
 typedef struct {
-    const zms_container_muxer_ops *ts_mux_ops;
+    const zcs_container_muxer_ops *ts_mux_ops;
     void *ts_mux;
     uint8_t *annexb;
     size_t annexb_cap;
@@ -290,11 +290,11 @@ typedef struct {
     size_t mux_buf_cap;
     uint8_t *adts;
     size_t adts_cap;
-    zms_codec_param_sets params;
+    zcs_codec_param_sets params;
     uint8_t hevc_esinfo[32];
     size_t hevc_esinfo_len;
-    zms_aac_config aac;
-    zms_codec_id video_codec;
+    zcs_aac_config aac;
+    zcs_codec_id video_codec;
     int have_aac;
     int sent_video_cfg;
     int sent_audio_cfg;
@@ -410,27 +410,27 @@ static int vod_hls_hevc_ts_esinfo(const uint8_t *hvcc, size_t hvcc_len, uint8_t 
 
 static void feed_video_cfg(vod_hls_mux *m, const uint8_t *cfg, size_t clen)
 {
-    zms_codec_id vc;
+    zcs_codec_id vc;
 
     if (!m || !cfg || clen < 2) {
         return;
     }
-    vc = zms_flv_tag_video_codec(cfg, clen);
+    vc = zcs_flv_tag_video_codec(cfg, clen);
     m->video_codec = vc;
-    if (vc == ZMS_CODEC_H264) {
+    if (vc == ZCS_CODEC_H264) {
         const uint8_t *avcc = NULL;
         size_t avcc_len = 0;
 
-        (void)zms_codec_param_sets_cache_flv_cfg(&m->params, cfg, clen);
-        if (m->ts_mux && zms_rtmp_avc_extradata(cfg, clen, &avcc, &avcc_len)) {
-            vod_ts_set_extradata(m, zms_codec_mpeg_psi(ZMS_CODEC_H264), avcc, avcc_len);
+        (void)zcs_codec_param_sets_cache_flv_cfg(&m->params, cfg, clen);
+        if (m->ts_mux && zcs_rtmp_avc_extradata(cfg, clen, &avcc, &avcc_len)) {
+            vod_ts_set_extradata(m, zcs_codec_mpeg_psi(ZCS_CODEC_H264), avcc, avcc_len);
         }
-    } else if (vc == ZMS_CODEC_H265) {
+    } else if (vc == ZCS_CODEC_H265) {
         const uint8_t *hvcc = NULL;
         size_t hvcc_len = 0;
 
-        (void)zms_codec_param_sets_cache_flv_cfg(&m->params, cfg, clen);
-        if (m->ts_mux && zms_h265_video_config_hvcc(cfg, clen, &hvcc, &hvcc_len)) {
+        (void)zcs_codec_param_sets_cache_flv_cfg(&m->params, cfg, clen);
+        if (m->ts_mux && zcs_h265_video_config_hvcc(cfg, clen, &hvcc, &hvcc_len)) {
             m->hevc_esinfo_len = 0;
             if (hvcc && hvcc_len > 0) {
                 int es_len =
@@ -440,10 +440,10 @@ static void feed_video_cfg(vod_hls_mux *m, const uint8_t *cfg, size_t clen)
                 }
             }
             if (m->hevc_esinfo_len > 0) {
-                vod_ts_set_extradata(m, zms_codec_mpeg_psi(ZMS_CODEC_H265), m->hevc_esinfo,
+                vod_ts_set_extradata(m, zcs_codec_mpeg_psi(ZCS_CODEC_H265), m->hevc_esinfo,
                                      m->hevc_esinfo_len);
             } else {
-                vod_ts_set_extradata(m, zms_codec_mpeg_psi(ZMS_CODEC_H265), hvcc, hvcc_len);
+                vod_ts_set_extradata(m, zcs_codec_mpeg_psi(ZCS_CODEC_H265), hvcc, hvcc_len);
             }
         }
     }
@@ -457,22 +457,22 @@ static void feed_audio_cfg(vod_hls_mux *m, const uint8_t *cfg, size_t clen)
     if (!m || !cfg || clen < 4) {
         return;
     }
-    if (zms_flv_tag_audio_codec(cfg, clen) != ZMS_CODEC_AAC) {
+    if (zcs_flv_tag_audio_codec(cfg, clen) != ZCS_CODEC_AAC) {
         return;
     }
     if (cfg[1] == 0) {
         int sr = 0;
         int ch = 0;
-        (void)zms_aac_parse_asc(cfg + 2, clen - 2, &sr, &ch);
-        if (!zms_rtmp_aac_extradata(cfg, clen, &asc, &asc_len)) {
+        (void)zcs_aac_parse_asc(cfg + 2, clen - 2, &sr, &ch);
+        if (!zcs_rtmp_aac_extradata(cfg, clen, &asc, &asc_len)) {
             return;
         }
-        zms_aac_config_set_defaults(&m->aac, 44100, 2);
-        if (zms_aac_config_load_asc(&m->aac, asc, asc_len)) {
+        zcs_aac_config_set_defaults(&m->aac, 44100, 2);
+        if (zcs_aac_config_load_asc(&m->aac, asc, asc_len)) {
             m->have_aac = 1;
         }
         if (m->ts_mux) {
-            vod_ts_set_extradata(m, zms_codec_mpeg_psi(ZMS_CODEC_AAC), asc, asc_len);
+            vod_ts_set_extradata(m, zcs_codec_mpeg_psi(ZCS_CODEC_AAC), asc, asc_len);
         }
     }
 }
@@ -511,7 +511,7 @@ static void feed_h264_video_es(vod_hls_mux *m, const uint8_t *annexb, size_t len
     }
     if (keyframe && m->params.sps && m->params.pps) {
         size_t full_len = 0;
-        if (zms_h264_annexb_prepend_sps_pps(m->params.sps, m->params.sps_len, m->params.pps,
+        if (zcs_h264_annexb_prepend_sps_pps(m->params.sps, m->params.sps_len, m->params.pps,
                                             m->params.pps_len, annexb, len, m->mux_buf,
                                             m->mux_buf_cap, &full_len) == ZN_OK &&
             full_len) {
@@ -520,8 +520,8 @@ static void feed_h264_video_es(vod_hls_mux *m, const uint8_t *annexb, size_t len
         }
     }
     m->last_mux_dts_ms = ts;
-    vod_ts_write_frame(m, zms_codec_mpeg_psi(ZMS_CODEC_H264), mux_ptr, mux_len, (int64_t)ts,
-                       (int64_t)ts, keyframe ? ZMS_CONTAINER_MUX_FLAG_KEYFRAME : 0);
+    vod_ts_write_frame(m, zcs_codec_mpeg_psi(ZCS_CODEC_H264), mux_ptr, mux_len, (int64_t)ts,
+                       (int64_t)ts, keyframe ? ZCS_CONTAINER_MUX_FLAG_KEYFRAME : 0);
 }
 
 static void feed_h265_video_es(vod_hls_mux *m, const uint8_t *annexb, size_t len, uint32_t ts,
@@ -535,7 +535,7 @@ static void feed_h265_video_es(vod_hls_mux *m, const uint8_t *annexb, size_t len
         return;
     }
 
-    sync = keyframe || zms_h265_annexb_is_sync_key(annexb, len);
+    sync = keyframe || zcs_h265_annexb_is_sync_key(annexb, len);
     if (!m->video_armed) {
         if (!sync) {
             return;
@@ -549,7 +549,7 @@ static void feed_h265_video_es(vod_hls_mux *m, const uint8_t *annexb, size_t len
 
     if (sync && m->params.sps_len > 0 && m->params.pps_len > 0) {
         size_t full_len = 0;
-        if (zms_h265_annexb_build_rtp_au(m->params.vps_len ? m->params.vps : NULL,
+        if (zcs_h265_annexb_build_rtp_au(m->params.vps_len ? m->params.vps : NULL,
                                          m->params.vps_len, m->params.sps, m->params.sps_len,
                                          m->params.pps, m->params.pps_len, annexb, len, 1,
                                          m->mux_buf, m->mux_buf_cap, &full_len) == ZN_OK &&
@@ -559,7 +559,7 @@ static void feed_h265_video_es(vod_hls_mux *m, const uint8_t *annexb, size_t len
         }
     } else {
         size_t vcl_len = 0;
-        if (zms_h265_annexb_copy_vcl(annexb, len, m->mux_buf, m->mux_buf_cap, &vcl_len) == ZN_OK &&
+        if (zcs_h265_annexb_copy_vcl(annexb, len, m->mux_buf, m->mux_buf_cap, &vcl_len) == ZN_OK &&
             vcl_len > 0) {
             mux_ptr = m->mux_buf;
             mux_len = vcl_len;
@@ -567,8 +567,8 @@ static void feed_h265_video_es(vod_hls_mux *m, const uint8_t *annexb, size_t len
     }
 
     m->last_mux_dts_ms = ts;
-    vod_ts_write_frame(m, zms_codec_mpeg_psi(ZMS_CODEC_H265), mux_ptr, mux_len, (int64_t)ts,
-                       (int64_t)ts, sync ? ZMS_CONTAINER_MUX_FLAG_KEYFRAME : 0);
+    vod_ts_write_frame(m, zcs_codec_mpeg_psi(ZCS_CODEC_H265), mux_ptr, mux_len, (int64_t)ts,
+                       (int64_t)ts, sync ? ZCS_CONTAINER_MUX_FLAG_KEYFRAME : 0);
 }
 
 /*
@@ -590,7 +590,7 @@ static void feed_audio_es(vod_hls_mux *m, const uint8_t *es, size_t es_len, uint
         if (!m->have_aac || es_len > 0x1fff) {
             return;
         }
-        hdr = zms_aac_config_adts_header(&m->aac, (uint16_t)es_len, m->adts, m->adts_cap);
+        hdr = zcs_aac_config_adts_header(&m->aac, (uint16_t)es_len, m->adts, m->adts_cap);
         if (hdr < 7 || (size_t)hdr + es_len > m->adts_cap) {
             return;
         }
@@ -599,7 +599,7 @@ static void feed_audio_es(vod_hls_mux *m, const uint8_t *es, size_t es_len, uint
         mux_len = (size_t)hdr + es_len;
     }
     m->last_mux_dts_ms = ts;
-    vod_ts_write_frame(m, zms_codec_mpeg_psi(ZMS_CODEC_AAC), mux_ptr, mux_len, (int64_t)ts,
+    vod_ts_write_frame(m, zcs_codec_mpeg_psi(ZCS_CODEC_AAC), mux_ptr, mux_len, (int64_t)ts,
                        (int64_t)ts, 0);
 }
 
@@ -610,9 +610,9 @@ static void vod_hls_mux_free(vod_hls_mux *m)
     if (!m) {
         return;
     }
-    psi_video = zms_codec_mpeg_psi(m->video_codec);
+    psi_video = zcs_codec_mpeg_psi(m->video_codec);
     if (!psi_video) {
-        psi_video = zms_codec_mpeg_psi(ZMS_CODEC_H264);
+        psi_video = zcs_codec_mpeg_psi(ZCS_CODEC_H264);
     }
     if (m->ts_mux && m->video_armed) {
         vod_ts_flush(m, psi_video, (int64_t)m->last_mux_dts_ms);
@@ -621,7 +621,7 @@ static void vod_hls_mux_free(vod_hls_mux *m)
     free(m->annexb);
     free(m->mux_buf);
     free(m->adts);
-    zms_codec_param_sets_clear(&m->params);
+    zcs_codec_param_sets_clear(&m->params);
     memset(m, 0, sizeof(*m));
 }
 
@@ -672,13 +672,13 @@ static zn_err_t write_segment_file(const char *path, const void *data, size_t le
  * cap.done（本片封好）退出；但若源数据异常（读不到、无关键帧），不能让生成
  * 过程无限转，空闲到 128 轮就放弃，交由调用方报错。
  */
-static zn_err_t generate_segment(zms_media_source *src, uint64_t seg_no, zn_poller *poller,
+static zn_err_t generate_segment(zcs_media_source *src, uint64_t seg_no, zn_poller *poller,
                                   const char *out_path)
 {
-    const zms_vod_flv_index *idx;
-    zms_vod_play_lane *lane = NULL;
-    zms_vod_buffer_reader *rd;
-    zms_vod_reader *reader;
+    const zcs_vod_flv_index *idx;
+    zcs_vod_play_lane *lane = NULL;
+    zcs_vod_buffer_reader *rd;
+    zcs_vod_reader *reader;
     vod_hls_mux mux;
     vod_hls_seg_capture cap = {0};
     uint64_t start_ms;
@@ -688,7 +688,7 @@ static zn_err_t generate_segment(zms_media_source *src, uint64_t seg_no, zn_poll
     int idle;
     int loops;
 
-    idx = zms_vod_source_flv_index(src);
+    idx = zcs_vod_source_flv_index(src);
     if (!idx || idx->count == 0) {
         return ZN_ERR_INVALID;
     }
@@ -697,22 +697,22 @@ static zn_err_t generate_segment(zms_media_source *src, uint64_t seg_no, zn_poll
         return ZN_ERR_INVALID;
     }
 
-    dur_ms = zms_vod_source_duration_ms(src);
+    dur_ms = zcs_vod_source_duration_ms(src);
     start_ms = (uint64_t)(idx->times[seg_no] * 1000.0);
     is_last = (seg_no + 1 >= seg_count);
 
-    lane = zms_vod_play_lane_open(src, poller);
+    lane = zcs_vod_play_lane_open(src, poller);
     if (!lane) {
         return ZN_ERR_NOMEM;
     }
-    (void)zms_vod_play_lane_prepare(lane, start_ms);
-    zms_vod_play_lane_seek_ms(lane, start_ms);
-    zms_vod_play_lane_prefill(lane);
-    zms_vod_play_lane_align_reader(lane);
-    rd = zms_vod_play_lane_buffer_reader(lane);
-    reader = zms_vod_play_lane_reader(lane);
+    (void)zcs_vod_play_lane_prepare(lane, start_ms);
+    zcs_vod_play_lane_seek_ms(lane, start_ms);
+    zcs_vod_play_lane_prefill(lane);
+    zcs_vod_play_lane_align_reader(lane);
+    rd = zcs_vod_play_lane_buffer_reader(lane);
+    reader = zcs_vod_play_lane_reader(lane);
     if (!rd || !reader) {
-        zms_vod_play_lane_close(lane);
+        zcs_vod_play_lane_close(lane);
         return ZN_ERR_INVALID;
     }
 
@@ -728,12 +728,12 @@ static zn_err_t generate_segment(zms_media_source *src, uint64_t seg_no, zn_poll
     if (!mux.annexb || !mux.mux_buf || !mux.adts) {
         vod_hls_mux_free(&mux);
         free(cap.data);
-        zms_vod_play_lane_close(lane);
+        zcs_vod_play_lane_close(lane);
         return ZN_ERR_NOMEM;
     }
     /* duration=0：每个关键帧切一片；seek 到第 N 个关键帧后只保留第一个 */
     {
-        zms_container_mux_opts mcfg;
+        zcs_container_mux_opts mcfg;
         /* 切片时长必须与清单 EXTINF 一致（索引相邻关键帧的时间网格），否则
          * libhls 会按源文件真实关键帧间隔（可能远小于网格，如 0.5s）切段：
          * 清单声明 2s 而分段只有 0.5s，播放器每 2s 断粮一次 → 一卡一卡。 */
@@ -749,25 +749,25 @@ static zn_err_t generate_segment(zms_media_source *src, uint64_t seg_no, zn_poll
         }
 
         memset(&mcfg, 0, sizeof(mcfg));
-        mcfg.id = ZMS_CONTAINER_MPEGTS;
+        mcfg.id = ZCS_CONTAINER_MPEGTS;
         mcfg.segment_duration_ms = seg_ms;
         mcfg.on_segment = vod_hls_segment_cb;
         mcfg.user = &cap;
-        mux.ts_mux_ops = zms_container_muxer_find(ZMS_CONTAINER_MPEGTS);
+        mux.ts_mux_ops = zcs_container_muxer_find(ZCS_CONTAINER_MPEGTS);
         mux.ts_mux =
             mux.ts_mux_ops && mux.ts_mux_ops->create ? mux.ts_mux_ops->create(&mcfg) : NULL;
     }
     if (!mux.ts_mux) {
         vod_hls_mux_free(&mux);
         free(cap.data);
-        zms_vod_play_lane_close(lane);
+        zcs_vod_play_lane_close(lane);
         return ZN_ERR_NOMEM;
     }
 
     idle = 0;
     loops = 0;
     while (loops < 500000 && idle < 128) {
-        zms_gop_slot slot;
+        zcs_gop_slot slot;
         int n;
         int got_slot = 0;
 
@@ -776,13 +776,13 @@ static zn_err_t generate_segment(zms_media_source *src, uint64_t seg_no, zn_poll
         }
 
         for (n = 0; n < 32; ++n) {
-            if (zms_vod_reader_pump(reader) <= 0) {
+            if (zcs_vod_reader_pump(reader) <= 0) {
                 break;
             }
         }
         if (!mux.sent_video_cfg) {
             size_t clen = 0;
-            const uint8_t *cfg = zms_vod_play_lane_video_config(lane, &clen);
+            const uint8_t *cfg = zcs_vod_play_lane_video_config(lane, &clen);
             if (cfg && clen) {
                 feed_video_cfg(&mux, cfg, clen);
                 mux.sent_video_cfg = 1;
@@ -790,7 +790,7 @@ static zn_err_t generate_segment(zms_media_source *src, uint64_t seg_no, zn_poll
         }
         if (!mux.sent_audio_cfg && mux.enable_audio) {
             size_t clen = 0;
-            const uint8_t *cfg = zms_vod_play_lane_audio_config(lane, &clen);
+            const uint8_t *cfg = zcs_vod_play_lane_audio_config(lane, &clen);
             if (cfg && clen) {
                 feed_audio_cfg(&mux, cfg, clen);
                 mux.sent_audio_cfg = 1;
@@ -800,37 +800,37 @@ static zn_err_t generate_segment(zms_media_source *src, uint64_t seg_no, zn_poll
         }
 
         n = 0;
-        while (n < 64 && zms_vod_buffer_reader_peek_muxed(rd, &slot) > 0) {
+        while (n < 64 && zcs_vod_buffer_reader_peek_muxed(rd, &slot) > 0) {
             if (!is_last && cap.done) {
                 break;
             }
             if (!slot.data || slot.len == 0) {
-                zms_vod_buffer_reader_advance(rd);
+                zcs_vod_buffer_reader_advance(rd);
                 continue;
             }
-            if (slot.track == ZMS_TRACK_VIDEO) {
+            if (slot.track == ZCS_TRACK_VIDEO) {
                 int sync = slot.keyframe;
 
-                if (slot.codec == ZMS_CODEC_H265) {
-                    sync = sync || zms_h265_annexb_is_sync_key(slot.data, slot.len);
+                if (slot.codec == ZCS_CODEC_H265) {
+                    sync = sync || zcs_h265_annexb_is_sync_key(slot.data, slot.len);
                 }
                 if (!mux.video_armed && !sync) {
-                    zms_vod_buffer_reader_advance(rd);
+                    zcs_vod_buffer_reader_advance(rd);
                     continue;
                 }
-                if (slot.codec == ZMS_CODEC_H265) {
+                if (slot.codec == ZCS_CODEC_H265) {
                     feed_h265_video_es(&mux, slot.data, slot.len, slot.dts_ms, slot.keyframe);
                 } else {
                     feed_h264_video_es(&mux, slot.data, slot.len, slot.dts_ms, slot.keyframe);
                 }
-            } else if (slot.track == ZMS_TRACK_AUDIO) {
+            } else if (slot.track == ZCS_TRACK_AUDIO) {
                 if (!mux.video_armed) {
-                    zms_vod_buffer_reader_advance(rd);
+                    zcs_vod_buffer_reader_advance(rd);
                     continue;
                 }
                 feed_audio_es(&mux, slot.data, slot.len, slot.dts_ms);
             }
-            zms_vod_buffer_reader_advance(rd);
+            zcs_vod_buffer_reader_advance(rd);
             idle = 0;
             got_slot = 1;
             n++;
@@ -845,15 +845,15 @@ static zn_err_t generate_segment(zms_media_source *src, uint64_t seg_no, zn_poll
     }
 
     if (is_last && !cap.done && mux.video_armed) {
-        int psi_video = zms_codec_mpeg_psi(mux.video_codec);
+        int psi_video = zcs_codec_mpeg_psi(mux.video_codec);
         if (!psi_video) {
-            psi_video = zms_codec_mpeg_psi(ZMS_CODEC_H264);
+            psi_video = zcs_codec_mpeg_psi(ZCS_CODEC_H264);
         }
         vod_ts_flush(&mux, psi_video, (int64_t)mux.last_mux_dts_ms);
     }
 
     vod_hls_mux_free(&mux);
-    zms_vod_play_lane_close(lane);
+    zcs_vod_play_lane_close(lane);
 
     if (!cap.done || cap.len < 188) {
         free(cap.data);
@@ -949,10 +949,10 @@ static int playlist_cache_valid(const char *m3u8, time_t mp4_t)
         return 0;
     }
     buf[n] = '\0';
-    return strstr(buf, ZMS_VOD_HLS_GEN_LINE) != NULL;
+    return strstr(buf, ZCS_VOD_HLS_GEN_LINE) != NULL;
 }
 
-static unsigned zms_hls_target_duration_sec(double sec)
+static unsigned zcs_hls_target_duration_sec(double sec)
 {
     unsigned u;
 
@@ -966,20 +966,20 @@ static unsigned zms_hls_target_duration_sec(double sec)
 /* 清单里每片的 EXTINF 必须用“索引相邻关键帧时间差”，与 generate_segment 里
  * 切片用的时长同源（都取自 idx->times）。二者若不一致，播放器会按 EXTINF 期待
  * 时长去取到长短不符的分片，导致卡顿或过早/过晚切片。末片的 t1 取总时长。 */
-static zn_err_t build_playlist_file(zms_media_source *src, const char *path)
+static zn_err_t build_playlist_file(zcs_media_source *src, const char *path)
 {
-    const zms_vod_flv_index *idx;
+    const zcs_vod_flv_index *idx;
     char tmp[560];
     FILE *fp;
     double dur_sec;
     double max_inf = 0.0;
     size_t i;
 
-    idx = zms_vod_source_flv_index(src);
+    idx = zcs_vod_source_flv_index(src);
     if (!idx || idx->count == 0) {
         return ZN_ERR_INVALID;
     }
-    dur_sec = zms_vod_source_duration_ms(src) / 1000.0;
+    dur_sec = zcs_vod_source_duration_ms(src) / 1000.0;
     if (dur_sec <= 0.0) {
         return ZN_ERR_INVALID;
     }
@@ -1002,8 +1002,8 @@ static zn_err_t build_playlist_file(zms_media_source *src, const char *path)
         return ZN_ERR_IO;
     }
     fprintf(fp,
-            "#EXTM3U\r\n" ZMS_VOD_HLS_GEN_LINE "#EXT-X-VERSION:3\r\n#EXT-X-ALLOW-CACHE:YES\r\n");
-    fprintf(fp, "#EXT-X-TARGETDURATION:%u\r\n", zms_hls_target_duration_sec(max_inf));
+            "#EXTM3U\r\n" ZCS_VOD_HLS_GEN_LINE "#EXT-X-VERSION:3\r\n#EXT-X-ALLOW-CACHE:YES\r\n");
+    fprintf(fp, "#EXT-X-TARGETDURATION:%u\r\n", zcs_hls_target_duration_sec(max_inf));
     fprintf(fp, "#EXT-X-PLAYLIST-TYPE:VOD\r\n#EXT-X-MEDIA-SEQUENCE:0\r\n");
     for (i = 0; i < idx->count; ++i) {
         double t0 = idx->times[i];
@@ -1033,10 +1033,10 @@ static zn_err_t build_playlist_file(zms_media_source *src, const char *path)
  * 发现清单过期而都想重建，无锁检查先挡掉大部分；真正重建放在 g_vod_hls_mu
  * 下，并在锁内再查一遍，避免第二个线程重复做昂贵的扫盘/切片。
  *
- * 重建前先 purge 旧 .ts：代际（ZMS_VOD_HLS_GEN）升级意味着时间戳策略变了，
+ * 重建前先 purge 旧 .ts：代际（ZCS_VOD_HLS_GEN）升级意味着时间戳策略变了，
  * 旧分片与新清单的时间基准不再兼容，不清会播出花屏/音画错位。
  */
-zn_err_t zms_vod_hls_ensure_playlist(zms_media_source *src)
+zn_err_t zcs_vod_hls_ensure_playlist(zcs_media_source *src)
 {
     char mp4[512];
     char m3u8[512];
@@ -1052,25 +1052,25 @@ zn_err_t zms_vod_hls_ensure_playlist(zms_media_source *src)
         char static_m3u8[512];
         int gen;
 
-        if (zms_vod_hls_resolve_playlist(src->app, src->stream, static_m3u8,
+        if (zcs_vod_hls_resolve_playlist(src->app, src->stream, static_m3u8,
                                          sizeof(static_m3u8))) {
-            gen = zms_vod_hls_playlist_gen(static_m3u8);
+            gen = zcs_vod_hls_playlist_gen(static_m3u8);
             /* 外部静态包（无代际标记）直接使用；本模块生成的旧代缓存继续走重建。 */
-            if (!zms_vod_hls_playlist_stale(static_m3u8)) {
+            if (!zcs_vod_hls_playlist_stale(static_m3u8)) {
                 zn_info("vod hls: static playlist app=%s stream=%s path=%s gen=%d", src->app,
                          src->stream, static_m3u8, gen);
                 return ZN_OK;
             }
-            zn_info("vod hls: stale playlist gen=%d < %d, will rebuild: %s", gen, ZMS_VOD_HLS_GEN,
+            zn_info("vod hls: stale playlist gen=%d < %d, will rebuild: %s", gen, ZCS_VOD_HLS_GEN,
                      static_m3u8);
         }
     }
 
-    if (!zms_vod_source_file_path(src, mp4, sizeof(mp4)) &&
-        !zms_vod_resolve_file_path(src->app, src->stream, mp4, sizeof(mp4))) {
+    if (!zcs_vod_source_file_path(src, mp4, sizeof(mp4)) &&
+        !zcs_vod_resolve_file_path(src->app, src->stream, mp4, sizeof(mp4))) {
         return ZN_ERR_INVALID;
     }
-    if (!zms_vod_hls_playlist_path(src->app, src->stream, m3u8, sizeof(m3u8))) {
+    if (!zcs_vod_hls_playlist_path(src->app, src->stream, m3u8, sizeof(m3u8))) {
         return ZN_ERR_INVALID;
     }
     if (!vod_hls_media_dir(src->app, src->stream, dir, sizeof(dir))) {
@@ -1096,7 +1096,7 @@ zn_err_t zms_vod_hls_ensure_playlist(zms_media_source *src)
         return ZN_OK;
     }
     vod_hls_purge_segments(dir);
-    zn_info("vod hls: rebuild playlist (gen=%d), purged cached .ts under %s", ZMS_VOD_HLS_GEN,
+    zn_info("vod hls: rebuild playlist (gen=%d), purged cached .ts under %s", ZCS_VOD_HLS_GEN,
              dir);
     err = build_playlist_file(src, m3u8);
     zb_mutex_unlock(g_vod_hls_mu);
@@ -1109,7 +1109,7 @@ zn_err_t zms_vod_hls_ensure_playlist(zms_media_source *src)
  * 比较 mtime 而非内容：源 mp4 被替换后分片必然过期，mtime 是最廉价可靠
  * 的判据；分片比源新说明它就是从当前源生成的。
  */
-zn_err_t zms_vod_hls_ensure_segment(zms_media_source *src, uint64_t seg_no, zn_poller *poller)
+zn_err_t zcs_vod_hls_ensure_segment(zcs_media_source *src, uint64_t seg_no, zn_poller *poller)
 {
     char mp4[512];
     char ts_path[512];
@@ -1122,16 +1122,16 @@ zn_err_t zms_vod_hls_ensure_segment(zms_media_source *src, uint64_t seg_no, zn_p
         return ZN_ERR_INVALID;
     }
 
-    if (zms_vod_hls_segment_path(src->app, src->stream, seg_no, ts_path, sizeof(ts_path)) &&
+    if (zcs_vod_hls_segment_path(src->app, src->stream, seg_no, ts_path, sizeof(ts_path)) &&
         segment_file_valid(ts_path)) {
         return ZN_OK; /* pre-packed or already generated segment */
     }
 
-    if (!zms_vod_source_file_path(src, mp4, sizeof(mp4)) &&
-        !zms_vod_resolve_file_path(src->app, src->stream, mp4, sizeof(mp4))) {
+    if (!zcs_vod_source_file_path(src, mp4, sizeof(mp4)) &&
+        !zcs_vod_resolve_file_path(src->app, src->stream, mp4, sizeof(mp4))) {
         return ZN_ERR_INVALID;
     }
-    if (!zms_vod_hls_segment_path(src->app, src->stream, seg_no, ts_path, sizeof(ts_path))) {
+    if (!zcs_vod_hls_segment_path(src->app, src->stream, seg_no, ts_path, sizeof(ts_path))) {
         return ZN_ERR_INVALID;
     }
     if (!vod_hls_media_dir(src->app, src->stream, dir, sizeof(dir))) {
@@ -1140,7 +1140,7 @@ zn_err_t zms_vod_hls_ensure_segment(zms_media_source *src, uint64_t seg_no, zn_p
     if (!vod_hls_ensure_dir(dir)) {
         return ZN_ERR_IO;
     }
-    if (zms_vod_hls_ensure_playlist(src) != ZN_OK) {
+    if (zcs_vod_hls_ensure_playlist(src) != ZN_OK) {
         return ZN_ERR_INVALID;
     }
 

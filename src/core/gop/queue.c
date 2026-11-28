@@ -16,12 +16,12 @@
  *
  * Copyright (c) zero-media-server
  */
-#include "zms/core/gop/queue.h"
+#include "zcs/core/gop/queue.h"
 #include "core/gop/queue_internal.h"
-#include "zms/media/media_limits.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/media_limits.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
 #include "zb/os/sync.h"
 #include "zn/util/buf.h"
 #include "zn/util/mpsc.h"
@@ -34,38 +34,38 @@
 #include <windows.h>
 #endif
 
-static size_t oldest_idx(const zms_gop_queue *r);
-static size_t beginning_idx(const zms_gop_queue *r);
+static size_t oldest_idx(const zcs_gop_queue *r);
+static size_t beginning_idx(const zcs_gop_queue *r);
 
-int ring_slot_video_sync(const zms_frame_slot *slot)
+int ring_slot_video_sync(const zcs_frame_slot *slot)
 {
     if (!slot || !slot->pub.data || slot->pub.len == 0 || slot->pub.config_frame) {
         return 0;
     }
-    if (slot->pub.track != ZMS_TRACK_VIDEO) {
+    if (slot->pub.track != ZCS_TRACK_VIDEO) {
         return 0;
     }
-    if (slot->pub.codec == ZMS_CODEC_H265) {
+    if (slot->pub.codec == ZCS_CODEC_H265) {
         /* 接受 IDR 与 CRA（type 16-21）：libx265/FFmpeg 常发 CRA_NUT */
-        return zms_h265_annexb_is_sync_key(slot->pub.data, slot->pub.len);
+        return zcs_h265_annexb_is_sync_key(slot->pub.data, slot->pub.len);
     }
     if (slot->pub.keyframe) {
         return 1;
     }
-    if (slot->pub.codec == ZMS_CODEC_H264) {
-        return zms_h264_annexb_is_sync_key(slot->pub.data, slot->pub.len);
+    if (slot->pub.codec == ZCS_CODEC_H264) {
+        return zcs_h264_annexb_is_sync_key(slot->pub.data, slot->pub.len);
     }
-    return zms_gop_slot_is_egress_sync(&slot->pub);
+    return zcs_gop_slot_is_egress_sync(&slot->pub);
 }
 
-#define ZMS_GOP_QUEUE_WAKE_CAP 64u
-#define ZMS_GOP_QUEUE_READER_WAKE_CAP 8u
+#define ZCS_GOP_QUEUE_WAKE_CAP 64u
+#define ZCS_GOP_QUEUE_READER_WAKE_CAP 8u
 /** 持锁快照唤醒目标；溢出时仍持锁 push。 */
-#define ZMS_GOP_QUEUE_SIGNAL_SNAP 128
+#define ZCS_GOP_QUEUE_SIGNAL_SNAP 128
 
-static unsigned g_default_target_gops = ZMS_GOP_QUEUE_TARGET_GOPS;
-static unsigned g_default_cache_ms = ZMS_GOP_QUEUE_DEFAULT_CACHE_MS;
-static size_t g_default_byte_budget = ZMS_GOP_QUEUE_DEFAULT_BYTE_BUDGET;
+static unsigned g_default_target_gops = ZCS_GOP_QUEUE_TARGET_GOPS;
+static unsigned g_default_cache_ms = ZCS_GOP_QUEUE_DEFAULT_CACHE_MS;
+static size_t g_default_byte_budget = ZCS_GOP_QUEUE_DEFAULT_BYTE_BUDGET;
 
 /*
  * 编译器/CPU 内存屏障。
@@ -74,7 +74,7 @@ static size_t g_default_byte_budget = ZMS_GOP_QUEUE_DEFAULT_BYTE_BUDGET;
  * 成立。缺了屏障，编译器可能重排读写顺序，读者就会看到“序号没变但数据
  * 已经改了”的假一致状态。平台手感各不相同，这里做最小封装。
  */
-static void zms_gop_barrier(void)
+static void zcs_gop_barrier(void)
 {
 #if defined(_MSC_VER)
     MemoryBarrier();
@@ -108,18 +108,18 @@ static unsigned clamp_target_gops(unsigned n)
     if (n < 1u) {
         return 1u;
     }
-    if (n > ZMS_GOP_QUEUE_MAX_GOP) {
-        return ZMS_GOP_QUEUE_MAX_GOP;
+    if (n > ZCS_GOP_QUEUE_MAX_GOP) {
+        return ZCS_GOP_QUEUE_MAX_GOP;
     }
     return n;
 }
 
-void zms_gop_queue_set_default_target_gops(unsigned n)
+void zcs_gop_queue_set_default_target_gops(unsigned n)
 {
     g_default_target_gops = clamp_target_gops(n);
 }
 
-void zms_gop_queue_set_target_gops(zms_gop_queue *r, unsigned n)
+void zcs_gop_queue_set_target_gops(zcs_gop_queue *r, unsigned n)
 {
     if (!r) {
         return;
@@ -130,12 +130,12 @@ void zms_gop_queue_set_target_gops(zms_gop_queue *r, unsigned n)
     zb_mutex_unlock(r->mu);
 }
 
-void zms_gop_queue_set_default_cache_ms(unsigned ms)
+void zcs_gop_queue_set_default_cache_ms(unsigned ms)
 {
     g_default_cache_ms = ms;
 }
 
-void zms_gop_queue_set_cache_ms(zms_gop_queue *r, unsigned ms)
+void zcs_gop_queue_set_cache_ms(zcs_gop_queue *r, unsigned ms)
 {
     if (!r) {
         return;
@@ -145,12 +145,12 @@ void zms_gop_queue_set_cache_ms(zms_gop_queue *r, unsigned ms)
     zb_mutex_unlock(r->mu);
 }
 
-void zms_gop_queue_set_default_byte_budget(size_t bytes)
+void zcs_gop_queue_set_default_byte_budget(size_t bytes)
 {
     g_default_byte_budget = bytes;
 }
 
-void zms_gop_queue_set_byte_budget(zms_gop_queue *r, size_t bytes)
+void zcs_gop_queue_set_byte_budget(zcs_gop_queue *r, size_t bytes)
 {
     if (!r) {
         return;
@@ -160,20 +160,20 @@ void zms_gop_queue_set_byte_budget(zms_gop_queue *r, size_t bytes)
     zb_mutex_unlock(r->mu);
 }
 
-size_t zms_gop_queue_bytes(const zms_gop_queue *r)
+size_t zcs_gop_queue_bytes(const zcs_gop_queue *r)
 {
     size_t n;
 
     if (!r) {
         return 0;
     }
-    zb_mutex_lock(((zms_gop_queue *)r)->mu);
+    zb_mutex_lock(((zcs_gop_queue *)r)->mu);
     n = r->bytes;
-    zb_mutex_unlock(((zms_gop_queue *)r)->mu);
+    zb_mutex_unlock(((zcs_gop_queue *)r)->mu);
     return n;
 }
 
-static void reader_unref_held(zms_gop_reader *rd)
+static void reader_unref_held(zcs_gop_reader *rd)
 {
     if (!rd || !rd->held_ref) {
         return;
@@ -182,7 +182,7 @@ static void reader_unref_held(zms_gop_reader *rd)
     rd->held_ref = NULL;
 }
 
-void frame_mux_clear(zms_gop_reader *rd)
+void frame_mux_clear(zcs_gop_reader *rd)
 {
     if (!rd) {
         return;
@@ -196,7 +196,7 @@ void frame_mux_clear(zms_gop_reader *rd)
     rd->mux_cnt = 0;
 }
 
-static int frame_mux_pick_best(const zms_gop_reader *rd, uint32_t max_skew_ms)
+static int frame_mux_pick_best(const zcs_gop_reader *rd, uint32_t max_skew_ms)
 {
     int idx_v = -1;
     int idx_a = -1;
@@ -204,7 +204,7 @@ static int frame_mux_pick_best(const zms_gop_reader *rd, uint32_t max_skew_ms)
     uint32_t min_a = UINT32_MAX;
 
     for (int i = 0; i < rd->mux_cnt; ++i) {
-        if (rd->mux[i].pub.track == ZMS_TRACK_AUDIO) {
+        if (rd->mux[i].pub.track == ZCS_TRACK_AUDIO) {
             if (rd->mux[i].pub.dts_ms < min_a) {
                 min_a = rd->mux[i].pub.dts_ms;
                 idx_a = i;
@@ -235,27 +235,27 @@ static int frame_mux_pick_best(const zms_gop_reader *rd, uint32_t max_skew_ms)
     return -1;
 }
 
-static void free_slot(zms_frame_slot *p)
+static void free_slot(zcs_frame_slot *p)
 {
     if (!p) {
         return;
     }
     p->seq++;
-    zms_gop_barrier();
+    zcs_gop_barrier();
     if (p->buf) {
         zn_buf_unref(p->buf);
     }
     p->buf = NULL;
     p->pub.data = NULL;
     p->pub.len = 0;
-    zms_gop_barrier();
+    zcs_gop_barrier();
     p->seq++;
 }
 
 /**
  * 延迟释放 buf（调用方持 mu）。
  * 无锁读者可能刚读到旧 slot->buf 指针，还没来得及 try_ref。直接 unref 会让它碰到已释放内存。
- * 这里把 buf 暂存 ZMS_GOP_QUEUE_RETIRE_GRACE 帧后再 unref：读者临界区是纳秒级，
+ * 这里把 buf 暂存 ZCS_GOP_QUEUE_RETIRE_GRACE 帧后再 unref：读者临界区是纳秒级，
  * 16 帧（60fps 下约 270ms）远大于它。队列满时只能立即释放最旧一项，这是保守的退化路径。
  */
 /*
@@ -268,19 +268,19 @@ static void free_slot(zms_frame_slot *p)
  * 环满时丢最旧的——那意味着宽限期已经被大幅超出，继续留着只会无限增长内存；
  * 丢最旧同时也是最安全的（时间最久、读者最不可能还引用它）。
  */
-static void retire_buf(zms_gop_queue *r, zn_buf *b)
+static void retire_buf(zcs_gop_queue *r, zn_buf *b)
 {
     size_t tail;
 
     if (!r || !b) {
         return;
     }
-    if (r->retire_n == ZMS_GOP_QUEUE_RETIRE_CAP) {
+    if (r->retire_n == ZCS_GOP_QUEUE_RETIRE_CAP) {
         zn_buf_unref(r->retire[r->retire_head].buf);
-        r->retire_head = (r->retire_head + 1) % ZMS_GOP_QUEUE_RETIRE_CAP;
+        r->retire_head = (r->retire_head + 1) % ZCS_GOP_QUEUE_RETIRE_CAP;
         r->retire_n--;
     }
-    tail = (r->retire_head + r->retire_n) % ZMS_GOP_QUEUE_RETIRE_CAP;
+    tail = (r->retire_head + r->retire_n) % ZCS_GOP_QUEUE_RETIRE_CAP;
     r->retire[tail].buf = b;
     r->retire[tail].at = r->write_idx;
     r->retire_n++;
@@ -290,10 +290,10 @@ static void retire_buf(zms_gop_queue *r, zn_buf *b)
  *
  * 这是 drain_retired 的第二个放行条件。只靠“宽限期”不够：读者所在线程
  * 若被调度挂起，宽限期到了它可能还卡在临界区里。所以再多一道显式检查。 */
-static int ring_readers_in_cs(const zms_gop_queue *r)
+static int ring_readers_in_cs(const zcs_gop_queue *r)
 {
     for (int i = 0; i < r->reader_count; ++i) {
-        const zms_gop_reader *rd = r->readers[i];
+        const zcs_gop_reader *rd = r->readers[i];
 
         if (rd && rd->in_cs) {
             return 1;
@@ -313,12 +313,12 @@ static int ring_readers_in_cs(const zms_gop_queue *r)
  *            2=无视宽限期但**仍检查读者临界区**（清流路径：旧帧已不再需要，
  *              但可能有读者刚读到 slot->buf 指针尚未 try_ref）
  */
-static void drain_retired(zms_gop_queue *r, int all)
+static void drain_retired(zcs_gop_queue *r, int all)
 {
     while (r->retire_n > 0) {
         size_t at = r->retire[r->retire_head].at;
 
-        if (all == 0 && at + ZMS_GOP_QUEUE_RETIRE_GRACE > r->write_idx) {
+        if (all == 0 && at + ZCS_GOP_QUEUE_RETIRE_GRACE > r->write_idx) {
             break;
         }
         /* 宽限只防常见情况；读者被调度挂起时可能超过宽限。此时不等待、不释放，留到下次提交。
@@ -328,7 +328,7 @@ static void drain_retired(zms_gop_queue *r, int all)
         }
         zn_buf_unref(r->retire[r->retire_head].buf);
         r->retire[r->retire_head].buf = NULL;
-        r->retire_head = (r->retire_head + 1) % ZMS_GOP_QUEUE_RETIRE_CAP;
+        r->retire_head = (r->retire_head + 1) % ZCS_GOP_QUEUE_RETIRE_CAP;
         r->retire_n--;
     }
 }
@@ -338,7 +338,7 @@ static void drain_retired(zms_gop_queue *r, int all)
  * 这里 seq 递增了两次（清空前、清空后），形成一个奇数窗口：任何在这段
  * 期间读到该槽位的读者都会因 seq 为奇数而判定“写入中”，重试或放弃，
  * 不会拿到半清理状态。这是 seqlock 的标准写法。 */
-static void retire_slot(zms_gop_queue *r, zms_frame_slot *p)
+static void retire_slot(zcs_gop_queue *r, zcs_frame_slot *p)
 {
     zn_buf *b;
 
@@ -346,7 +346,7 @@ static void retire_slot(zms_gop_queue *r, zms_frame_slot *p)
         return;
     }
     p->seq++;
-    zms_gop_barrier();
+    zcs_gop_barrier();
     b = p->buf;
     if (r) {
         if (r->bytes > p->pub.len) {
@@ -358,7 +358,7 @@ static void retire_slot(zms_gop_queue *r, zms_frame_slot *p)
     p->buf = NULL;
     p->pub.data = NULL;
     p->pub.len = 0;
-    zms_gop_barrier();
+    zcs_gop_barrier();
     p->seq++;
     retire_buf(r, b);
 }
@@ -372,7 +372,7 @@ static void retire_slot(zms_gop_queue *r, zms_frame_slot *p)
  *
  * 槽位里原有的 old buf（同一槽位被复用、且不是本次的 buf）走 retire 延迟释放。
  */
-static void slot_publish(zms_gop_queue *r, zms_frame_slot *slot, zn_buf *buf, const zms_frame *frame,
+static void slot_publish(zcs_gop_queue *r, zcs_frame_slot *slot, zn_buf *buf, const zcs_frame *frame,
                          uint32_t dts_ms, uint32_t pts_ms)
 {
     zn_buf *old;
@@ -394,7 +394,7 @@ static void slot_publish(zms_gop_queue *r, zms_frame_slot *slot, zn_buf *buf, co
         }
     }
     slot->seq++;
-    zms_gop_barrier();
+    zcs_gop_barrier();
     slot->buf = buf;
     slot->pub.codec = frame->codec;
     slot->pub.track = frame->track;
@@ -405,14 +405,14 @@ static void slot_publish(zms_gop_queue *r, zms_frame_slot *slot, zn_buf *buf, co
     slot->pub.pts_ms = pts_ms;
     slot->pub.data = (uint8_t *)zn_buf_data(buf);
     slot->pub.len = zn_buf_len(buf);
-    zms_gop_barrier();
+    zcs_gop_barrier();
     slot->seq++;
     if (old) {
         retire_buf(r, old);
     }
 }
 
-static void publish_oldest(zms_gop_queue *r)
+static void publish_oldest(zcs_gop_queue *r)
 {
     size_t oldest;
 
@@ -420,11 +420,11 @@ static void publish_oldest(zms_gop_queue *r)
         return;
     }
     oldest = oldest_idx(r);
-    zms_gop_barrier();
+    zcs_gop_barrier();
     r->oldest_seq = oldest;
 }
 
-static void ring_post_wake(zms_gop_queue *r)
+static void ring_post_wake(zcs_gop_queue *r)
 {
     if (!r || !r->wake_q) {
         return;
@@ -432,7 +432,7 @@ static void ring_post_wake(zms_gop_queue *r)
     (void)zn_mpsc_push(r->wake_q, r);
 }
 
-static void ring_signal_readers(zms_gop_queue *r, size_t seq, zn_mpsc_queue **snaps, int *snap_n,
+static void ring_signal_readers(zcs_gop_queue *r, size_t seq, zn_mpsc_queue **snaps, int *snap_n,
                                 int snap_cap)
 {
     int i;
@@ -442,7 +442,7 @@ static void ring_signal_readers(zms_gop_queue *r, size_t seq, zn_mpsc_queue **sn
     }
     *snap_n = 0;
     for (i = 0; i < r->reader_count; ++i) {
-        zms_gop_reader *rd = r->readers[i];
+        zcs_gop_reader *rd = r->readers[i];
 
         if (!rd) {
             continue;
@@ -471,16 +471,16 @@ static void ring_flush_reader_wakes(zn_mpsc_queue **snaps, int snap_n, size_t se
     }
 }
 
-static int ring_reader_register(zms_gop_queue *r, zms_gop_reader *rd)
+static int ring_reader_register(zcs_gop_queue *r, zcs_gop_reader *rd)
 {
     if (!r || !rd) {
         return -1;
     }
     if (r->reader_count >= r->reader_cap) {
-        /* 动态扩容：每次翻倍，最小初始容量 ZMS_GOP_QUEUE_READERS_INIT_CAP */
-        int new_cap = r->reader_cap > 0 ? r->reader_cap * 2 : (int)ZMS_GOP_QUEUE_READERS_INIT_CAP;
-        zms_gop_reader **buf =
-            (zms_gop_reader **)realloc(r->readers, (size_t)new_cap * sizeof(r->readers[0]));
+        /* 动态扩容：每次翻倍，最小初始容量 ZCS_GOP_QUEUE_READERS_INIT_CAP */
+        int new_cap = r->reader_cap > 0 ? r->reader_cap * 2 : (int)ZCS_GOP_QUEUE_READERS_INIT_CAP;
+        zcs_gop_reader **buf =
+            (zcs_gop_reader **)realloc(r->readers, (size_t)new_cap * sizeof(r->readers[0]));
         if (!buf) {
             zn_warn("gop_queue: reader registry grow failed (count=%d)", r->reader_count);
             return -1;
@@ -492,7 +492,7 @@ static int ring_reader_register(zms_gop_queue *r, zms_gop_reader *rd)
     return 0;
 }
 
-static void ring_reader_unregister(zms_gop_queue *r, zms_gop_reader *rd)
+static void ring_reader_unregister(zcs_gop_queue *r, zcs_gop_reader *rd)
 {
     int i;
 
@@ -512,7 +512,7 @@ static void ring_reader_unregister(zms_gop_queue *r, zms_gop_reader *rd)
     }
 }
 
-static size_t beginning_idx(const zms_gop_queue *r)
+static size_t beginning_idx(const zcs_gop_queue *r)
 {
     if (r->count > 0 && r->write_idx >= r->count) {
         return r->write_idx - r->count;
@@ -522,7 +522,7 @@ static size_t beginning_idx(const zms_gop_queue *r)
     return r->write_idx;
 }
 
-static size_t oldest_idx(const zms_gop_queue *r)
+static size_t oldest_idx(const zcs_gop_queue *r)
 {
     if (r->gop_count > 0) {
         return r->gop_start[0];
@@ -551,33 +551,33 @@ static size_t oldest_idx(const zms_gop_queue *r)
  * 返回值：1=拿到；0=竞争/暂不可读（调用方可重试）；-1=槽位为空（无数据）。
  * 0 与 -1 必须区分：0 是“再试一次”，-1 是“这里确实没东西”。
  */
-static int reader_try_take_slot(zms_gop_reader *rd, size_t idx, zms_gop_slot *out, zn_buf **out_buf)
+static int reader_try_take_slot(zcs_gop_reader *rd, size_t idx, zcs_gop_slot *out, zn_buf **out_buf)
 {
-    zms_gop_queue *r;
-    zms_frame_slot *slot;
+    zcs_gop_queue *r;
+    zcs_frame_slot *slot;
     uint32_t s1;
     uint32_t s2;
     zn_buf *buf;
-    zms_gop_slot pub;
+    zcs_gop_slot pub;
 
     if (!rd || !rd->ring || !out || !out_buf) {
         return 0;
     }
     r = rd->ring;
-    slot = &r->slots[idx % ZMS_GOP_QUEUE_CAPACITY];
+    slot = &r->slots[idx % ZCS_GOP_QUEUE_CAPACITY];
 
     rd->in_cs = 1;
-    zms_gop_barrier();
+    zcs_gop_barrier();
 
     s1 = slot->seq;
     if (s1 & 1u) {
         rd->in_cs = 0;
         return 0;
     }
-    zms_gop_barrier();
+    zcs_gop_barrier();
     buf = slot->buf;
     pub = slot->pub;
-    zms_gop_barrier();
+    zcs_gop_barrier();
     s2 = slot->seq;
     if (s1 != s2 || (s2 & 1u)) {
         rd->in_cs = 0;
@@ -591,7 +591,7 @@ static int reader_try_take_slot(zms_gop_reader *rd, size_t idx, zms_gop_slot *ou
         rd->in_cs = 0;
         return 0;
     }
-    zms_gop_barrier();
+    zcs_gop_barrier();
     s2 = slot->seq;
     if (s1 != s2) {
         zn_buf_unref(buf);
@@ -607,12 +607,12 @@ static int reader_try_take_slot(zms_gop_reader *rd, size_t idx, zms_gop_slot *ou
     return 1;
 }
 
-static int frame_mux_fill_one_locked(zms_gop_reader *rd)
+static int frame_mux_fill_one_locked(zcs_gop_reader *rd)
 {
-    zms_gop_queue *r;
+    zcs_gop_queue *r;
     size_t oldest;
-    zms_frame_slot *slot;
-    zms_gop_frame_mux_item *it;
+    zcs_frame_slot *slot;
+    zcs_gop_frame_mux_item *it;
     zn_buf *buf;
 
     if (!rd || !rd->ring) {
@@ -633,7 +633,7 @@ static int frame_mux_fill_one_locked(zms_gop_reader *rd)
         }
         rd->read_idx = snap;
         for (size_t i = snap; i < r->write_idx; ++i) {
-            if (ring_slot_video_sync(&r->slots[i % ZMS_GOP_QUEUE_CAPACITY])) {
+            if (ring_slot_video_sync(&r->slots[i % ZCS_GOP_QUEUE_CAPACITY])) {
                 rd->read_idx = i;
                 break;
             }
@@ -644,7 +644,7 @@ static int frame_mux_fill_one_locked(zms_gop_reader *rd)
         return 0;
     }
 
-    slot = &r->slots[rd->read_idx % ZMS_GOP_QUEUE_CAPACITY];
+    slot = &r->slots[rd->read_idx % ZCS_GOP_QUEUE_CAPACITY];
     rd->read_idx++;
     if (!slot->buf || slot->pub.len == 0) {
         zb_mutex_unlock(r->mu);
@@ -662,13 +662,13 @@ static int frame_mux_fill_one_locked(zms_gop_reader *rd)
     return 1;
 }
 
-static int frame_mux_fill_one(zms_gop_reader *rd)
+static int frame_mux_fill_one(zcs_gop_reader *rd)
 {
-    zms_gop_queue *r;
+    zcs_gop_queue *r;
     size_t idx;
-    zms_gop_slot pub;
+    zcs_gop_slot pub;
     zn_buf *buf = NULL;
-    zms_gop_frame_mux_item *it;
+    zcs_gop_frame_mux_item *it;
     int n;
 
     if (!rd || !rd->ring) {
@@ -711,12 +711,12 @@ static int frame_mux_fill_one(zms_gop_reader *rd)
  * 遇到 n==2（尚未到起始关键帧）时 continue 继续填，而不是返回——
  * 起始前的那几帧就是不该被 mux 出去的。
  */
-static int frame_mux_fill(zms_gop_reader *rd)
+static int frame_mux_fill(zcs_gop_reader *rd)
 {
     if (!rd) {
         return 0;
     }
-    while (rd->mux_cnt < ZMS_FRAME_MUX_CAP) {
+    while (rd->mux_cnt < ZCS_FRAME_MUX_CAP) {
         int n = frame_mux_fill_one(rd);
 
         if (n == 2) {
@@ -729,7 +729,7 @@ static int frame_mux_fill(zms_gop_reader *rd)
     return rd->mux_cnt;
 }
 
-static void reset_gop(zms_gop_queue *r)
+static void reset_gop(zcs_gop_queue *r)
 {
     r->gop_count = 0;
     r->cache_started = 0;
@@ -744,16 +744,16 @@ static void reset_gop(zms_gop_queue *r)
  * 读者若已 try_ref 取走的 buf 不受影响（引用计数保证），
  * 之后访问到空 slot 的读者按 pub.len==0 视为跳过。
  */
-static void release_slot_range(zms_gop_queue *r, size_t from, size_t to)
+static void release_slot_range(zcs_gop_queue *r, size_t from, size_t to)
 {
     if (to <= from) {
         return;
     }
-    if (to - from > ZMS_GOP_QUEUE_CAPACITY) {
-        from = to - ZMS_GOP_QUEUE_CAPACITY;
+    if (to - from > ZCS_GOP_QUEUE_CAPACITY) {
+        from = to - ZCS_GOP_QUEUE_CAPACITY;
     }
     for (size_t i = from; i < to; ++i) {
-        retire_slot(r, &r->slots[i % ZMS_GOP_QUEUE_CAPACITY]);
+        retire_slot(r, &r->slots[i % ZCS_GOP_QUEUE_CAPACITY]);
     }
 }
 
@@ -767,7 +767,7 @@ static void release_slot_range(zms_gop_queue *r, size_t from, size_t to)
  * 回绕处理：abs_idx 用 %CAPACITY 映射到真实槽位，write_idx 回绕后
  * dropped 可能大于 count，必须钳制，否则 count 下溢成巨大值。
  */
-static void pop_front_gop(zms_gop_queue *r)
+static void pop_front_gop(zcs_gop_queue *r)
 {
     if (r->gop_count == 0) {
         return;
@@ -799,7 +799,7 @@ static void pop_front_gop(zms_gop_queue *r)
  * 与时间窗裁剪是两条独立策略，都会触发 pop_front_gop：任何一个阈值超标都
  * 要回收，否则内存会单方向增长（比如低码率但 GOP 极长，时间窗没到、字节已爆）。
  */
-static void trim_gops_for_bytes(zms_gop_queue *r)
+static void trim_gops_for_bytes(zcs_gop_queue *r)
 {
     if (!r || r->byte_budget == 0) {
         return;
@@ -809,7 +809,7 @@ static void trim_gops_for_bytes(zms_gop_queue *r)
     }
 }
 
-static void trim_gops_for_time(zms_gop_queue *r, uint32_t now_dts)
+static void trim_gops_for_time(zcs_gop_queue *r, uint32_t now_dts)
 {
     if (!r || r->cache_ms == 0) {
         return;
@@ -827,7 +827,7 @@ static void trim_gops_for_time(zms_gop_queue *r, uint32_t now_dts)
 }
 
 /** 新 GOP 边界：更新 key/config 相关游标（含 _video_key_pos）。 */
-static void on_new_gop(zms_gop_queue *r, uint32_t dts_ms)
+static void on_new_gop(zcs_gop_queue *r, uint32_t dts_ms)
 {
     /* gop_count == 0：首个 GOP；否则在 gop_count-1 处开新段。
      * set_video_config 可能把 cache_started 置 1，此时仍按新 gop 处理。 */
@@ -841,8 +841,8 @@ static void on_new_gop(zms_gop_queue *r, uint32_t dts_ms)
     }
     size_t cur = r->gop_start[r->gop_count - 1];
     if (r->write_idx > cur) {
-        while (r->gop_count >= ZMS_GOP_QUEUE_MAX_GOP ||
-               (r->gop_count >= r->target_gops && r->count >= ZMS_GOP_QUEUE_CAPACITY)) {
+        while (r->gop_count >= ZCS_GOP_QUEUE_MAX_GOP ||
+               (r->gop_count >= r->target_gops && r->count >= ZCS_GOP_QUEUE_CAPACITY)) {
             pop_front_gop(r);
         }
         trim_gops_for_time(r, dts_ms);
@@ -853,12 +853,12 @@ static void on_new_gop(zms_gop_queue *r, uint32_t dts_ms)
     }
 }
 
-static zn_err_t ring_commit_frame(zms_gop_queue *r, const zms_frame *frame, zn_buf *owned_buf)
+static zn_err_t ring_commit_frame(zcs_gop_queue *r, const zcs_frame *frame, zn_buf *owned_buf)
 {
-    zms_frame_slot *slot;
+    zcs_frame_slot *slot;
     uint32_t dts_ms;
     uint32_t pts_ms;
-    zn_mpsc_queue *wake_snaps[ZMS_GOP_QUEUE_SIGNAL_SNAP];
+    zn_mpsc_queue *wake_snaps[ZCS_GOP_QUEUE_SIGNAL_SNAP];
     int wake_snap_n = 0;
     size_t seq;
 
@@ -866,54 +866,54 @@ static zn_err_t ring_commit_frame(zms_gop_queue *r, const zms_frame *frame, zn_b
         return ZN_ERR_INVALID;
     }
 
-    zms_gop_queue_timeline_from_frame(frame, &dts_ms, &pts_ms);
+    zcs_gop_queue_timeline_from_frame(frame, &dts_ms, &pts_ms);
 
     zb_mutex_lock(r->mu);
     drain_retired(r, 0);
 
-    if (frame->track == ZMS_TRACK_VIDEO && !frame->config_frame) {
+    if (frame->track == ZCS_TRACK_VIDEO && !frame->config_frame) {
         r->has_video = 1;
     }
 
-    if (!zms_gop_queue_storable(frame, r->cache_started, r->has_video)) {
+    if (!zcs_gop_queue_storable(frame, r->cache_started, r->has_video)) {
         zb_mutex_unlock(r->mu);
         zn_buf_unref(owned_buf);
         return ZN_OK;
     }
-    if (zms_gop_queue_new_gop(frame, r->video_key_pos, r->has_video)) {
+    if (zcs_gop_queue_new_gop(frame, r->video_key_pos, r->has_video)) {
         on_new_gop(r, dts_ms);
     }
 
-    while (r->count >= ZMS_GOP_QUEUE_CAPACITY && r->gop_count > 0) {
+    while (r->count >= ZCS_GOP_QUEUE_CAPACITY && r->gop_count > 0) {
         pop_front_gop(r);
     }
 
-    slot = &r->slots[r->write_idx % ZMS_GOP_QUEUE_CAPACITY];
+    slot = &r->slots[r->write_idx % ZCS_GOP_QUEUE_CAPACITY];
     slot_publish(r, slot, owned_buf, frame, dts_ms, pts_ms);
 
     r->write_idx++;
-    if (r->count < ZMS_GOP_QUEUE_CAPACITY) {
+    if (r->count < ZCS_GOP_QUEUE_CAPACITY) {
         r->count++;
     }
 
     if (!frame->drop_able) {
-        if (frame->track == ZMS_TRACK_VIDEO) {
-            r->video_key_pos = zms_frame_video_gop_marker(frame);
+        if (frame->track == ZCS_TRACK_VIDEO) {
+            r->video_key_pos = zcs_frame_video_gop_marker(frame);
         } else if (!r->has_video) {
             r->video_key_pos = 1;
         }
     }
 
-    if (r->count >= ZMS_GOP_QUEUE_CAPACITY && r->gop_count > 1) {
+    if (r->count >= ZCS_GOP_QUEUE_CAPACITY && r->gop_count > 1) {
         pop_front_gop(r);
     }
     trim_gops_for_time(r, dts_ms);
     trim_gops_for_bytes(r);
 
-    zms_gop_barrier();
+    zcs_gop_barrier();
     r->write_seq = r->write_idx;
     seq = r->write_seq;
-    ring_signal_readers(r, seq, wake_snaps, &wake_snap_n, ZMS_GOP_QUEUE_SIGNAL_SNAP);
+    ring_signal_readers(r, seq, wake_snaps, &wake_snap_n, ZCS_GOP_QUEUE_SIGNAL_SNAP);
     zb_mutex_unlock(r->mu);
     ring_flush_reader_wakes(wake_snaps, wake_snap_n, seq);
     ring_post_wake(r);
@@ -924,10 +924,10 @@ static zn_err_t ring_commit_frame(zms_gop_queue *r, const zms_frame *frame, zn_b
  * 写配置到 blob 的非活动缓冲，成功后切换 active（调用方持 mu）。
  *
  * 不做堆分配：指针落在队列本体，跨线程借用永不会因更新而 UAF。
- * 超长配置（> ZMS_GOP_QUEUE_CONFIG_MAX）拒绝并返回 BUFFER_TOO_SMALL：
+ * 超长配置（> ZCS_GOP_QUEUE_CONFIG_MAX）拒绝并返回 BUFFER_TOO_SMALL：
  * 真实码流的 SPS/PPS/ASC 远小于 1KB，出现超长说明码流异常，宁可丢配置也不截断。
  */
-static zn_err_t set_blob(zms_gop_config_blob *blob, const void *data, size_t len)
+static zn_err_t set_blob(zcs_gop_config_blob *blob, const void *data, size_t len)
 {
     unsigned next;
 
@@ -944,30 +944,30 @@ static zn_err_t set_blob(zms_gop_config_blob *blob, const void *data, size_t len
     next = blob->active ^ 1u;
     memcpy(blob->buf[next], data, len);
     blob->len = len;
-    zms_gop_barrier();
+    zcs_gop_barrier();
     blob->active = next;
     return ZN_OK;
 }
 
-zms_gop_queue *zms_gop_queue_create(void)
+zcs_gop_queue *zcs_gop_queue_create(void)
 {
-    zms_gop_queue *r = (zms_gop_queue *)calloc(1, sizeof(*r));
+    zcs_gop_queue *r = (zcs_gop_queue *)calloc(1, sizeof(*r));
     if (!r) {
         return NULL;
     }
-    r->readers = (zms_gop_reader **)malloc(ZMS_GOP_QUEUE_READERS_INIT_CAP * sizeof(r->readers[0]));
+    r->readers = (zcs_gop_reader **)malloc(ZCS_GOP_QUEUE_READERS_INIT_CAP * sizeof(r->readers[0]));
     if (!r->readers) {
         free(r);
         return NULL;
     }
-    r->reader_cap = (int)ZMS_GOP_QUEUE_READERS_INIT_CAP;
+    r->reader_cap = (int)ZCS_GOP_QUEUE_READERS_INIT_CAP;
     r->mu = zb_mutex_create(ZB_MUTEX_NORMAL);
     if (!r->mu) {
         free(r->readers);
         free(r);
         return NULL;
     }
-    r->wake_q = zn_mpsc_create(ZMS_GOP_QUEUE_WAKE_CAP);
+    r->wake_q = zn_mpsc_create(ZCS_GOP_QUEUE_WAKE_CAP);
     if (!r->wake_q) {
         zb_mutex_destroy(r->mu);
         free(r->readers);
@@ -982,7 +982,7 @@ zms_gop_queue *zms_gop_queue_create(void)
     return r;
 }
 
-int zms_gop_queue_drain_wake(zms_gop_queue *r)
+int zcs_gop_queue_drain_wake(zcs_gop_queue *r)
 {
     if (!r || !r->wake_q) {
         return 0;
@@ -990,16 +990,16 @@ int zms_gop_queue_drain_wake(zms_gop_queue *r)
     return zn_mpsc_pop(r->wake_q) != NULL;
 }
 
-int zms_gop_reader_drain_wake(const zms_gop_reader *rd)
+int zcs_gop_reader_drain_wake(const zcs_gop_reader *rd)
 {
-    zms_gop_reader *mut;
+    zcs_gop_reader *mut;
     int got = 0;
 
     if (!rd) {
         return 0;
     }
     if (rd->wake_pending) {
-        mut = (zms_gop_reader *)rd;
+        mut = (zcs_gop_reader *)rd;
         mut->wake_pending = 0;
         got = 1;
     }
@@ -1011,7 +1011,7 @@ int zms_gop_reader_drain_wake(const zms_gop_reader *rd)
     return got;
 }
 
-static void reader_wake_destroy(zms_gop_reader *rd)
+static void reader_wake_destroy(zcs_gop_reader *rd)
 {
     if (!rd || !rd->wake_q) {
         return;
@@ -1020,18 +1020,18 @@ static void reader_wake_destroy(zms_gop_reader *rd)
     rd->wake_q = NULL;
 }
 
-static zms_gop_reader *reader_alloc(zms_gop_queue *r, size_t read_idx, int from_beginning)
+static zcs_gop_reader *reader_alloc(zcs_gop_queue *r, size_t read_idx, int from_beginning)
 {
-    zms_gop_reader *rd;
+    zcs_gop_reader *rd;
 
     if (!r) {
         return NULL;
     }
-    rd = (zms_gop_reader *)calloc(1, sizeof(*rd));
+    rd = (zcs_gop_reader *)calloc(1, sizeof(*rd));
     if (!rd) {
         return NULL;
     }
-    rd->wake_q = zn_mpsc_create(ZMS_GOP_QUEUE_READER_WAKE_CAP);
+    rd->wake_q = zn_mpsc_create(ZCS_GOP_QUEUE_READER_WAKE_CAP);
     if (!rd->wake_q) {
         free(rd);
         return NULL;
@@ -1042,13 +1042,13 @@ static zms_gop_reader *reader_alloc(zms_gop_queue *r, size_t read_idx, int from_
     return rd;
 }
 
-void zms_gop_queue_destroy(zms_gop_queue *r)
+void zcs_gop_queue_destroy(zcs_gop_queue *r)
 {
     if (!r) {
         return;
     }
     /* 销毁路径要求调用方已保证没有读者（source unregister 前读者均已 detach）。 */
-    for (size_t i = 0; i < ZMS_GOP_QUEUE_CAPACITY; ++i) {
+    for (size_t i = 0; i < ZCS_GOP_QUEUE_CAPACITY; ++i) {
         free_slot(&r->slots[i]);
     }
     drain_retired(r, 1);
@@ -1062,7 +1062,7 @@ void zms_gop_queue_destroy(zms_gop_queue *r)
     free(r);
 }
 
-size_t zms_gop_queue_pending_count(const zms_gop_queue *r)
+size_t zcs_gop_queue_pending_count(const zcs_gop_queue *r)
 {
     if (!r) {
         return 0;
@@ -1074,7 +1074,7 @@ size_t zms_gop_queue_pending_count(const zms_gop_queue *r)
     return n;
 }
 
-size_t zms_gop_queue_gop_count(const zms_gop_queue *r)
+size_t zcs_gop_queue_gop_count(const zcs_gop_queue *r)
 {
     size_t n = 0;
 
@@ -1087,7 +1087,7 @@ size_t zms_gop_queue_gop_count(const zms_gop_queue *r)
     return n;
 }
 
-void zms_gop_queue_clear(zms_gop_queue *r)
+void zcs_gop_queue_clear(zcs_gop_queue *r)
 {
     if (!r) {
         return;
@@ -1099,7 +1099,7 @@ void zms_gop_queue_clear(zms_gop_queue *r)
     /* 先尽量排空旧 retire 槽位，避免下面 512 个新条目把环挤满而触发“丢最旧”的
      * 立即释放（那样仍可能早释放读者手里的 buf）。 */
     drain_retired(r, 2);
-    for (size_t i = 0; i < ZMS_GOP_QUEUE_CAPACITY; ++i) {
+    for (size_t i = 0; i < ZCS_GOP_QUEUE_CAPACITY; ++i) {
         retire_slot(r, &r->slots[i]);
     }
     /* 清空后不会再有人需要这些旧帧，可无视宽限期释放；但仍以 in_cs 为硬性刹车：
@@ -1111,7 +1111,7 @@ void zms_gop_queue_clear(zms_gop_queue *r)
     /* 关键：不重置 write_idx / write_seq。已挂着的读者 read_idx 是绝对下标，
      * 归零会让它们“永远等不到数据”而冻结；保持单调后，读者读到的是空槽，
      * 由 oldest_seq 前移到当前写位置自然完成重定位。 */
-    zms_gop_barrier();
+    zcs_gop_barrier();
     r->oldest_seq = r->write_idx;
     r->video_config.len = 0;
     r->audio_config.len = 0;
@@ -1124,12 +1124,12 @@ void zms_gop_queue_clear(zms_gop_queue *r)
  * 注意：**不再复用当前写槽位里已有的 buf**。早期实现会在
  * `slot->buf`（refcnt==1）时直接就地复用，但入站线程拿到该指针后是**在锁外**
  * memcpy 的；如果此刻另一线程（推流重连/linger 过期/webhook close）执行了
- * `zms_gop_queue_clear`，`retire_slot` 会把这个 buf unref 掉，入站线程随后
+ * `zcs_gop_queue_clear`，`retire_slot` 会把这个 buf unref 掉，入站线程随后
  * memcpy 就是写已释放内存 —— 这是崩溃的第三个来源。
  * 现在每次从 buf_pool 取一块，所有权独享；旧的 slot buf 由提交时的
  * slot_publish→retire_buf 延迟释放，天然与 clear 的 retire 语义一致。
  */
-zn_buf *zms_gop_queue_alloc_write(zms_gop_queue *r, size_t size)
+zn_buf *zcs_gop_queue_alloc_write(zcs_gop_queue *r, size_t size)
 {
     if (!r || size == 0) {
         return NULL;
@@ -1137,9 +1137,9 @@ zn_buf *zms_gop_queue_alloc_write(zms_gop_queue *r, size_t size)
     return zn_buf_alloc(size);
 }
 
-zn_err_t zms_gop_queue_write(zms_gop_queue *r, const zms_frame *frame)
+zn_err_t zcs_gop_queue_write(zcs_gop_queue *r, const zcs_frame *frame)
 {
-    zms_frame norm;
+    zcs_frame norm;
     zn_buf *buf;
     void *dst;
 
@@ -1148,10 +1148,10 @@ zn_err_t zms_gop_queue_write(zms_gop_queue *r, const zms_frame *frame)
     }
 
     norm = *frame;
-    zms_frame_refresh_key_from_es(&norm);
+    zcs_frame_refresh_key_from_es(&norm);
     frame = &norm;
 
-    buf = zms_gop_queue_alloc_write(r, frame->size);
+    buf = zcs_gop_queue_alloc_write(r, frame->size);
     if (!buf) {
         return ZN_ERR_NOMEM;
     }
@@ -1161,20 +1161,20 @@ zn_err_t zms_gop_queue_write(zms_gop_queue *r, const zms_frame *frame)
     return ring_commit_frame(r, frame, buf);
 }
 
-zn_err_t zms_gop_queue_write_buf(zms_gop_queue *r, zn_buf *buf, const zms_frame *frame)
+zn_err_t zcs_gop_queue_write_buf(zcs_gop_queue *r, zn_buf *buf, const zcs_frame *frame)
 {
-    zms_frame norm;
+    zcs_frame norm;
 
     if (!r || !buf || !frame) {
         return ZN_ERR_INVALID;
     }
 
     norm = *frame;
-    zms_frame_refresh_key_from_es(&norm);
+    zcs_frame_refresh_key_from_es(&norm);
     return ring_commit_frame(r, &norm, buf);
 }
 
-zn_err_t zms_gop_queue_set_video_config(zms_gop_queue *r, const void *data, size_t len)
+zn_err_t zcs_gop_queue_set_video_config(zcs_gop_queue *r, const void *data, size_t len)
 {
     if (!r) {
         return ZN_ERR_INVALID;
@@ -1189,7 +1189,7 @@ zn_err_t zms_gop_queue_set_video_config(zms_gop_queue *r, const void *data, size
     return err;
 }
 
-zn_err_t zms_gop_queue_set_audio_config(zms_gop_queue *r, const void *data, size_t len)
+zn_err_t zcs_gop_queue_set_audio_config(zcs_gop_queue *r, const void *data, size_t len)
 {
     if (!r) {
         return ZN_ERR_INVALID;
@@ -1200,7 +1200,7 @@ zn_err_t zms_gop_queue_set_audio_config(zms_gop_queue *r, const void *data, size
     return err;
 }
 
-const uint8_t *zms_gop_queue_video_config(const zms_gop_queue *r, size_t *len)
+const uint8_t *zcs_gop_queue_video_config(const zcs_gop_queue *r, size_t *len)
 {
     if (!r) {
         return NULL;
@@ -1216,7 +1216,7 @@ const uint8_t *zms_gop_queue_video_config(const zms_gop_queue *r, size_t *len)
     return p;
 }
 
-const uint8_t *zms_gop_queue_audio_config(const zms_gop_queue *r, size_t *len)
+const uint8_t *zcs_gop_queue_audio_config(const zcs_gop_queue *r, size_t *len)
 {
     if (!r) {
         return NULL;
@@ -1231,7 +1231,7 @@ const uint8_t *zms_gop_queue_audio_config(const zms_gop_queue *r, size_t *len)
     return p;
 }
 
-static size_t gop_queue_copy_blob(zms_gop_queue *r, const zms_gop_config_blob *blob, uint8_t *buf,
+static size_t gop_queue_copy_blob(zcs_gop_queue *r, const zcs_gop_config_blob *blob, uint8_t *buf,
                                   size_t cap)
 {
     size_t n = 0;
@@ -1250,7 +1250,7 @@ static size_t gop_queue_copy_blob(zms_gop_queue *r, const zms_gop_config_blob *b
     return n;
 }
 
-size_t zms_gop_queue_copy_video_config(zms_gop_queue *r, uint8_t *buf, size_t cap)
+size_t zcs_gop_queue_copy_video_config(zcs_gop_queue *r, uint8_t *buf, size_t cap)
 {
     if (!r) {
         return 0;
@@ -1258,7 +1258,7 @@ size_t zms_gop_queue_copy_video_config(zms_gop_queue *r, uint8_t *buf, size_t ca
     return gop_queue_copy_blob(r, &r->video_config, buf, cap);
 }
 
-size_t zms_gop_queue_copy_audio_config(zms_gop_queue *r, uint8_t *buf, size_t cap)
+size_t zcs_gop_queue_copy_audio_config(zcs_gop_queue *r, uint8_t *buf, size_t cap)
 {
     if (!r) {
         return 0;
@@ -1266,25 +1266,25 @@ size_t zms_gop_queue_copy_audio_config(zms_gop_queue *r, uint8_t *buf, size_t ca
     return gop_queue_copy_blob(r, &r->audio_config, buf, cap);
 }
 
-zms_codec_id zms_gop_queue_audio_codec(const zms_gop_queue *r)
+zcs_codec_id zcs_gop_queue_audio_codec(const zcs_gop_queue *r)
 {
-    zms_codec_id c = ZMS_CODEC_INVALID;
+    zcs_codec_id c = ZCS_CODEC_INVALID;
 
     if (!r) {
-        return ZMS_CODEC_INVALID;
+        return ZCS_CODEC_INVALID;
     }
     zb_mutex_lock(r->mu);
     if (r->audio_config.len > 0) {
-        c = zms_flv_tag_audio_codec(r->audio_config.buf[r->audio_config.active],
+        c = zcs_flv_tag_audio_codec(r->audio_config.buf[r->audio_config.active],
                                     r->audio_config.len);
     }
     zb_mutex_unlock(r->mu);
     return c;
 }
 
-zms_gop_reader *zms_gop_reader_attach_beginning(zms_gop_queue *r)
+zcs_gop_reader *zcs_gop_reader_attach_beginning(zcs_gop_queue *r)
 {
-    zms_gop_reader *rd;
+    zcs_gop_reader *rd;
 
     if (!r) {
         return NULL;
@@ -1301,9 +1301,9 @@ zms_gop_reader *zms_gop_reader_attach_beginning(zms_gop_queue *r)
     return rd;
 }
 
-zms_gop_reader *zms_gop_reader_attach(zms_gop_queue *r)
+zcs_gop_reader *zcs_gop_reader_attach(zcs_gop_queue *r)
 {
-    zms_gop_reader *rd;
+    zcs_gop_reader *rd;
 
     if (!r) {
         return NULL;
@@ -1320,7 +1320,7 @@ zms_gop_reader *zms_gop_reader_attach(zms_gop_queue *r)
     return rd;
 }
 
-int zms_gop_reader_count(const zms_gop_queue *r)
+int zcs_gop_reader_count(const zcs_gop_queue *r)
 {
     int n = 0;
 
@@ -1333,9 +1333,9 @@ int zms_gop_reader_count(const zms_gop_queue *r)
     return n;
 }
 
-void zms_gop_reader_detach(zms_gop_reader *rd)
+void zcs_gop_reader_detach(zcs_gop_reader *rd)
 {
-    zms_gop_queue *r;
+    zcs_gop_queue *r;
 
     if (!rd) {
         return;
@@ -1352,10 +1352,10 @@ void zms_gop_reader_detach(zms_gop_reader *rd)
     free(rd);
 }
 
-int zms_gop_reader_slot_at_read(const zms_gop_reader *rd, zms_gop_slot *out)
+int zcs_gop_reader_slot_at_read(const zcs_gop_reader *rd, zcs_gop_slot *out)
 {
-    zms_gop_queue *r;
-    const zms_frame_slot *slot;
+    zcs_gop_queue *r;
+    const zcs_frame_slot *slot;
 
     if (!rd || !rd->ring || !out) {
         return 0;
@@ -1369,15 +1369,15 @@ int zms_gop_reader_slot_at_read(const zms_gop_reader *rd, zms_gop_slot *out)
         zb_mutex_unlock(r->mu);
         return 0;
     }
-    slot = &r->slots[rd->read_idx % ZMS_GOP_QUEUE_CAPACITY];
+    slot = &r->slots[rd->read_idx % ZCS_GOP_QUEUE_CAPACITY];
     *out = slot->pub;
     zb_mutex_unlock(r->mu);
     return out->data && out->len > 0;
 }
 
-int zms_gop_reader_at_decode_start(const zms_gop_reader *rd)
+int zcs_gop_reader_at_decode_start(const zcs_gop_reader *rd)
 {
-    zms_gop_queue *r;
+    zcs_gop_queue *r;
     int ok = 0;
 
     if (!rd || !rd->ring) {
@@ -1389,13 +1389,13 @@ int zms_gop_reader_at_decode_start(const zms_gop_reader *rd)
     }
     zb_mutex_lock(r->mu);
     if (rd->read_idx < r->write_idx) {
-        ok = zms_gop_slot_is_decode_start(&r->slots[rd->read_idx % ZMS_GOP_QUEUE_CAPACITY].pub);
+        ok = zcs_gop_slot_is_decode_start(&r->slots[rd->read_idx % ZCS_GOP_QUEUE_CAPACITY].pub);
     }
     zb_mutex_unlock(r->mu);
     return ok;
 }
 
-size_t zms_gop_reader_lag(const zms_gop_reader *rd)
+size_t zcs_gop_reader_lag(const zcs_gop_reader *rd)
 {
     size_t w;
     size_t lag = 0;
@@ -1410,7 +1410,7 @@ size_t zms_gop_reader_lag(const zms_gop_reader *rd)
     return lag;
 }
 
-size_t zms_gop_queue_max_reader_lag(const zms_gop_queue *r)
+size_t zcs_gop_queue_max_reader_lag(const zcs_gop_queue *r)
 {
     size_t max_lag = 0;
     int i;
@@ -1420,7 +1420,7 @@ size_t zms_gop_queue_max_reader_lag(const zms_gop_queue *r)
     }
     zb_mutex_lock(r->mu);
     for (i = 0; i < r->reader_count; ++i) {
-        const zms_gop_reader *rd = r->readers[i];
+        const zcs_gop_reader *rd = r->readers[i];
         size_t lag;
         size_t w;
 
@@ -1437,9 +1437,9 @@ size_t zms_gop_queue_max_reader_lag(const zms_gop_queue *r)
     return max_lag;
 }
 
-int zms_gop_reader_read(zms_gop_reader *rd, zms_gop_slot *out)
+int zcs_gop_reader_read(zcs_gop_reader *rd, zcs_gop_slot *out)
 {
-    zms_gop_queue *r;
+    zcs_gop_queue *r;
 
     if (!rd || !out) {
         return -1;
@@ -1453,9 +1453,9 @@ int zms_gop_reader_read(zms_gop_reader *rd, zms_gop_slot *out)
         size_t w;
         size_t oldest;
         size_t idx;
-        zms_frame_slot *slot;
+        zcs_frame_slot *slot;
         zn_buf *buf;
-        zms_gop_slot pub;
+        zcs_gop_slot pub;
         int n;
 
         if (rd->read_idx >= r->write_seq) {
@@ -1496,7 +1496,7 @@ int zms_gop_reader_read(zms_gop_reader *rd, zms_gop_slot *out)
         }
 
         idx = rd->read_idx++;
-        slot = &r->slots[idx % ZMS_GOP_QUEUE_CAPACITY];
+        slot = &r->slots[idx % ZCS_GOP_QUEUE_CAPACITY];
         if (!slot->buf || slot->pub.len == 0) {
             zb_mutex_unlock(r->mu);
             continue;
@@ -1519,7 +1519,7 @@ int zms_gop_reader_read(zms_gop_reader *rd, zms_gop_slot *out)
     }
 }
 
-int zms_gop_reader_peek_muxed(zms_gop_reader *rd, zms_gop_slot *out, uint32_t max_skew_ms)
+int zcs_gop_reader_peek_muxed(zcs_gop_reader *rd, zcs_gop_slot *out, uint32_t max_skew_ms)
 {
     int best;
 
@@ -1527,7 +1527,7 @@ int zms_gop_reader_peek_muxed(zms_gop_reader *rd, zms_gop_slot *out, uint32_t ma
         return -1;
     }
     if (max_skew_ms == 0) {
-        max_skew_ms = ZMS_GOP_QUEUE_MUX_MAX_SKEW_MS;
+        max_skew_ms = ZCS_GOP_QUEUE_MUX_MAX_SKEW_MS;
     }
 
     if (rd->mux_cnt == 0) {
@@ -1544,7 +1544,7 @@ int zms_gop_reader_peek_muxed(zms_gop_reader *rd, zms_gop_slot *out, uint32_t ma
     }
 
     {
-        const zms_gop_frame_mux_item *it = &rd->mux[best];
+        const zcs_gop_frame_mux_item *it = &rd->mux[best];
         *out = it->pub;
         out->data = it->pub.data;
         out->len = it->pub.len;
@@ -1552,13 +1552,13 @@ int zms_gop_reader_peek_muxed(zms_gop_reader *rd, zms_gop_slot *out, uint32_t ma
     return 1;
 }
 
-int zms_gop_reader_read_muxed(zms_gop_reader *rd, zms_gop_slot *out, uint32_t max_skew_ms)
+int zcs_gop_reader_read_muxed(zcs_gop_reader *rd, zcs_gop_slot *out, uint32_t max_skew_ms)
 {
     if (!rd || !out) {
         return -1;
     }
     if (max_skew_ms == 0) {
-        max_skew_ms = ZMS_GOP_QUEUE_MUX_MAX_SKEW_MS;
+        max_skew_ms = ZCS_GOP_QUEUE_MUX_MAX_SKEW_MS;
     }
 
     if (rd->mux_cnt == 0) {
@@ -1573,7 +1573,7 @@ int zms_gop_reader_read_muxed(zms_gop_reader *rd, zms_gop_slot *out, uint32_t ma
         frame_mux_clear(rd);
         return 0;
     }
-    zms_gop_frame_mux_item *it = &rd->mux[best];
+    zcs_gop_frame_mux_item *it = &rd->mux[best];
 
     *out = it->pub;
     out->data = it->pub.data;

@@ -1,8 +1,8 @@
 /**
  * @file test_sink_pull.c
- * @brief 播放输出统一取数契约（zms/play/sink.h）：缓冲不足时扩容重试、数据不丢。
+ * @brief 播放输出统一取数契约（zcs/play/sink.h）：缓冲不足时扩容重试、数据不丢。
  */
-#include "zms/play/sink.h"
+#include "zcs/play/sink.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -40,7 +40,7 @@ static int fake_next(void *muxer, uint8_t *out, size_t cap, size_t *out_len)
         if (out_len) {
             *out_len = f->need;
         }
-        return ZMS_SINK_NEED_BIGGER;
+        return ZCS_SINK_NEED_BIGGER;
     }
     memset(out, f->pattern, f->need);
     f->served = 1;
@@ -55,7 +55,7 @@ static int test_grow_and_serve(void)
     fake_muxer f = { BIG_CHUNK, 0, 0x5a, 0, 0 };
     zn_buf *buf = NULL;
     size_t len = 0;
-    int r = zms_sink_pull(fake_next, &f, NULL, 128u * 1024u, 4u * 1024u * 1024u, &buf, &len);
+    int r = zcs_sink_pull(fake_next, &f, NULL, 128u * 1024u, 4u * 1024u * 1024u, &buf, &len);
 
     CHECK(r == 1);
     CHECK(buf != NULL);
@@ -69,7 +69,7 @@ static int test_grow_and_serve(void)
     /* 数据只给一次：再取应为“暂无数据” */
     buf = NULL;
     len = 0;
-    CHECK(zms_sink_pull(fake_next, &f, NULL, 4096, 4u * 1024u * 1024u, &buf, &len) == 0);
+    CHECK(zcs_sink_pull(fake_next, &f, NULL, 4096, 4u * 1024u * 1024u, &buf, &len) == 0);
     CHECK(buf == NULL);
     return 0;
 }
@@ -79,7 +79,7 @@ static int test_over_limit(void)
     fake_muxer f = { BIG_CHUNK, 0, 1, 0, 0 };
     zn_buf *buf = NULL;
     size_t len = 0;
-    int r = zms_sink_pull(fake_next, &f, NULL, 4096, 64u * 1024u, &buf, &len);
+    int r = zcs_sink_pull(fake_next, &f, NULL, 4096, 64u * 1024u, &buf, &len);
 
     CHECK(r == ZN_ERR_BUFFER_TOO_SMALL);
     CHECK(buf == NULL);
@@ -92,11 +92,11 @@ static int test_no_data_and_error(void)
     zn_buf *buf = NULL;
     size_t len = 0;
 
-    CHECK(zms_sink_pull(fake_next, &f, NULL, 4096, 4096, &buf, &len) == 0);
+    CHECK(zcs_sink_pull(fake_next, &f, NULL, 4096, 4096, &buf, &len) == 0);
     CHECK(buf == NULL);
     f.force_zero = 0;
     f.force_error = 1;
-    CHECK(zms_sink_pull(fake_next, &f, NULL, 4096, 4096, &buf, &len) < 0);
+    CHECK(zcs_sink_pull(fake_next, &f, NULL, 4096, 4096, &buf, &len) < 0);
     CHECK(buf == NULL);
     return 0;
 }

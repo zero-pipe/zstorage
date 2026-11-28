@@ -2,19 +2,19 @@
  * @file whep_route.c
  * @brief WHEP（播放）路由。
  */
-#include "zms/session/webrtc/whep.h"
+#include "zcs/session/webrtc/whep.h"
 #include "zn/platform.h"
-#include "zms/protocol/http/route.h"
-#include "zms/protocol/http/session_api.h"
+#include "zcs/protocol/http/route.h"
+#include "zcs/protocol/http/session_api.h"
 #include "session/webrtc/session_internal.h"
-#include "zms/core/auth.h"
-#include "zms/core/event.h"
-#include "zms/core/stream/hub.h"
-#include "zms/core/codec_filter.h"
-#include "zms/play/dispatch.h"
-#include "zms/session/webrtc/webrtc_server.h"
-#include "zms/ops/config/config.h"
-#include "zms/util/buf_pool.h"
+#include "zcs/core/auth.h"
+#include "zcs/core/event.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/core/codec_filter.h"
+#include "zcs/play/dispatch.h"
+#include "zcs/session/webrtc/webrtc_server.h"
+#include "zcs/ops/config/config.h"
+#include "zcs/util/buf_pool.h"
 #include "zn/net/tcp_server.h"
 #include "zn/util/log.h"
 #include <stdio.h>
@@ -22,12 +22,12 @@
 #if defined(_WIN32)
 #include <windows.h>
 #endif
-static int webrtc_http_enabled(const zms_http_session *hs)
+static int webrtc_http_enabled(const zcs_http_session *hs)
 {
-    if (!zms_http_session_config(hs)) {
+    if (!zcs_http_session_config(hs)) {
         return 1;
     }
-    return zms_http_session_config(hs)->webrtc.enable;
+    return zcs_http_session_config(hs)->webrtc.enable;
 }
 
 static void whep_copy_query_value(char *dst, size_t dst_sz, const char *val, size_t val_len)
@@ -89,11 +89,11 @@ static int whep_parse_query(const char *path, char *app, char *stream, char *vho
         val = eq + 1;
         val_len = amp ? (size_t)(amp - val) : strlen(val);
         if (whep_query_key_is(q, key_len, "vhost") && vhost) {
-            whep_copy_query_value(vhost, ZMS_VHOST_MAX, val, val_len);
+            whep_copy_query_value(vhost, ZCS_VHOST_MAX, val, val_len);
         } else if (whep_query_key_is(q, key_len, "app") && app) {
-            whep_copy_query_value(app, ZMS_APP_MAX, val, val_len);
+            whep_copy_query_value(app, ZCS_APP_MAX, val, val_len);
         } else if (whep_query_key_is(q, key_len, "stream") && stream) {
-            whep_copy_query_value(stream, ZMS_STREAM_MAX, val, val_len);
+            whep_copy_query_value(stream, ZCS_STREAM_MAX, val, val_len);
         } else if (whep_query_key_is(q, key_len, "type") && zlm_play && val_len == 4 &&
                    memcmp(val, "play", 4) == 0) {
             *zlm_play = 1;
@@ -106,7 +106,7 @@ static int whep_parse_query(const char *path, char *app, char *stream, char *vho
     return app && app[0] && stream && stream[0];
 }
 
-static int webrtc_whep_route_match(const zms_http_request *req)
+static int webrtc_whep_route_match(const zcs_http_request *req)
 {
     if (!req || !req->path[0]) {
         return 0;
@@ -115,12 +115,12 @@ static int webrtc_whep_route_match(const zms_http_request *req)
            strncmp(req->path, "/index/api/webrtc", 17) == 0;
 }
 
-static void webrtc_send_sdp_response(zms_http_session *hs, int status, const char *location,
+static void webrtc_send_sdp_response(zcs_http_session *hs, int status, const char *location,
                                      const char *sdp, size_t sdp_len)
 {
     char hdr[512];
     int n;
-    if (!hs || !zms_http_session_tcp(hs) || !sdp) {
+    if (!hs || !zcs_http_session_tcp(hs) || !sdp) {
         return;
     }
     if (location && location[0]) {
@@ -140,12 +140,12 @@ static void webrtc_send_sdp_response(zms_http_session *hs, int status, const cha
                      "Content-Length: %zu\r\n\r\n",
                      status, status == 201 ? "Created" : "OK", sdp_len);
     }
-    zn_tcp_session_send(zms_http_session_tcp(hs), hdr, (size_t)n);
-    zn_tcp_session_send(zms_http_session_tcp(hs), sdp, sdp_len);
-    zn_tcp_session_flush(zms_http_session_tcp(hs));
+    zn_tcp_session_send(zcs_http_session_tcp(hs), hdr, (size_t)n);
+    zn_tcp_session_send(zcs_http_session_tcp(hs), sdp, sdp_len);
+    zn_tcp_session_flush(zcs_http_session_tcp(hs));
 }
 
-static void webrtc_send_zlm_json(zms_http_session *hs, const char *sdp, size_t sdp_len,
+static void webrtc_send_zlm_json(zcs_http_session *hs, const char *sdp, size_t sdp_len,
                                  const char *whep_id)
 {
     enum { WHEP_JSON_CAP = 32768u };
@@ -156,8 +156,8 @@ static void webrtc_send_zlm_json(zms_http_session *hs, const char *sdp, size_t s
     if (!hs || !sdp || sdp_len == 0) {
         return;
     }
-    if (!zms_buf_pool_slot_resize(&body, &body_cap, WHEP_JSON_CAP)) {
-        zms_http_response_send_error(hs, 500, "Internal Server Error");
+    if (!zcs_buf_pool_slot_resize(&body, &body_cap, WHEP_JSON_CAP)) {
+        zcs_http_response_send_error(hs, 500, "Internal Server Error");
         return;
     }
     if (whep_id && whep_id[0]) {
@@ -188,20 +188,20 @@ static void webrtc_send_zlm_json(zms_http_session *hs, const char *sdp, size_t s
     }
     if (j + 3 >= body_cap) {
         zn_warn("[webrtc] ZLM JSON answer truncated sdp_len=%zu", sdp_len);
-        zms_buf_pool_slot_clear(&body, &body_cap);
-        zms_http_response_send_error(hs, 500, "Internal Server Error");
+        zcs_buf_pool_slot_clear(&body, &body_cap);
+        zcs_http_response_send_error(hs, 500, "Internal Server Error");
         return;
     }
     tail = (size_t)snprintf((char *)body + j, body_cap - j, "\"}");
     if (tail >= body_cap - j) {
         zn_warn("[webrtc] ZLM JSON answer close truncated sdp_len=%zu", sdp_len);
-        zms_buf_pool_slot_clear(&body, &body_cap);
-        zms_http_response_send_error(hs, 500, "Internal Server Error");
+        zcs_buf_pool_slot_clear(&body, &body_cap);
+        zcs_http_response_send_error(hs, 500, "Internal Server Error");
         return;
     }
     j += tail;
-    zms_http_response_send_json(hs, 200, (const char *)body, j);
-    zms_buf_pool_slot_clear(&body, &body_cap);
+    zcs_http_response_send_json(hs, 200, (const char *)body, j);
+    zcs_buf_pool_slot_clear(&body, &body_cap);
 }
 
 static int webrtc_api_path_id(const char *path, const char *api_prefix, char *id, size_t id_cap)
@@ -239,120 +239,120 @@ static int webrtc_api_path_id(const char *path, const char *api_prefix, char *id
     return id[0] != '\0';
 }
 
-static void webrtc_whep_delete(zms_http_session *hs, const zms_http_request *req)
+static void webrtc_whep_delete(zcs_http_session *hs, const zcs_http_request *req)
 {
-    char id[ZMS_WEBRTC_SESSION_ID_LEN];
-    zms_webrtc_session *sess;
+    char id[ZCS_WEBRTC_SESSION_ID_LEN];
+    zcs_webrtc_session *sess;
 
     if (!hs || !req) {
         return;
     }
     if (!webrtc_http_enabled(hs)) {
-        zms_http_response_send_error(hs, 503, "Service Unavailable");
+        zcs_http_response_send_error(hs, 503, "Service Unavailable");
         return;
     }
     if (!webrtc_api_path_id(req->path, "/index/api/whep", id, sizeof(id))) {
-        zms_http_response_send_error(hs, 404, "Not Found");
+        zcs_http_response_send_error(hs, 404, "Not Found");
         return;
     }
-    sess = zms_webrtc_session_find(id);
-    if (!sess || sess->mode != ZMS_WEBRTC_SESSION_PLAY) {
-        zms_http_response_send_error(hs, 404, "Not Found");
+    sess = zcs_webrtc_session_find(id);
+    if (!sess || sess->mode != ZCS_WEBRTC_SESSION_PLAY) {
+        zcs_http_response_send_error(hs, 404, "Not Found");
         return;
     }
     zn_info("[webrtc] WHEP DELETE id=%s", id);
-    zms_webrtc_session_destroy(sess);
-    zms_http_response_send_bytes(hs, 200, "text/plain", "", 0);
+    zcs_webrtc_session_destroy(sess);
+    zcs_http_response_send_bytes(hs, 200, "text/plain", "", 0);
 }
 
-static void webrtc_whep_patch(zms_http_session *hs, const zms_http_request *req)
+static void webrtc_whep_patch(zcs_http_session *hs, const zcs_http_request *req)
 {
-    char id[ZMS_WEBRTC_SESSION_ID_LEN];
-    zms_webrtc_session *sess;
+    char id[ZCS_WEBRTC_SESSION_ID_LEN];
+    zcs_webrtc_session *sess;
 
     if (!hs || !req) {
         return;
     }
     if (!webrtc_http_enabled(hs)) {
-        zms_http_response_send_error(hs, 503, "Service Unavailable");
+        zcs_http_response_send_error(hs, 503, "Service Unavailable");
         return;
     }
     if (!webrtc_api_path_id(req->path, "/index/api/whep", id, sizeof(id))) {
-        zms_http_response_send_error(hs, 404, "Not Found");
+        zcs_http_response_send_error(hs, 404, "Not Found");
         return;
     }
-    sess = zms_webrtc_session_find(id);
-    if (!sess || sess->mode != ZMS_WEBRTC_SESSION_PLAY) {
-        zms_http_response_send_error(hs, 404, "Not Found");
+    sess = zcs_webrtc_session_find(id);
+    if (!sess || sess->mode != ZCS_WEBRTC_SESSION_PLAY) {
+        zcs_http_response_send_error(hs, 404, "Not Found");
         return;
     }
     if (!req->body || req->body_len == 0 ||
-        zms_webrtc_session_add_remote_candidates(sess, req->body, req->body_len) < 0) {
-        zms_http_response_send_error(hs, 400, "Bad Request");
+        zcs_webrtc_session_add_remote_candidates(sess, req->body, req->body_len) < 0) {
+        zcs_http_response_send_error(hs, 400, "Bad Request");
         return;
     }
-    zms_http_response_send_bytes(hs, 204, "text/plain", "", 0);
+    zcs_http_response_send_bytes(hs, 204, "text/plain", "", 0);
 }
 
-static void webrtc_whep_post_impl(zms_http_session *hs, const zms_http_request *req)
+static void webrtc_whep_post_impl(zcs_http_session *hs, const zcs_http_request *req)
 {
-    zms_media_source *src;
-    zms_webrtc_session *sess;
-    char app[ZMS_APP_MAX];
-    char vhost[ZMS_VHOST_MAX];
-    char stream[ZMS_STREAM_MAX];
+    zcs_media_source *src;
+    zcs_webrtc_session *sess;
+    char app[ZCS_APP_MAX];
+    char vhost[ZCS_VHOST_MAX];
+    char stream[ZCS_STREAM_MAX];
     char answer[8192];
     char location[128];
     size_t answer_len = 0;
     int zlm_play = 0;
-    zms_session_play_opts pcfg;
+    zcs_session_play_opts pcfg;
     zn_poller *pol;
 
     if (!hs || !req) {
         return;
     }
     if (!webrtc_http_enabled(hs)) {
-        zms_http_response_send_error(hs, 503, "Service Unavailable");
+        zcs_http_response_send_error(hs, 503, "Service Unavailable");
         return;
     }
-    if (!zms_webrtc_server_instance()) {
-        zms_http_response_send_error(hs, 503, "Service Unavailable");
+    if (!zcs_webrtc_server_instance()) {
+        zcs_http_response_send_error(hs, 503, "Service Unavailable");
         return;
     }
     if (!whep_parse_query(req->path, app, stream, vhost, &zlm_play) || !req->body ||
         req->body_len == 0) {
-        zms_http_response_send_error(hs, 400, "Bad Request");
+        zcs_http_response_send_error(hs, 400, "Bad Request");
         return;
     }
     if (strncmp(req->path, "/index/api/webrtc", 17) == 0 && !zlm_play) {
-        zms_http_response_send_error(hs, 400, "Bad Request");
+        zcs_http_response_send_error(hs, 400, "Bad Request");
         return;
     }
-    src = zms_media_source_find_for_play_ex(ZMS_SCHEMA_RTMP, vhost, app, stream);
-    if (!src || !src->gop_queue || zms_media_source_is_vod(src) ||
-        !zms_media_source_use_gop_queue_play(src)) {
+    src = zcs_media_source_find_for_play_ex(ZCS_SCHEMA_RTMP, vhost, app, stream);
+    if (!src || !src->gop_queue || zcs_media_source_is_vod(src) ||
+        !zcs_media_source_use_gop_queue_play(src)) {
         zn_warn("[webrtc] play 404 app=%s stream=%s src=%p gop=%p vod=%d gop_play=%d", app, stream,
                  (void *)src, src ? (void *)src->gop_queue : NULL,
-                 src ? zms_media_source_is_vod(src) : 0,
-                 src ? zms_media_source_use_gop_queue_play(src) : 0);
-        zms_http_response_send_error(hs, 404, "Not Found");
+                 src ? zcs_media_source_is_vod(src) : 0,
+                 src ? zcs_media_source_use_gop_queue_play(src) : 0);
+        zcs_http_response_send_error(hs, 404, "Not Found");
         return;
     }
-    if (zms_session_capability_check_source(ZMS_PROTO_CAP_WEBRTC_PLAY, src) != ZN_OK) {
-        zms_session_capability_log_reject("webrtc", src, ZMS_PROTO_CAP_WEBRTC_PLAY);
-        zms_http_response_send_error(hs, 406, "Not Acceptable");
+    if (zcs_session_capability_check_source(ZCS_PROTO_CAP_WEBRTC_PLAY, src) != ZN_OK) {
+        zcs_session_capability_log_reject("webrtc", src, ZCS_PROTO_CAP_WEBRTC_PLAY);
+        zcs_http_response_send_error(hs, 406, "Not Acceptable");
         return;
     }
     {
         const char *q = strchr(req->path, '?');
-        zms_auth_request auth;
-        zms_auth_decision dec;
+        zcs_auth_request auth;
+        zcs_auth_decision dec;
         char ip[64];
         unsigned port = 0;
 
-        zms_auth_fill_peer(zms_http_session_tcp(hs), ip, sizeof(ip), &port);
+        zcs_auth_fill_peer(zcs_http_session_tcp(hs), ip, sizeof(ip), &port);
         memset(&auth, 0, sizeof(auth));
-        auth.action = ZMS_AUTH_ACTION_PLAY;
+        auth.action = ZCS_AUTH_ACTION_PLAY;
         auth.schema = "webrtc";
         auth.vhost = vhost;
         auth.app = app;
@@ -360,44 +360,44 @@ static void webrtc_whep_post_impl(zms_http_session *hs, const zms_http_request *
         auth.params = q && q[1] ? q + 1 : NULL;
         auth.ip = ip[0] ? ip : NULL;
         auth.port = port;
-        if (!zms_auth_check(&auth, &dec)) {
-            zms_http_response_send_error(hs, 403, "Forbidden");
+        if (!zcs_auth_check(&auth, &dec)) {
+            zcs_http_response_send_error(hs, 403, "Forbidden");
             return;
         }
     }
-    pol = zms_webrtc_server_poller(zms_webrtc_server_instance());
+    pol = zcs_webrtc_server_poller(zcs_webrtc_server_instance());
     if (!pol) {
-        pol = zms_webrtc_server_resolve_poller(hs);
+        pol = zcs_webrtc_server_resolve_poller(hs);
     }
     if (!pol) {
-        zms_http_response_send_error(hs, 500, "Internal Server Error");
+        zcs_http_response_send_error(hs, 500, "Internal Server Error");
         return;
     }
-    sess = zms_webrtc_session_create(src, app, stream, pol);
+    sess = zcs_webrtc_session_create(src, app, stream, pol);
     if (!sess) {
-        zms_http_response_send_error(hs, 503, "Service Unavailable");
+        zcs_http_response_send_error(hs, 503, "Service Unavailable");
         return;
     }
-    zms_session_dispatch_register_all();
-    zms_egress_source_init(&sess->play);
+    zcs_session_dispatch_register_all();
+    zcs_egress_source_init(&sess->play);
     memset(&pcfg, 0, sizeof(pcfg));
-    pcfg.player = ZMS_SESSION_WEBRTC;
-    if (zms_session_attach_play(ZMS_SESSION_WEBRTC, &sess->play, src, &pcfg) != ZN_OK) {
-        zms_webrtc_session_destroy(sess);
-        zms_http_response_send_error(hs, 500, "Internal Server Error");
+    pcfg.player = ZCS_SESSION_WEBRTC;
+    if (zcs_session_attach_play(ZCS_SESSION_WEBRTC, &sess->play, src, &pcfg) != ZN_OK) {
+        zcs_webrtc_session_destroy(sess);
+        zcs_http_response_send_error(hs, 500, "Internal Server Error");
         return;
     }
-    if (zms_webrtc_session_build_answer(sess, req->body, req->body_len, answer, sizeof(answer),
+    if (zcs_webrtc_session_build_answer(sess, req->body, req->body_len, answer, sizeof(answer),
                                         &answer_len) != 0) {
-        zms_session_detach_play(ZMS_SESSION_WEBRTC, &sess->play);
-        zms_webrtc_session_destroy(sess);
-        zms_http_response_send_error(hs, 400, "Bad Request");
+        zcs_session_detach_play(ZCS_SESSION_WEBRTC, &sess->play);
+        zcs_webrtc_session_destroy(sess);
+        zcs_http_response_send_error(hs, 400, "Bad Request");
         return;
     }
-    zms_media_source_reader_add(src);
+    zcs_media_source_reader_add(src);
     sess->play_reader_attached = 1;
     sess->play_start_ms = zn_monotonic_ms();
-    zms_media_event_play(src, "webrtc");
+    zcs_media_event_play(src, "webrtc");
     snprintf(location, sizeof(location), "/index/api/whep/%s", sess->id);
     zn_info("[webrtc] whep answer app=%s stream=%s id=%s port=%u", app, stream, sess->id,
              (unsigned)sess->port);
@@ -408,7 +408,7 @@ static void webrtc_whep_post_impl(zms_http_session *hs, const zms_http_request *
     }
 }
 
-static void webrtc_whep_post(zms_http_session *hs, const zms_http_request *req)
+static void webrtc_whep_post(zcs_http_session *hs, const zcs_http_request *req)
 {
 #if defined(_WIN32)
     __try {
@@ -417,7 +417,7 @@ static void webrtc_whep_post(zms_http_session *hs, const zms_http_request *req)
         zn_error("[webrtc] FAULT WHEP POST code=0x%08x path=%s", (unsigned)GetExceptionCode(),
                   req && req->path[0] ? req->path : "?");
         if (hs) {
-            zms_http_response_send_error(hs, 500, "Internal Server Error");
+            zcs_http_response_send_error(hs, 500, "Internal Server Error");
         }
     }
 #else
@@ -425,15 +425,15 @@ static void webrtc_whep_post(zms_http_session *hs, const zms_http_request *req)
 #endif
 }
 
-void zms_webrtc_whep_handle(zms_http_session *hs, const zms_http_request *req)
+void zcs_webrtc_whep_handle(zcs_http_session *hs, const zcs_http_request *req)
 {
     if (!hs || !req || !req->method[0]) {
-        zms_http_response_send_error(hs, 405, "Method Not Allowed");
+        zcs_http_response_send_error(hs, 405, "Method Not Allowed");
         return;
     }
     zn_debug("[webrtc] WHEP method=%s path=%s", req->method, req->path);
     if (strcmp(req->method, "OPTIONS") == 0) {
-        zms_http_response_send_bytes(hs, 204, "text/plain", "", 0);
+        zcs_http_response_send_bytes(hs, 204, "text/plain", "", 0);
         return;
     }
     if (strcmp(req->method, "POST") == 0) {
@@ -448,21 +448,21 @@ void zms_webrtc_whep_handle(zms_http_session *hs, const zms_http_request *req)
         webrtc_whep_patch(hs, req);
         return;
     }
-    zms_http_response_send_error(hs, 405, "Method Not Allowed");
+    zcs_http_response_send_error(hs, 405, "Method Not Allowed");
 }
 
-static void webrtc_whep_route_handle(zms_http_session *hs, const zms_http_request *req)
+static void webrtc_whep_route_handle(zcs_http_session *hs, const zcs_http_request *req)
 {
-    zms_webrtc_whep_handle(hs, req);
+    zcs_webrtc_whep_handle(hs, req);
 }
 
-static const zms_http_route_ops k_webrtc_whep_route = {
+static const zcs_http_route_ops k_webrtc_whep_route = {
     .name = "webrtc-whep",
     .match = webrtc_whep_route_match,
     .handle = webrtc_whep_route_handle,
 };
 
-void zms_webrtc_whep_routes_register(void)
+void zcs_webrtc_whep_routes_register(void)
 {
-    zms_http_route_register(&k_webrtc_whep_route);
+    zcs_http_route_register(&k_webrtc_whep_route);
 }

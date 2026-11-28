@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(ZMS_HAVE_WEBRTC_DTLS) && ZMS_HAVE_WEBRTC_DTLS
+#if defined(ZCS_HAVE_WEBRTC_DTLS) && ZCS_HAVE_WEBRTC_DTLS
 
 #include <openssl/bio.h>
 #include <openssl/ec.h>
@@ -17,7 +17,7 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
-struct zms_webrtc_dtls {
+struct zcs_webrtc_dtls {
     SSL *ssl;
     BIO *rbio;
     BIO *wbio;
@@ -47,7 +47,7 @@ static X509 *webrtc_dtls_make_cert(EVP_PKEY *pkey)
     if (!BN_pseudo_rand(rnd, 64, 0, 0) || !BN_to_ASN1_INTEGER(rnd, X509_get_serialNumber(x509))) {
         goto fail;
     }
-    if (!X509_NAME_add_entry_by_NID(name, NID_commonName, MBSTRING_UTF8, (unsigned char *)"zms", -1,
+    if (!X509_NAME_add_entry_by_NID(name, NID_commonName, MBSTRING_UTF8, (unsigned char *)"zcs", -1,
                                     -1, 0) ||
         !X509_set_subject_name(x509, name) || !X509_set_issuer_name(x509, name) ||
         !X509_gmtime_adj(X509_get_notBefore(x509), -86400) ||
@@ -121,7 +121,7 @@ static int webrtc_dtls_init_ctx(SSL_CTX **ctx_out, int as_client, X509 *x509, EV
     return 0;
 }
 
-int zms_webrtc_dtls_global_init(void)
+int zcs_webrtc_dtls_global_init(void)
 {
     EVP_PKEY *pkey;
     X509 *x509;
@@ -172,7 +172,7 @@ int zms_webrtc_dtls_global_init(void)
     return 0;
 }
 
-void zms_webrtc_dtls_global_fini(void)
+void zcs_webrtc_dtls_global_fini(void)
 {
     if (g_dtls_cli_ctx) {
         SSL_CTX_free(g_dtls_cli_ctx);
@@ -185,21 +185,21 @@ void zms_webrtc_dtls_global_fini(void)
     g_dtls_fingerprint[0] = '\0';
 }
 
-const char *zms_webrtc_dtls_fingerprint(void)
+const char *zcs_webrtc_dtls_fingerprint(void)
 {
     return g_dtls_fingerprint[0] ? g_dtls_fingerprint
                                  : "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:"
                                    "00:00:00:00:00:00:00:00:00:00:00";
 }
 
-zms_webrtc_dtls *zms_webrtc_dtls_create(void)
+zcs_webrtc_dtls *zcs_webrtc_dtls_create(void)
 {
-    zms_webrtc_dtls *d;
+    zcs_webrtc_dtls *d;
 
-    if (!g_dtls_ctx && zms_webrtc_dtls_global_init() != 0) {
+    if (!g_dtls_ctx && zcs_webrtc_dtls_global_init() != 0) {
         return NULL;
     }
-    d = (zms_webrtc_dtls *)calloc(1, sizeof(*d));
+    d = (zcs_webrtc_dtls *)calloc(1, sizeof(*d));
     if (!d) {
         return NULL;
     }
@@ -207,7 +207,7 @@ zms_webrtc_dtls *zms_webrtc_dtls_create(void)
     d->wbio = BIO_new(BIO_s_mem());
     d->ssl = SSL_new(g_dtls_ctx);
     if (!d->ssl || !d->rbio || !d->wbio) {
-        zms_webrtc_dtls_destroy(d);
+        zcs_webrtc_dtls_destroy(d);
         return NULL;
     }
     SSL_set_bio(d->ssl, d->rbio, d->wbio);
@@ -216,14 +216,14 @@ zms_webrtc_dtls *zms_webrtc_dtls_create(void)
     return d;
 }
 
-zms_webrtc_dtls *zms_webrtc_dtls_create_client(void)
+zcs_webrtc_dtls *zcs_webrtc_dtls_create_client(void)
 {
-    zms_webrtc_dtls *d;
+    zcs_webrtc_dtls *d;
 
-    if (!g_dtls_cli_ctx && zms_webrtc_dtls_global_init() != 0) {
+    if (!g_dtls_cli_ctx && zcs_webrtc_dtls_global_init() != 0) {
         return NULL;
     }
-    d = (zms_webrtc_dtls *)calloc(1, sizeof(*d));
+    d = (zcs_webrtc_dtls *)calloc(1, sizeof(*d));
     if (!d) {
         return NULL;
     }
@@ -231,7 +231,7 @@ zms_webrtc_dtls *zms_webrtc_dtls_create_client(void)
     d->wbio = BIO_new(BIO_s_mem());
     d->ssl = SSL_new(g_dtls_cli_ctx);
     if (!d->ssl || !d->rbio || !d->wbio) {
-        zms_webrtc_dtls_destroy(d);
+        zcs_webrtc_dtls_destroy(d);
         return NULL;
     }
     d->is_client = 1;
@@ -241,7 +241,7 @@ zms_webrtc_dtls *zms_webrtc_dtls_create_client(void)
     return d;
 }
 
-static int webrtc_dtls_handshake_step(zms_webrtc_dtls *d)
+static int webrtc_dtls_handshake_step(zcs_webrtc_dtls *d)
 {
     int r;
     int err;
@@ -260,9 +260,9 @@ static int webrtc_dtls_handshake_step(zms_webrtc_dtls *d)
     return 0;
 }
 
-static int webrtc_dtls_flush_out(zms_webrtc_dtls *d, uint8_t *out, size_t out_cap, size_t *out_len);
+static int webrtc_dtls_flush_out(zcs_webrtc_dtls *d, uint8_t *out, size_t out_cap, size_t *out_len);
 
-int zms_webrtc_dtls_kick(zms_webrtc_dtls *d, uint8_t *out, size_t out_cap, size_t *out_len)
+int zcs_webrtc_dtls_kick(zcs_webrtc_dtls *d, uint8_t *out, size_t out_cap, size_t *out_len)
 {
     int st;
 
@@ -278,7 +278,7 @@ int zms_webrtc_dtls_kick(zms_webrtc_dtls *d, uint8_t *out, size_t out_cap, size_
     return d->connected ? 1 : 0;
 }
 
-void zms_webrtc_dtls_destroy(zms_webrtc_dtls *d)
+void zcs_webrtc_dtls_destroy(zcs_webrtc_dtls *d)
 {
     if (!d) {
         return;
@@ -292,7 +292,7 @@ void zms_webrtc_dtls_destroy(zms_webrtc_dtls *d)
     free(d);
 }
 
-static int webrtc_dtls_flush_out(zms_webrtc_dtls *d, uint8_t *out, size_t out_cap, size_t *out_len)
+static int webrtc_dtls_flush_out(zcs_webrtc_dtls *d, uint8_t *out, size_t out_cap, size_t *out_len)
 {
     long pending;
 
@@ -311,7 +311,7 @@ static int webrtc_dtls_flush_out(zms_webrtc_dtls *d, uint8_t *out, size_t out_ca
     return *out_len > 0;
 }
 
-int zms_webrtc_dtls_input(zms_webrtc_dtls *d, const uint8_t *pkt, size_t len, uint8_t *out,
+int zcs_webrtc_dtls_input(zcs_webrtc_dtls *d, const uint8_t *pkt, size_t len, uint8_t *out,
                           size_t out_cap, size_t *out_len)
 {
     int r;
@@ -341,12 +341,12 @@ int zms_webrtc_dtls_input(zms_webrtc_dtls *d, const uint8_t *pkt, size_t len, ui
     return 0;
 }
 
-int zms_webrtc_dtls_is_connected(const zms_webrtc_dtls *d)
+int zcs_webrtc_dtls_is_connected(const zcs_webrtc_dtls *d)
 {
     return d && d->connected;
 }
 
-int zms_webrtc_dtls_export_server_srtp(const zms_webrtc_dtls *d, uint8_t *key, uint8_t *salt)
+int zcs_webrtc_dtls_export_server_srtp(const zcs_webrtc_dtls *d, uint8_t *key, uint8_t *salt)
 {
     uint8_t material[60];
 
@@ -357,12 +357,12 @@ int zms_webrtc_dtls_export_server_srtp(const zms_webrtc_dtls *d, uint8_t *key, u
                                    NULL, 0, 0) != 1) {
         return -1;
     }
-    memcpy(key, material + 16, ZMS_WEBRTC_SRTP_KEY_LEN);
-    memcpy(salt, material + 46, ZMS_WEBRTC_SRTP_SALT_LEN);
+    memcpy(key, material + 16, ZCS_WEBRTC_SRTP_KEY_LEN);
+    memcpy(salt, material + 46, ZCS_WEBRTC_SRTP_SALT_LEN);
     return 0;
 }
 
-int zms_webrtc_dtls_export_client_srtp(const zms_webrtc_dtls *d, uint8_t *key, uint8_t *salt)
+int zcs_webrtc_dtls_export_client_srtp(const zcs_webrtc_dtls *d, uint8_t *key, uint8_t *salt)
 {
     uint8_t material[60];
 
@@ -373,42 +373,42 @@ int zms_webrtc_dtls_export_client_srtp(const zms_webrtc_dtls *d, uint8_t *key, u
                                    NULL, 0, 0) != 1) {
         return -1;
     }
-    memcpy(key, material + 0, ZMS_WEBRTC_SRTP_KEY_LEN);
-    memcpy(salt, material + 32, ZMS_WEBRTC_SRTP_SALT_LEN);
+    memcpy(key, material + 0, ZCS_WEBRTC_SRTP_KEY_LEN);
+    memcpy(salt, material + 32, ZCS_WEBRTC_SRTP_SALT_LEN);
     return 0;
 }
 
-#else /* !ZMS_HAVE_WEBRTC_DTLS */
+#else /* !ZCS_HAVE_WEBRTC_DTLS */
 
-int zms_webrtc_dtls_global_init(void)
+int zcs_webrtc_dtls_global_init(void)
 {
     return 0;
 }
 
-void zms_webrtc_dtls_global_fini(void) {}
+void zcs_webrtc_dtls_global_fini(void) {}
 
-const char *zms_webrtc_dtls_fingerprint(void)
+const char *zcs_webrtc_dtls_fingerprint(void)
 {
     return "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:"
            "00:00:00";
 }
 
-zms_webrtc_dtls *zms_webrtc_dtls_create(void)
+zcs_webrtc_dtls *zcs_webrtc_dtls_create(void)
 {
     return NULL;
 }
 
-zms_webrtc_dtls *zms_webrtc_dtls_create_client(void)
+zcs_webrtc_dtls *zcs_webrtc_dtls_create_client(void)
 {
     return NULL;
 }
 
-void zms_webrtc_dtls_destroy(zms_webrtc_dtls *d)
+void zcs_webrtc_dtls_destroy(zcs_webrtc_dtls *d)
 {
     (void)d;
 }
 
-int zms_webrtc_dtls_kick(zms_webrtc_dtls *d, uint8_t *out, size_t out_cap, size_t *out_len)
+int zcs_webrtc_dtls_kick(zcs_webrtc_dtls *d, uint8_t *out, size_t out_cap, size_t *out_len)
 {
     (void)d;
     (void)out;
@@ -419,7 +419,7 @@ int zms_webrtc_dtls_kick(zms_webrtc_dtls *d, uint8_t *out, size_t out_cap, size_
     return -1;
 }
 
-int zms_webrtc_dtls_input(zms_webrtc_dtls *d, const uint8_t *pkt, size_t len, uint8_t *out,
+int zcs_webrtc_dtls_input(zcs_webrtc_dtls *d, const uint8_t *pkt, size_t len, uint8_t *out,
                           size_t out_cap, size_t *out_len)
 {
     (void)d;
@@ -433,13 +433,13 @@ int zms_webrtc_dtls_input(zms_webrtc_dtls *d, const uint8_t *pkt, size_t len, ui
     return -1;
 }
 
-int zms_webrtc_dtls_is_connected(const zms_webrtc_dtls *d)
+int zcs_webrtc_dtls_is_connected(const zcs_webrtc_dtls *d)
 {
     (void)d;
     return 0;
 }
 
-int zms_webrtc_dtls_export_server_srtp(const zms_webrtc_dtls *d, uint8_t *key, uint8_t *salt)
+int zcs_webrtc_dtls_export_server_srtp(const zcs_webrtc_dtls *d, uint8_t *key, uint8_t *salt)
 {
     (void)d;
     (void)key;
@@ -447,7 +447,7 @@ int zms_webrtc_dtls_export_server_srtp(const zms_webrtc_dtls *d, uint8_t *key, u
     return -1;
 }
 
-int zms_webrtc_dtls_export_client_srtp(const zms_webrtc_dtls *d, uint8_t *key, uint8_t *salt)
+int zcs_webrtc_dtls_export_client_srtp(const zcs_webrtc_dtls *d, uint8_t *key, uint8_t *salt)
 {
     (void)d;
     (void)key;
@@ -455,4 +455,4 @@ int zms_webrtc_dtls_export_client_srtp(const zms_webrtc_dtls *d, uint8_t *key, u
     return -1;
 }
 
-#endif /* ZMS_HAVE_WEBRTC_DTLS */
+#endif /* ZCS_HAVE_WEBRTC_DTLS */

@@ -2,84 +2,84 @@
  * @file rtsp_server.c
  * @brief RTSP 服务端监听与会话创建/销毁。
  */
-#include "zms/session/rtsp/rtsp_server.h"
-#include "zms/play/dispatch.h"
-#include "zms/play/play_binding.h"
+#include "zcs/session/rtsp/rtsp_server.h"
+#include "zcs/play/dispatch.h"
+#include "zcs/play/play_binding.h"
 #include "session/rtsp/session_internal.h"
-#include "zms/session/rtsp/session_auth.h"
-#include "zms/core/event.h"
-#include "zms/publish/ingest/common/stream_ingest.h"
-#include "zms/core/stream/hub.h"
-#include "zms/media/wire/rtp_packet.h"
+#include "zcs/session/rtsp/session_auth.h"
+#include "zcs/core/event.h"
+#include "zcs/publish/ingest/common/stream_ingest.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/media/wire/rtp_packet.h"
 #include "zn/net/tcp_server.h"
 #include "zn/poller/poller.h"
 #include "zn/util/timer.h"
 #include "zn/poller/poller_pool.h"
-#include "zms/core/zms_atomic.h"
-#include "zms/util/buf_pool.h"
+#include "zcs/core/zcs_atomic.h"
+#include "zcs/util/buf_pool.h"
 #include "zn/util/log.h"
 #include <stdlib.h>
 #include <string.h>
 
 static uint64_t g_rtsp_session_serial;
-/** SDP o= 对外公告地址；由 zms_rtsp_server_create 写入，session_create_user 读取 */
+/** SDP o= 对外公告地址；由 zcs_rtsp_server_create 写入，session_create_user 读取 */
 static char g_rtsp_advertise_host[64];
 
-struct zms_rtsp_server {
+struct zcs_rtsp_server {
     zn_tcp_server *tcp;
     zn_tcp_server *tcp_tls;
 };
 
-void zms_rtsp_session_publisher_kick(void *ctx, int force)
+void zcs_rtsp_session_publisher_kick(void *ctx, int force)
 {
-    zms_rtsp_session *rs = (zms_rtsp_session *)ctx;
+    zcs_rtsp_session *rs = (zcs_rtsp_session *)ctx;
     (void)force;
     if (rs && rs->tcp) {
         zn_tcp_session_close(rs->tcp);
     }
 }
 
-void zms_rtsp_session_on_rtp(uint8_t channel, const uint8_t *data, size_t len, void *user)
+void zcs_rtsp_session_on_rtp(uint8_t channel, const uint8_t *data, size_t len, void *user)
 {
-    zms_rtsp_session *rs = (zms_rtsp_session *)user;
+    zcs_rtsp_session *rs = (zcs_rtsp_session *)user;
     if (!rs || !data || len < 8) {
         return;
     }
 
-    if (rs->mode == ZMS_RTSP_SESSION_MODE_PLAY) {
-        if (zms_rtp_is_rtcp(data, len)) {
-            zms_rtsp_session_play_on_rtcp(rs, data, len);
+    if (rs->mode == ZCS_RTSP_SESSION_MODE_PLAY) {
+        if (zcs_rtp_is_rtcp(data, len)) {
+            zcs_rtsp_session_play_on_rtcp(rs, data, len);
         }
         return;
     }
 
-    if (rs->mode != ZMS_RTSP_SESSION_MODE_RECORD || len < 12) {
+    if (rs->mode != ZCS_RTSP_SESSION_MODE_RECORD || len < 12) {
         return;
     }
-    if (zms_rtp_is_rtcp(data, len)) {
+    if (zcs_rtp_is_rtcp(data, len)) {
         return;
     }
 
-    int tidx = zms_rtsp_session_record_track_by_channel(rs, channel);
+    int tidx = zcs_rtsp_session_record_track_by_channel(rs, channel);
     if (tidx < 0) {
         return;
     }
-    zms_rtsp_session_record_input_rtp_raw(rs, tidx, data, len);
+    zcs_rtsp_session_record_input_rtp_raw(rs, tidx, data, len);
 }
 
-void zms_rtsp_session_teardown(zms_rtsp_session *rs)
+void zcs_rtsp_session_teardown(zcs_rtsp_session *rs)
 {
-    zms_media_source *src;
+    zcs_media_source *src;
     int record;
-    zms_play_binding bind;
+    zcs_play_binding bind;
 
     if (!rs) {
         return;
     }
     src = rs->source;
-    record = (rs->mode == ZMS_RTSP_SESSION_MODE_RECORD);
+    record = (rs->mode == ZCS_RTSP_SESSION_MODE_RECORD);
 
-    zms_session_detach_play(ZMS_SESSION_RTSP, rs);
+    zcs_session_detach_play(ZCS_SESSION_RTSP, rs);
     memset(&bind, 0, sizeof(bind));
     bind.source = &rs->source;
     bind.gop_reader = &rs->pl.gop_reader;
@@ -89,26 +89,26 @@ void zms_rtsp_session_teardown(zms_rtsp_session *rs)
     if (bind.gop_reader) {
         *bind.gop_reader = NULL;
     }
-    zms_play_binding_reader_stop(&bind);
+    zcs_play_binding_reader_stop(&bind);
     if (record && rs->splitter) {
-        zms_rtsp_splitter_enable_rtp(rs->splitter, 0);
+        zcs_rtsp_splitter_enable_rtp(rs->splitter, 0);
     }
     if (record && src) {
-        int linger = zms_media_source_linger(src, ZMS_ORIGIN_RTSP_PUSH);
+        int linger = zcs_media_source_linger(src, ZCS_ORIGIN_RTSP_PUSH);
 
         if (!linger && rs->pb.ingress) {
-            zms_live_ingest_reset(rs->pb.ingress);
+            zcs_live_ingest_reset(rs->pb.ingress);
         }
-        zms_media_source_clear_publisher(src, rs);
+        zcs_media_source_clear_publisher(src, rs);
         if (!linger) {
-            zms_media_event_publish_fini(src, ZMS_ORIGIN_RTSP_PUSH);
+            zcs_media_event_publish_fini(src, ZCS_ORIGIN_RTSP_PUSH);
         }
     } else if (record && rs->pb.ingress) {
-        zms_live_ingest_reset(rs->pb.ingress);
+        zcs_live_ingest_reset(rs->pb.ingress);
     }
 }
 
-static void zms_rtsp_session_close(zms_rtsp_session *rs)
+static void zcs_rtsp_session_close(zcs_rtsp_session *rs)
 {
     if (!rs || !rs->tcp || rs->destroy_scheduled) {
         return;
@@ -118,16 +118,16 @@ static void zms_rtsp_session_close(zms_rtsp_session *rs)
     zn_tcp_session_close(tcp);
 }
 
-static void zms_rtsp_session_destroy_task(void *user);
+static void zcs_rtsp_session_destroy_task(void *user);
 
-static uint64_t zms_rtsp_session_destroy_delayed(void *user)
+static uint64_t zcs_rtsp_session_destroy_delayed(void *user)
 {
-    zms_rtsp_session_destroy_task(user);
+    zcs_rtsp_session_destroy_task(user);
     return 0;
 }
 
 /* 真正释放会话。调用方须保证 rs 有效，且不再通过其他路径访问 rs。 */
-static void zms_rtsp_session_destroy_core(zms_rtsp_session *rs, unsigned token)
+static void zcs_rtsp_session_destroy_core(zcs_rtsp_session *rs, unsigned token)
 {
     if (!rs) {
         return;
@@ -138,104 +138,104 @@ static void zms_rtsp_session_destroy_core(zms_rtsp_session *rs, unsigned token)
         return;
     }
     {
-        const zms_rtp_muxer_stats *st = zms_rtp_muxer_get_stats(rs->pl.rtp_muxer);
+        const zcs_rtp_muxer_stats *st = zcs_rtp_muxer_get_stats(rs->pl.rtp_muxer);
         zn_info("RTSP #%u: destroy rs=%p mode=%d rtpq=%zu v_pkts=%u a_pkts=%u", rs->session_no,
-                 (void *)rs, rs->mode, zms_rtp_play_sender_pending(rs->pl.sender),
+                 (void *)rs, rs->mode, zcs_rtp_play_sender_pending(rs->pl.sender),
                  st ? st->video_pkt_count : 0, st ? st->audio_pkt_count : 0);
     }
-    zms_session_detach_play(ZMS_SESSION_RTSP, rs);
-    zms_rtp_play_sender_destroy(rs->pl.sender);
+    zcs_session_detach_play(ZCS_SESSION_RTSP, rs);
+    zcs_rtp_play_sender_destroy(rs->pl.sender);
     rs->pl.sender = NULL;
-    zms_rtsp_session_play_mux_destroy(rs);
-    zms_rtsp_session_udp_teardown(rs);
-    zms_rtsp_session_record_payload_teardown(rs);
-    zms_live_ingest_destroy(rs->pb.ingress);
-    zms_rtsp_splitter_destroy(rs->splitter);
+    zcs_rtsp_session_play_mux_destroy(rs);
+    zcs_rtsp_session_udp_teardown(rs);
+    zcs_rtsp_session_record_payload_teardown(rs);
+    zcs_live_ingest_destroy(rs->pb.ingress);
+    zcs_rtsp_splitter_destroy(rs->splitter);
     if (rs->poller) {
-        zms_buf_pool_slot_clear_poller(&rs->resp_buf, &rs->resp_cap, rs->poller);
-        zms_buf_pool_slot_clear_poller(&rs->pl.interleaved_buf, &rs->play_interleaved_cap,
+        zcs_buf_pool_slot_clear_poller(&rs->resp_buf, &rs->resp_cap, rs->poller);
+        zcs_buf_pool_slot_clear_poller(&rs->pl.interleaved_buf, &rs->play_interleaved_cap,
                                        rs->poller);
     } else {
-        zms_buf_pool_slot_clear(&rs->resp_buf, &rs->resp_cap);
-        zms_buf_pool_slot_clear(&rs->pl.interleaved_buf, &rs->play_interleaved_cap);
+        zcs_buf_pool_slot_clear(&rs->resp_buf, &rs->resp_cap);
+        zcs_buf_pool_slot_clear(&rs->pl.interleaved_buf, &rs->play_interleaved_cap);
     }
     free(rs);
 }
 
-static void zms_rtsp_session_destroy_task(void *user)
+static void zcs_rtsp_session_destroy_task(void *user)
 {
-    zms_rtsp_destroy_job *job = (zms_rtsp_destroy_job *)user;
-    zms_rtsp_session *rs = job ? job->rs : NULL;
+    zcs_rtsp_destroy_job *job = (zcs_rtsp_destroy_job *)user;
+    zcs_rtsp_session *rs = job ? job->rs : NULL;
     unsigned token = job ? job->token : 0;
     if (job) {
         free(job);
     }
-    zms_rtsp_session_destroy_core(rs, token);
+    zcs_rtsp_session_destroy_core(rs, token);
 }
 
-void zms_rtsp_session_schedule_destroy(zms_rtsp_session *rs, zn_tcp_session *session)
+void zcs_rtsp_session_schedule_destroy(zcs_rtsp_session *rs, zn_tcp_session *session)
 {
     zn_poller *pol;
-    zms_rtsp_destroy_job *job;
+    zcs_rtsp_destroy_job *job;
 
     if (!rs || rs->destroy_scheduled) {
         return;
     }
     zn_info("RTSP #%u: schedule_destroy rs=%p mode=%d es=%d readers=%d rtpq=%zu tcp=%p",
              rs->session_no, (void *)rs, rs->mode, rs->pl.gop_reader ? 1 : 0,
-             rs->source ? zms_media_source_reader_count(rs->source) : 0,
-             zms_rtp_play_sender_pending(rs->pl.sender), (void *)rs->tcp);
+             rs->source ? zcs_media_source_reader_count(rs->source) : 0,
+             zcs_rtp_play_sender_pending(rs->pl.sender), (void *)rs->tcp);
     rs->destroy_scheduled = 1;
     rs->close_pending = 1;
     rs->tcp = NULL;
     rs->destroy_token++;
-    zms_rtsp_session_teardown(rs);
+    zcs_rtsp_session_teardown(rs);
 
-    job = (zms_rtsp_destroy_job *)malloc(sizeof(*job));
+    job = (zcs_rtsp_destroy_job *)malloc(sizeof(*job));
     if (!job) {
-        zms_rtsp_session_destroy_core(rs, rs->destroy_token);
+        zcs_rtsp_session_destroy_core(rs, rs->destroy_token);
         return;
     }
     job->rs = rs;
     job->token = rs->destroy_token;
 
     pol = session ? zn_tcp_session_poller(session) : rs->poller;
-    if (pol && zn_poller_do_delay(pol, 0, zms_rtsp_session_destroy_delayed, job)) {
+    if (pol && zn_poller_do_delay(pol, 0, zcs_rtsp_session_destroy_delayed, job)) {
         return;
     }
-    zms_rtsp_session_destroy_task(job);
+    zcs_rtsp_session_destroy_task(job);
 }
 
 static void on_recv(zn_tcp_session *session, const void *data, size_t len, void *user)
 {
-    zms_rtsp_session *rs = (zms_rtsp_session *)user;
+    zcs_rtsp_session *rs = (zcs_rtsp_session *)user;
     if (!rs || !rs->splitter || rs->destroy_scheduled) {
         return;
     }
-    zms_rtsp_splitter_input(rs->splitter, data, len);
+    zcs_rtsp_splitter_input(rs->splitter, data, len);
     if (rs->close_pending && !rs->destroy_scheduled) {
-        zms_rtsp_session_close(rs);
+        zcs_rtsp_session_close(rs);
     }
 }
 
 static void on_manager(zn_tcp_session *session, void *user)
 {
     (void)session;
-    zms_rtsp_session *rs = (zms_rtsp_session *)user;
+    zcs_rtsp_session *rs = (zcs_rtsp_session *)user;
     if (!rs || !rs->tcp || rs->close_pending || rs->destroy_scheduled ||
-        rs->mode != ZMS_RTSP_SESSION_MODE_PLAY) {
+        rs->mode != ZCS_RTSP_SESSION_MODE_PLAY) {
         return;
     }
     if (!rs->pl.boot_sent) {
-        zms_rtsp_session_play_kick(rs);
+        zcs_rtsp_session_play_kick(rs);
     } else {
-        zms_rtsp_session_play_tick(rs);
+        zcs_rtsp_session_play_tick(rs);
     }
     if (rs->close_pending || rs->destroy_scheduled) {
         return;
     }
     if (++rs->pl.rtcp_tick >= 250) {
-        zms_rtsp_session_send_rtcp_srs(rs);
+        zcs_rtsp_session_send_rtcp_srs(rs);
         rs->pl.rtcp_tick = 0;
     }
     zn_tcp_session_flush(rs->tcp);
@@ -243,21 +243,21 @@ static void on_manager(zn_tcp_session *session, void *user)
 
 static void on_error(zn_tcp_session *session, void *user)
 {
-    zms_rtsp_session *rs = (zms_rtsp_session *)user;
+    zcs_rtsp_session *rs = (zcs_rtsp_session *)user;
     if (!rs || rs->destroy_scheduled) {
         return;
     }
-    zms_rtsp_session_schedule_destroy(rs, session);
+    zcs_rtsp_session_schedule_destroy(rs, session);
 }
 
 static void *session_create_user(zn_tcp_server *srv, zn_tcp_session *session)
 {
     (void)srv;
-    zms_rtsp_session *rs = (zms_rtsp_session *)calloc(1, sizeof(*rs));
+    zcs_rtsp_session *rs = (zcs_rtsp_session *)calloc(1, sizeof(*rs));
     if (!rs) {
         return NULL;
     }
-    rs->session_no = (unsigned)(ZMS_ATOMIC_ADD64(&g_rtsp_session_serial, 1) + 1);
+    rs->session_no = (unsigned)(ZCS_ATOMIC_ADD64(&g_rtsp_session_serial, 1) + 1);
     rs->tcp = session;
     rs->poller = zn_tcp_session_poller(session);
     if (g_rtsp_advertise_host[0]) {
@@ -266,40 +266,40 @@ static void *session_create_user(zn_tcp_server *srv, zn_tcp_session *session)
     zn_info("RTSP #%u: session create rs=%p", rs->session_no, (void *)rs);
     rs->pb.audio_rate = 44100;
     rs->pb.audio_channels = 2;
-    rs->rtp_mode = ZMS_RTSP_RTP_TCP;
+    rs->rtp_mode = ZCS_RTSP_RTP_TCP;
     rs->pl.video_rtp_ssrc = 0x12345678u;
     rs->pl.audio_rtp_ssrc = 0x87654321u;
     rs->pl.scale = 1.0;
-    zms_rtsp_udp_registry_init();
-    zms_rtsp_splitter_opts opts = {zms_rtsp_session_on_message, zms_rtsp_session_on_rtp, rs};
-    rs->splitter = zms_rtsp_splitter_create(&opts);
+    zcs_rtsp_udp_registry_init();
+    zcs_rtsp_splitter_opts opts = {zcs_rtsp_session_on_message, zcs_rtsp_session_on_rtp, rs};
+    rs->splitter = zcs_rtsp_splitter_create(&opts);
     if (!rs->splitter) {
         free(rs);
         return NULL;
     }
-    rs->low_latency = zms_rtsp_low_latency_enabled();
+    rs->low_latency = zcs_rtsp_low_latency_enabled();
     if (rs->low_latency) {
         zn_info("RTSP #%u lowLatency=1 (pacing disabled)", rs->session_no);
     }
     rs->pl.sender =
-        zms_rtp_play_sender_create(zms_rtsp_session_write_interleaved, rs, ZMS_RTP_PLAY_RTPQ_CAP);
+        zcs_rtp_play_sender_create(zcs_rtsp_session_write_interleaved, rs, ZCS_RTP_PLAY_RTPQ_CAP);
     if (!rs->pl.sender) {
-        zms_rtsp_splitter_destroy(rs->splitter);
+        zcs_rtsp_splitter_destroy(rs->splitter);
         free(rs);
         return NULL;
     }
-    zms_rtp_play_sender_set_session_no(rs->pl.sender, rs->session_no);
-    zms_rtp_play_sender_set_poller(rs->pl.sender, rs->poller);
+    zcs_rtp_play_sender_set_session_no(rs->pl.sender, rs->session_no);
+    zcs_rtp_play_sender_set_poller(rs->pl.sender, rs->poller);
     return rs;
 }
 
-zms_rtsp_server *zms_rtsp_server_create(const zms_rtsp_server_opts *opts)
+zcs_rtsp_server *zcs_rtsp_server_create(const zcs_rtsp_server_opts *opts)
 {
     if (!opts || !opts->poller_pool) {
         return NULL;
     }
-    zms_session_dispatch_register_all();
-    zms_rtsp_server *srv = (zms_rtsp_server *)calloc(1, sizeof(*srv));
+    zcs_session_dispatch_register_all();
+    zcs_rtsp_server *srv = (zcs_rtsp_server *)calloc(1, sizeof(*srv));
     if (!srv) {
         return NULL;
     }
@@ -342,7 +342,7 @@ zms_rtsp_server *zms_rtsp_server_create(const zms_rtsp_server_opts *opts)
     return srv;
 }
 
-void zms_rtsp_server_destroy(zms_rtsp_server *srv)
+void zcs_rtsp_server_destroy(zcs_rtsp_server *srv)
 {
     if (!srv) {
         return;
@@ -352,7 +352,7 @@ void zms_rtsp_server_destroy(zms_rtsp_server *srv)
     free(srv);
 }
 
-zn_err_t zms_rtsp_server_start(zms_rtsp_server *srv)
+zn_err_t zcs_rtsp_server_start(zcs_rtsp_server *srv)
 {
     zn_err_t err;
 
@@ -372,7 +372,7 @@ zn_err_t zms_rtsp_server_start(zms_rtsp_server *srv)
     return ZN_OK;
 }
 
-void zms_rtsp_server_stop(zms_rtsp_server *srv)
+void zcs_rtsp_server_stop(zcs_rtsp_server *srv)
 {
     if (srv && srv->tcp) {
         zn_tcp_server_stop(srv->tcp);
@@ -382,7 +382,7 @@ void zms_rtsp_server_stop(zms_rtsp_server *srv)
     }
 }
 
-uint16_t zms_rtsp_server_port(const zms_rtsp_server *srv)
+uint16_t zcs_rtsp_server_port(const zcs_rtsp_server *srv)
 {
     if (!srv || !srv->tcp) {
         return 0;

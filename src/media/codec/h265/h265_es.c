@@ -2,8 +2,8 @@
  * @file h265_es.c
  * @brief H.265 Annex-B 同步帧/IDR 判断与参数集提取。
  */
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
 #include "zm/format/flv.h"
 #include "zm/codec/bitstream.h"
 #include <string.h>
@@ -51,7 +51,7 @@ static void hevc_scan_idr(void *param, const uint8_t *nalu, size_t bytes)
     }
 }
 
-int zms_h265_annexb_is_sync_key(const uint8_t *annexb, size_t len)
+int zcs_h265_annexb_is_sync_key(const uint8_t *annexb, size_t len)
 {
     hevc_scan_ctx ctx;
 
@@ -63,7 +63,7 @@ int zms_h265_annexb_is_sync_key(const uint8_t *annexb, size_t len)
     return ctx.found;
 }
 
-int zms_h265_annexb_is_idr(const uint8_t *annexb, size_t len)
+int zcs_h265_annexb_is_idr(const uint8_t *annexb, size_t len)
 {
     hevc_scan_ctx ctx;
 
@@ -105,7 +105,7 @@ static void hevc_scan_params(void *param, const uint8_t *nalu, size_t bytes)
     }
 }
 
-int zms_h265_annexb_extract_vps_sps_pps(const uint8_t *annexb, size_t len, const uint8_t **vps,
+int zcs_h265_annexb_extract_vps_sps_pps(const uint8_t *annexb, size_t len, const uint8_t **vps,
                                         size_t *vps_len, const uint8_t **sps, size_t *sps_len,
                                         const uint8_t **pps, size_t *pps_len)
 {
@@ -201,7 +201,7 @@ static size_t h265_annexb_write_nal(uint8_t *out, size_t cap, size_t pos, const 
     return pos + len;
 }
 
-zn_err_t zms_h265_annexb_copy_vcl(const uint8_t *annexb, size_t len, uint8_t *out, size_t cap,
+zn_err_t zcs_h265_annexb_copy_vcl(const uint8_t *annexb, size_t len, uint8_t *out, size_t cap,
                                    size_t *out_len)
 {
     hevc_vcl_ctx ctx;
@@ -225,7 +225,7 @@ zn_err_t zms_h265_annexb_copy_vcl(const uint8_t *annexb, size_t len, uint8_t *ou
     return ZN_OK;
 }
 
-zn_err_t zms_h265_annexb_build_rtp_au(const uint8_t *vps, size_t vps_len, const uint8_t *sps,
+zn_err_t zcs_h265_annexb_build_rtp_au(const uint8_t *vps, size_t vps_len, const uint8_t *sps,
                                        size_t sps_len, const uint8_t *pps, size_t pps_len,
                                        const uint8_t *annexb, size_t len, int prepend_params,
                                        uint8_t *out, size_t cap, size_t *out_len)
@@ -250,7 +250,7 @@ zn_err_t zms_h265_annexb_build_rtp_au(const uint8_t *vps, size_t vps_len, const 
         }
     }
 
-    err = zms_h265_annexb_copy_vcl(annexb, len, out + pos, cap - pos, &vcl_len);
+    err = zcs_h265_annexb_copy_vcl(annexb, len, out + pos, cap - pos, &vcl_len);
     if (err != ZN_OK) {
         return err;
     }
@@ -316,7 +316,7 @@ static int hevc_pick_param_sets(struct mpeg4_hevc_t *hevc, const uint8_t **vps, 
                                                                                               : 0;
 }
 
-int zms_h265_hvcc_param_sets(const uint8_t *hvcc, size_t hvcc_len, const uint8_t **vps,
+int zcs_h265_hvcc_param_sets(const uint8_t *hvcc, size_t hvcc_len, const uint8_t **vps,
                              size_t *vps_len, const uint8_t **sps, size_t *sps_len,
                              const uint8_t **pps, size_t *pps_len)
 {
@@ -332,7 +332,7 @@ int zms_h265_hvcc_param_sets(const uint8_t *hvcc, size_t hvcc_len, const uint8_t
     return hevc_pick_param_sets(&hevc, vps, vps_len, sps, sps_len, pps, pps_len);
 }
 
-int zms_h265_video_config_hvcc(const uint8_t *cfg, size_t cfg_len, const uint8_t **hvcc,
+int zcs_h265_video_config_hvcc(const uint8_t *cfg, size_t cfg_len, const uint8_t **hvcc,
                                size_t *hvcc_len)
 {
     struct flv_video_tag_header_t vh;
@@ -341,7 +341,7 @@ int zms_h265_video_config_hvcc(const uint8_t *cfg, size_t cfg_len, const uint8_t
     if (!hvcc || !hvcc_len || !cfg || cfg_len < 7) {
         return 0;
     }
-    if (zms_flv_tag_video_codec(cfg, cfg_len) == ZMS_CODEC_H265) {
+    if (zcs_flv_tag_video_codec(cfg, cfg_len) == ZCS_CODEC_H265) {
         memset(&vh, 0, sizeof(vh));
         hdr = flv_video_tag_header_read(&vh, cfg, cfg_len);
         if (hdr < 1 || vh.avpacket != FLV_SEQUENCE_HEADER) {
@@ -359,20 +359,20 @@ int zms_h265_video_config_hvcc(const uint8_t *cfg, size_t cfg_len, const uint8_t
     return cfg_len >= 7 && cfg[0] == 1;
 }
 
-int zms_h265_video_config_param_sets(const uint8_t *cfg, size_t cfg_len, const uint8_t **vps,
+int zcs_h265_video_config_param_sets(const uint8_t *cfg, size_t cfg_len, const uint8_t **vps,
                                      size_t *vps_len, const uint8_t **sps, size_t *sps_len,
                                      const uint8_t **pps, size_t *pps_len)
 {
     const uint8_t *hvcc = NULL;
     size_t hvcc_len = 0;
 
-    if (!cfg || !zms_h265_video_config_hvcc(cfg, cfg_len, &hvcc, &hvcc_len)) {
+    if (!cfg || !zcs_h265_video_config_hvcc(cfg, cfg_len, &hvcc, &hvcc_len)) {
         return 0;
     }
-    return zms_h265_hvcc_param_sets(hvcc, hvcc_len, vps, vps_len, sps, sps_len, pps, pps_len);
+    return zcs_h265_hvcc_param_sets(hvcc, hvcc_len, vps, vps_len, sps, sps_len, pps, pps_len);
 }
 
-zn_err_t zms_h265_hvcc_from_annexb(const uint8_t *annexb, size_t len, uint8_t *out, size_t cap,
+zn_err_t zcs_h265_hvcc_from_annexb(const uint8_t *annexb, size_t len, uint8_t *out, size_t cap,
                                     size_t *out_len)
 {
     struct mpeg4_hevc_t hevc;
@@ -393,7 +393,7 @@ zn_err_t zms_h265_hvcc_from_annexb(const uint8_t *annexb, size_t len, uint8_t *o
     return ZN_OK;
 }
 
-zn_err_t zms_h265_hvcc_from_param_sets(const uint8_t *vps, size_t vps_len, const uint8_t *sps,
+zn_err_t zcs_h265_hvcc_from_param_sets(const uint8_t *vps, size_t vps_len, const uint8_t *sps,
                                         size_t sps_len, const uint8_t *pps, size_t pps_len,
                                         uint8_t *out, size_t cap, size_t *out_len)
 {
@@ -401,15 +401,15 @@ zn_err_t zms_h265_hvcc_from_param_sets(const uint8_t *vps, size_t vps_len, const
     size_t annexb_len = 0;
     zn_err_t err;
 
-    err = zms_h265_param_sets_to_annexb(vps, vps_len, sps, sps_len, pps, pps_len, annexb,
+    err = zcs_h265_param_sets_to_annexb(vps, vps_len, sps, sps_len, pps, pps_len, annexb,
                                         sizeof(annexb), &annexb_len);
     if (err != ZN_OK) {
         return err;
     }
-    return zms_h265_hvcc_from_annexb(annexb, annexb_len, out, cap, out_len);
+    return zcs_h265_hvcc_from_annexb(annexb, annexb_len, out, cap, out_len);
 }
 
-zn_err_t zms_h265_param_sets_to_annexb(const uint8_t *vps, size_t vps_len, const uint8_t *sps,
+zn_err_t zcs_h265_param_sets_to_annexb(const uint8_t *vps, size_t vps_len, const uint8_t *sps,
                                         size_t sps_len, const uint8_t *pps, size_t pps_len,
                                         uint8_t *out, size_t cap, size_t *out_len)
 {

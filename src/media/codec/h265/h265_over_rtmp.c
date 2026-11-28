@@ -2,15 +2,15 @@
  * @file h265_over_rtmp.c
  * @brief H.265 在 RTMP/FLV 的 HVCC、序列头与打包。
  */
-#include "zms/media/codec/h265/h265_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/h265/h265_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
 #include "zm/codec/bitstream.h"
 #include "zm/format/flv.h"
 #include <string.h>
 
-int zms_rtmp_hevc_extradata(const uint8_t *data, size_t len, const uint8_t **hvcc, size_t *hvcc_len)
+int zcs_rtmp_hevc_extradata(const uint8_t *data, size_t len, const uint8_t **hvcc, size_t *hvcc_len)
 {
-    return zms_h265_video_config_hvcc(data, len, hvcc, hvcc_len);
+    return zcs_h265_video_config_hvcc(data, len, hvcc, hvcc_len);
 }
 
 static int h265_write_video_hdr(uint8_t *out, size_t cap, int key, int seq_hdr)
@@ -27,7 +27,7 @@ static int h265_write_video_hdr(uint8_t *out, size_t cap, int key, int seq_hdr)
     return n;
 }
 
-zn_err_t zms_h265_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
+zn_err_t zcs_h265_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
                                      const uint8_t *annexb, size_t len, int key, uint8_t *out,
                                      size_t cap, size_t *out_len)
 {
@@ -47,7 +47,7 @@ zn_err_t zms_h265_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
     }
 
     memset(&hevc, 0, sizeof(hevc));
-    if (video_cfg && zms_rtmp_hevc_extradata(video_cfg, cfg_len, &hvcc, &hvcc_len) && hvcc &&
+    if (video_cfg && zcs_rtmp_hevc_extradata(video_cfg, cfg_len, &hvcc, &hvcc_len) && hvcc &&
         hvcc_len >= 7) {
         (void)mpeg4_hevc_decoder_configuration_record_load(hvcc, hvcc_len, &hevc);
     }
@@ -66,7 +66,7 @@ zn_err_t zms_h265_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len,
     return ZN_OK;
 }
 
-zn_err_t zms_h265_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_t *out, size_t cap,
+zn_err_t zcs_h265_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_t *out, size_t cap,
                                        size_t *out_len)
 {
     struct flv_video_tag_header_t vh;
@@ -80,7 +80,7 @@ zn_err_t zms_h265_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_
         return ZN_ERR_INVALID;
     }
 
-    if (zms_flv_tag_video_codec(cfg, cfg_len) == ZMS_CODEC_H265) {
+    if (zcs_flv_tag_video_codec(cfg, cfg_len) == ZCS_CODEC_H265) {
         memset(&vh, 0, sizeof(vh));
         hdr = flv_video_tag_header_read(&vh, cfg, cfg_len);
         if (hdr > 0 && vh.avpacket == FLV_SEQUENCE_HEADER && cfg_len <= cap) {
@@ -90,7 +90,7 @@ zn_err_t zms_h265_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_
         }
     }
 
-    if (!zms_h265_video_config_hvcc(cfg, cfg_len, &hvcc, &hvcc_len) || !hvcc || hvcc_len < 7) {
+    if (!zcs_h265_video_config_hvcc(cfg, cfg_len, &hvcc, &hvcc_len) || !hvcc || hvcc_len < 7) {
         return ZN_ERR_INVALID;
     }
 

@@ -2,15 +2,15 @@
  * @file flv_client.c
  * @brief HTTP-FLV 拉流客户端。
  */
-#include "zms/protocol/http/flv_client.h"
-#include "zms/util/dns_cache.h"
-#include "zms/ops/config/zms_have_tls.h"
-#include "zms/media/container/flv/flv_tag_demuxer.h"
-#include "zms/media/container/flv/flv_tag_framer.h"
-#include "zms/media/wire/rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
-#include "zms/protocol/http/parser.h"
-#include "zms/protocol/http/message_framer.h"
+#include "zcs/protocol/http/flv_client.h"
+#include "zcs/util/dns_cache.h"
+#include "zcs/ops/config/zcs_have_tls.h"
+#include "zcs/media/container/flv/flv_tag_demuxer.h"
+#include "zcs/media/container/flv/flv_tag_framer.h"
+#include "zcs/media/wire/rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
+#include "zcs/protocol/http/parser.h"
+#include "zcs/protocol/http/message_framer.h"
 #include "zn/net/tcp_client.h"
 #include "zn/net/tls_client.h"
 #include "zn/util/log.h"
@@ -20,12 +20,12 @@
 #include <string.h>
 
 #define FLV_IO_BUF (256 * 1024)
-typedef struct zms_http_flv_url {
+typedef struct zcs_http_flv_url {
     char host[256];
     uint16_t port;
-    char path[ZMS_HTTP_URL_MAX];
+    char path[ZCS_HTTP_URL_MAX];
     int use_tls;
-} zms_http_flv_url;
+} zcs_http_flv_url;
 
 typedef enum {
     BODY_CL = 0,
@@ -33,24 +33,24 @@ typedef enum {
     BODY_UNTIL_CLOSE,
 } http_body_mode;
 
-typedef struct zms_http_flv_chunk_dec {
+typedef struct zcs_http_flv_chunk_dec {
     int in_chunk;
     size_t chunk_left;
     char line[32];
     size_t line_len;
-} zms_http_flv_chunk_dec;
+} zcs_http_flv_chunk_dec;
 
-struct zms_http_flv_client {
-    zms_http_flv_client_opts opts;
-    zms_http_flv_url url;
+struct zcs_http_flv_client {
+    zcs_http_flv_client_opts opts;
+    zcs_http_flv_url url;
     zn_tcp_client *tcp;
     zn_tls_client *tls;
-    zms_http_message_framer *http;
-    zms_flv_tag_demuxer *demux;
-    zms_http_parser http_hdr;
+    zcs_http_message_framer *http;
+    zcs_flv_tag_demuxer *demux;
+    zcs_http_parser http_hdr;
     http_body_mode body_mode;
-    zms_http_flv_chunk_dec chunk;
-    zms_flv_tag_framer *flv_bs;
+    zcs_http_flv_chunk_dec chunk;
+    zcs_flv_tag_framer *flv_bs;
     int stopping;
     int ready_sent;
     char req_buf[4096];
@@ -58,7 +58,7 @@ struct zms_http_flv_client {
 
 /* 单条错误上报：stopping 后不再上报——停止流程自己会 close，非预期的错误
  * 回调（如 close 触发的读错误）不应再扰动调用方。 */
-static void client_fail(zms_http_flv_client *c, zn_err_t err)
+static void client_fail(zcs_http_flv_client *c, zn_err_t err)
 {
     if (!c || c->stopping) {
         return;
@@ -68,12 +68,12 @@ static void client_fail(zms_http_flv_client *c, zn_err_t err)
     }
 }
 
-static void client_send(zms_http_flv_client *c, const void *data, size_t len)
+static void client_send(zcs_http_flv_client *c, const void *data, size_t len)
 {
     if (!c || !data || !len) {
         return;
     }
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
     if (c->tls) {
         zn_tls_client_send(c->tls, data, len);
         return;
@@ -84,16 +84,16 @@ static void client_send(zms_http_flv_client *c, const void *data, size_t len)
     }
 }
 
-static zn_err_t client_connect(zms_http_flv_client *c)
+static zn_err_t client_connect(zcs_http_flv_client *c)
 {
     if (!c) {
         return ZN_ERR_INVALID;
     }
     {
         char ipbuf[64];
-        const char *target = zms_dns_target(c->url.host, ipbuf, sizeof(ipbuf));
+        const char *target = zcs_dns_target(c->url.host, ipbuf, sizeof(ipbuf));
 
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
         if (c->tls) {
             return zn_tls_client_connect(c->tls, target, c->url.port);
         }
@@ -105,12 +105,12 @@ static zn_err_t client_connect(zms_http_flv_client *c)
     return ZN_ERR_STATE;
 }
 
-static void client_close(zms_http_flv_client *c)
+static void client_close(zcs_http_flv_client *c)
 {
     if (!c) {
         return;
     }
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
     if (c->tls) {
         zn_tls_client_close(c->tls);
         return;
@@ -129,7 +129,7 @@ static void client_close(zms_http_flv_client *c)
  *   - 显式写了 ":0" 视为缺省端口；
  *   - 无 path 时补 "/"，保证请求行合法。
  */
-static zn_err_t parse_http_flv_url(const char *url, zms_http_flv_url *out)
+static zn_err_t parse_http_flv_url(const char *url, zcs_http_flv_url *out)
 {
     if (!url || !out) {
         return ZN_ERR_INVALID;
@@ -180,7 +180,7 @@ static zn_err_t parse_http_flv_url(const char *url, zms_http_flv_url *out)
 
 /* Host 头只在非默认端口时带 ":port"：标准端口省略是 HTTP/1.1 惯例，且某些
  * 虚拟主机/CDN 对带默认端口的 Host 匹配更严格，省掉更稳。 */
-static void send_http_get(zms_http_flv_client *c)
+static void send_http_get(zcs_http_flv_client *c)
 {
     char host_line[320];
     if ((!c->url.use_tls && c->url.port != 80) || (c->url.use_tls && c->url.port != 443)) {
@@ -193,7 +193,7 @@ static void send_http_get(zms_http_flv_client *c)
                      "GET %s HTTP/1.1\r\n"
                      "Host: %s\r\n"
                      "Connection: keep-alive\r\n"
-                     "User-Agent: ZMS-HttpFlv/1.0\r\n"
+                     "User-Agent: ZCS-HttpFlv/1.0\r\n"
                      "Accept: */*\r\n"
                      "\r\n",
                      c->url.path[0] ? c->url.path : "/", host_line);
@@ -215,27 +215,27 @@ static int is_config_flv_body(uint8_t type, const uint8_t *body, size_t len)
     if (!body || len < 2) {
         return 1;
     }
-    if (type == ZMS_RTMP_MSG_VIDEO) {
-        zms_codec_id vc = zms_flv_tag_video_codec(body, len);
-        if (vc == ZMS_CODEC_H264 || vc == ZMS_CODEC_H265) {
-            zms_flv_tag_packet_kind pt = zms_flv_tag_video_packet_kind(body, len);
-            return pt == ZMS_FLV_TAG_PKT_SEQ_HEADER || pt == ZMS_FLV_TAG_PKT_END_OF_SEQ;
+    if (type == ZCS_RTMP_MSG_VIDEO) {
+        zcs_codec_id vc = zcs_flv_tag_video_codec(body, len);
+        if (vc == ZCS_CODEC_H264 || vc == ZCS_CODEC_H265) {
+            zcs_flv_tag_packet_kind pt = zcs_flv_tag_video_packet_kind(body, len);
+            return pt == ZCS_FLV_TAG_PKT_SEQ_HEADER || pt == ZCS_FLV_TAG_PKT_END_OF_SEQ;
         }
     }
-    if (type == ZMS_RTMP_MSG_AUDIO) {
-        if (zms_flv_tag_audio_codec(body, len) == ZMS_CODEC_AAC) {
-            return zms_flv_tag_audio_packet_kind(body, len) == ZMS_FLV_TAG_PKT_SEQ_HEADER;
+    if (type == ZCS_RTMP_MSG_AUDIO) {
+        if (zcs_flv_tag_audio_codec(body, len) == ZCS_CODEC_AAC) {
+            return zcs_flv_tag_audio_packet_kind(body, len) == ZCS_FLV_TAG_PKT_SEQ_HEADER;
         }
     }
     return 0;
 }
 
-static void maybe_ready(zms_http_flv_client *c, uint8_t type, const uint8_t *body, size_t len)
+static void maybe_ready(zcs_http_flv_client *c, uint8_t type, const uint8_t *body, size_t len)
 {
     if (c->ready_sent || !c->opts.on_ready) {
         return;
     }
-    if (type != ZMS_RTMP_MSG_AUDIO && type != ZMS_RTMP_MSG_VIDEO) {
+    if (type != ZCS_RTMP_MSG_AUDIO && type != ZCS_RTMP_MSG_VIDEO) {
         return;
     }
     if (is_config_flv_body(type, body, len)) {
@@ -245,9 +245,9 @@ static void maybe_ready(zms_http_flv_client *c, uint8_t type, const uint8_t *bod
     c->opts.on_ready(c->opts.user);
 }
 
-static void on_demux_frame(const zms_frame *frame, void *user)
+static void on_demux_frame(const zcs_frame *frame, void *user)
 {
-    zms_http_flv_client *c = (zms_http_flv_client *)user;
+    zcs_http_flv_client *c = (zcs_http_flv_client *)user;
     if (!c || c->stopping || !frame) {
         return;
     }
@@ -258,7 +258,7 @@ static void on_demux_frame(const zms_frame *frame, void *user)
 
 /* 把 FLV tag 派发给上层。两条出口互斥：on_media 优先（原始 tag，调用方自行
  * 解封），否则交给内部 demuxer 拆成帧走 on_frame。return 保证二选一不重复。 */
-static void feed_tag(zms_http_flv_client *c, uint8_t type, const uint8_t *body, size_t len,
+static void feed_tag(zcs_http_flv_client *c, uint8_t type, const uint8_t *body, size_t len,
                      uint32_t ts)
 {
     uint8_t msg;
@@ -267,42 +267,42 @@ static void feed_tag(zms_http_flv_client *c, uint8_t type, const uint8_t *body, 
         return;
     }
     maybe_ready(c, type, body, len);
-    msg = (type == ZMS_RTMP_MSG_VIDEO)   ? ZMS_RTMP_MSG_VIDEO
-          : (type == ZMS_RTMP_MSG_AUDIO) ? ZMS_RTMP_MSG_AUDIO
-                                         : ZMS_RTMP_MSG_DATA;
+    msg = (type == ZCS_RTMP_MSG_VIDEO)   ? ZCS_RTMP_MSG_VIDEO
+          : (type == ZCS_RTMP_MSG_AUDIO) ? ZCS_RTMP_MSG_AUDIO
+                                         : ZCS_RTMP_MSG_DATA;
     if (c->opts.on_media) {
         c->opts.on_media(msg, ts, body, len, c->opts.user);
         return;
     }
     if (c->demux) {
-        (void)zms_flv_tag_demuxer_input(c->demux, msg, body, len, ts);
+        (void)zcs_flv_tag_demuxer_input(c->demux, msg, body, len, ts);
     }
 }
 
-static void flv_reset(zms_http_flv_client *c)
+static void flv_reset(zcs_http_flv_client *c)
 {
     if (c && c->flv_bs) {
-        zms_flv_tag_framer_reset(c->flv_bs);
+        zcs_flv_tag_framer_reset(c->flv_bs);
     }
 }
 
 static void on_flv_byte_tag(uint8_t type, const uint8_t *body, size_t len, uint32_t ts_ms,
                             void *user)
 {
-    zms_http_flv_client *c = (zms_http_flv_client *)user;
+    zcs_http_flv_client *c = (zcs_http_flv_client *)user;
     if (!c || c->stopping) {
         return;
     }
     feed_tag(c, type, body, len, ts_ms);
 }
 
-static void flv_feed(zms_http_flv_client *c, const uint8_t *data, size_t len)
+static void flv_feed(zcs_http_flv_client *c, const uint8_t *data, size_t len)
 {
     zn_err_t err;
     if (!c || !c->flv_bs || !data || len == 0) {
         return;
     }
-    err = zms_flv_tag_framer_feed(c->flv_bs, data, len, on_flv_byte_tag, c);
+    err = zcs_flv_tag_framer_feed(c->flv_bs, data, len, on_flv_byte_tag, c);
     if (err == ZN_ERR_INVALID) {
         client_fail(c, ZN_ERR_INVALID);
     } else if (err == ZN_ERR_NOMEM || err == ZN_ERR_BUFFER_TOO_SMALL) {
@@ -312,7 +312,7 @@ static void flv_feed(zms_http_flv_client *c, const uint8_t *data, size_t len)
 
 /* 从已累积的一行里解出十六进制块长（chunk size）。遇到 \r 或 \n 即视为行结束，
  * 用 strtoul 按十六进制解析；解析失败得到 0，会被上层当作“末块”结束 body。 */
-static int chunk_line_complete(zms_http_flv_chunk_dec *d, size_t *out_size)
+static int chunk_line_complete(zcs_http_flv_chunk_dec *d, size_t *out_size)
 {
     for (size_t i = 0; i < d->line_len; ++i) {
         if (d->line[i] == '\r' || d->line[i] == '\n') {
@@ -332,7 +332,7 @@ static int chunk_line_complete(zms_http_flv_chunk_dec *d, size_t *out_size)
  * 块长为 0 表示 body 结束。line 缓冲有上限（32 字节），超长视为非法——
  * 合法块长行不会那么长，出现超长说明数据流已错位，及时失败而不是无限吞。
  */
-static void chunk_feed(zms_http_flv_client *c, const uint8_t *data, size_t len)
+static void chunk_feed(zcs_http_flv_client *c, const uint8_t *data, size_t len)
 {
     size_t off = 0;
     while (off < len) {
@@ -376,7 +376,7 @@ static void chunk_feed(zms_http_flv_client *c, const uint8_t *data, size_t len)
 
 /* body 按传输模式分流：chunked 先解块再喂 FLV，其余（定长/直至关闭）直接喂。
  * BODY_UNTIL_CLOSE 依赖连接关闭判定 body 结束，在直播场景里就是常态。 */
-static void body_feed(zms_http_flv_client *c, const void *data, size_t len)
+static void body_feed(zcs_http_flv_client *c, const void *data, size_t len)
 {
     if (!c || !data || len == 0) {
         return;
@@ -421,13 +421,13 @@ static int str_icontains(const char *hay, const char *needle)
  */
 static intptr_t on_http_header(const char *header, size_t header_len, void *user)
 {
-    zms_http_flv_client *c = (zms_http_flv_client *)user;
+    zcs_http_flv_client *c = (zcs_http_flv_client *)user;
     if (!c) {
         return 0;
     }
 
-    zms_http_parser_clear(&c->http_hdr);
-    if (zms_http_parser_parse_header(&c->http_hdr, header, header_len) != ZN_OK) {
+    zcs_http_parser_clear(&c->http_hdr);
+    if (zcs_http_parser_parse_header(&c->http_hdr, header, header_len) != ZN_OK) {
         return 0;
     }
 
@@ -443,13 +443,13 @@ static intptr_t on_http_header(const char *header, size_t header_len, void *user
         return 0;
     }
 
-    const char *ct = zms_http_parser_header(&c->http_hdr, "Content-Type");
+    const char *ct = zcs_http_parser_header(&c->http_hdr, "Content-Type");
     if (ct[0] && !str_icontains(ct, "flv") && !str_icontains(ct, "octet-stream")) {
         zn_warn("http-flv unexpected content-type: %s", ct);
     }
 
-    const char *te = zms_http_parser_header(&c->http_hdr, "Transfer-Encoding");
-    const char *cl = zms_http_parser_header(&c->http_hdr, "Content-Length");
+    const char *te = zcs_http_parser_header(&c->http_hdr, "Transfer-Encoding");
+    const char *cl = zcs_http_parser_header(&c->http_hdr, "Content-Length");
     memset(&c->chunk, 0, sizeof(c->chunk));
     flv_reset(c);
 
@@ -476,19 +476,19 @@ static intptr_t on_http_header(const char *header, size_t header_len, void *user
 
 static void on_http_content(const char *data, size_t len, void *user)
 {
-    zms_http_flv_client *c = (zms_http_flv_client *)user;
+    zcs_http_flv_client *c = (zcs_http_flv_client *)user;
     if (!c || c->stopping) {
         return;
     }
     body_feed(c, data, len);
 }
 
-static void on_transport_data(zms_http_flv_client *c, const void *data, size_t len)
+static void on_transport_data(zcs_http_flv_client *c, const void *data, size_t len)
 {
     if (!c->http) {
         return;
     }
-    zn_err_t err = zms_http_message_framer_input(c->http, data, len);
+    zn_err_t err = zcs_http_message_framer_input(c->http, data, len);
     if (err != ZN_OK) {
         client_fail(c, err);
     }
@@ -496,10 +496,10 @@ static void on_transport_data(zms_http_flv_client *c, const void *data, size_t l
 
 /* 重连/重播时清空所有解析状态：HTTP 分帧、头部解析器、chunk 解码器、FLV 组帧器
  * 都要从干净状态开始，否则上一次残留的半帧会被拼到新连接的流前面导致错位。 */
-static void on_io_connected(zms_http_flv_client *c)
+static void on_io_connected(zcs_http_flv_client *c)
 {
-    zms_http_message_framer_reset(c->http);
-    zms_http_parser_clear(&c->http_hdr);
+    zcs_http_message_framer_reset(c->http);
+    zcs_http_parser_clear(&c->http_hdr);
     memset(&c->chunk, 0, sizeof(c->chunk));
     flv_reset(c);
     c->ready_sent = 0;
@@ -509,46 +509,46 @@ static void on_io_connected(zms_http_flv_client *c)
 static void on_tcp_connect(zn_tcp_client *tcp, void *user)
 {
     (void)tcp;
-    on_io_connected((zms_http_flv_client *)user);
+    on_io_connected((zcs_http_flv_client *)user);
 }
 
 static void on_tcp_recv(zn_tcp_client *tcp, const void *data, size_t len, void *user)
 {
     (void)tcp;
-    on_transport_data((zms_http_flv_client *)user, data, len);
+    on_transport_data((zcs_http_flv_client *)user, data, len);
 }
 
 static void on_tcp_error(zn_tcp_client *tcp, void *user)
 {
     (void)tcp;
-    client_fail((zms_http_flv_client *)user, ZN_ERR_IO);
+    client_fail((zcs_http_flv_client *)user, ZN_ERR_IO);
 }
 
 static void on_tls_connect(zn_tls_client *tls, void *user)
 {
     (void)tls;
-    on_io_connected((zms_http_flv_client *)user);
+    on_io_connected((zcs_http_flv_client *)user);
 }
 
 static void on_tls_recv(zn_tls_client *tls, const void *data, size_t len, void *user)
 {
     (void)tls;
-    on_transport_data((zms_http_flv_client *)user, data, len);
+    on_transport_data((zcs_http_flv_client *)user, data, len);
 }
 
 static void on_tls_error(zn_tls_client *tls, void *user)
 {
     (void)tls;
-    client_fail((zms_http_flv_client *)user, ZN_ERR_IO);
+    client_fail((zcs_http_flv_client *)user, ZN_ERR_IO);
 }
 
-zms_http_flv_client *zms_http_flv_client_create(const zms_http_flv_client_opts *opts)
+zcs_http_flv_client *zcs_http_flv_client_create(const zcs_http_flv_client_opts *opts)
 {
     if (!opts || !opts->poller || !opts->url || (!opts->on_media && !opts->on_frame)) {
         return NULL;
     }
 
-    zms_http_flv_client *c = (zms_http_flv_client *)calloc(1, sizeof(*c));
+    zcs_http_flv_client *c = (zcs_http_flv_client *)calloc(1, sizeof(*c));
     if (!c) {
         return NULL;
     }
@@ -559,25 +559,25 @@ zms_http_flv_client *zms_http_flv_client_create(const zms_http_flv_client_opts *
     }
 
     if (opts->on_frame) {
-        zms_flv_tag_demuxer_opts dopts = {on_demux_frame, c};
+        zcs_flv_tag_demuxer_opts dopts = {on_demux_frame, c};
 
-        c->demux = zms_flv_tag_demuxer_create(&dopts);
+        c->demux = zcs_flv_tag_demuxer_create(&dopts);
         if (!c->demux) {
             free(c);
             return NULL;
         }
     }
-    c->flv_bs = zms_flv_tag_framer_create();
+    c->flv_bs = zcs_flv_tag_framer_create();
     if (!c->flv_bs) {
-        zms_flv_tag_demuxer_destroy(c->demux);
+        zcs_flv_tag_demuxer_destroy(c->demux);
         free(c);
         return NULL;
     }
 
-    zms_http_message_framer_opts sopts = {on_http_header, on_http_content, c};
-    c->http = zms_http_message_framer_create(&sopts);
+    zcs_http_message_framer_opts sopts = {on_http_header, on_http_content, c};
+    c->http = zcs_http_message_framer_create(&sopts);
     if (!c->http) {
-        zms_flv_tag_demuxer_destroy(c->demux);
+        zcs_flv_tag_demuxer_destroy(c->demux);
         free(c);
         return NULL;
     }
@@ -586,18 +586,18 @@ zms_http_flv_client *zms_http_flv_client_create(const zms_http_flv_client_opts *
  * 能力还硬连只会得到难以诊断的 I/O 错误，不如在创建阶段明确拒绝。 */
     if (c->url.use_tls) {
 #if !defined(ZN_HAVE_OPENSSL) || !ZN_HAVE_OPENSSL
-        zms_http_flv_client_destroy(c);
+        zcs_http_flv_client_destroy(c);
         return NULL;
 #else
         if (!opts->ssl_ctx) {
-            zms_http_flv_client_destroy(c);
+            zcs_http_flv_client_destroy(c);
             return NULL;
         }
         zn_tls_client_ops_t tops = {on_tls_connect, on_tls_recv, on_tls_error};
         zn_tls_client_opts_t topts = {opts->poller, opts->ssl_ctx, &tops, c, c->url.host};
         c->tls = zn_tls_client_create(&topts);
         if (!c->tls) {
-            zms_http_flv_client_destroy(c);
+            zcs_http_flv_client_destroy(c);
             return NULL;
         }
 #endif
@@ -606,31 +606,31 @@ zms_http_flv_client *zms_http_flv_client_create(const zms_http_flv_client_opts *
         zn_tcp_client_opts_t topts = {opts->poller, &tops, c};
         c->tcp = zn_tcp_client_create(&topts);
         if (!c->tcp) {
-            zms_http_flv_client_destroy(c);
+            zcs_http_flv_client_destroy(c);
             return NULL;
         }
     }
     return c;
 }
 
-void zms_http_flv_client_destroy(zms_http_flv_client *c)
+void zcs_http_flv_client_destroy(zcs_http_flv_client *c)
 {
     if (!c) {
         return;
     }
-    zms_http_flv_client_stop(c);
+    zcs_http_flv_client_stop(c);
     zn_tcp_client_destroy(c->tcp);
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
     zn_tls_client_destroy(c->tls);
 #endif
-    zms_http_message_framer_destroy(c->http);
-    zms_flv_tag_demuxer_destroy(c->demux);
-    zms_flv_tag_framer_destroy(c->flv_bs);
-    zms_http_parser_clear(&c->http_hdr);
+    zcs_http_message_framer_destroy(c->http);
+    zcs_flv_tag_demuxer_destroy(c->demux);
+    zcs_flv_tag_framer_destroy(c->flv_bs);
+    zcs_http_parser_clear(&c->http_hdr);
     free(c);
 }
 
-zn_err_t zms_http_flv_client_play(zms_http_flv_client *c)
+zn_err_t zcs_http_flv_client_play(zcs_http_flv_client *c)
 {
     if (!c) {
         return ZN_ERR_INVALID;
@@ -640,7 +640,7 @@ zn_err_t zms_http_flv_client_play(zms_http_flv_client *c)
     return client_connect(c);
 }
 
-void zms_http_flv_client_stop(zms_http_flv_client *c)
+void zcs_http_flv_client_stop(zcs_http_flv_client *c)
 {
     if (!c) {
         return;
@@ -648,7 +648,7 @@ void zms_http_flv_client_stop(zms_http_flv_client *c)
     c->stopping = 1;
     client_close(c);
     if (c->http) {
-        zms_http_message_framer_reset(c->http);
+        zcs_http_message_framer_reset(c->http);
     }
     flv_reset(c);
     c->ready_sent = 0;

@@ -8,11 +8,11 @@
  * 的 poller 上做非阻塞，避免在信令线程里同步阻塞 socket。
  *
  * 并发：所有回调（on_data/on_timeout/on_error）都在传入的 poller 线程上
- * 触发；zms_http_client 的字段无需加锁，因为创建、回调、销毁都串行于该
+ * 触发；zcs_http_client 的字段无需加锁，因为创建、回调、销毁都串行于该
  * poller。唯一的跨线程约定是 cb 只会被调用一次，见 http_finish。
  */
 #include "session/webrtc/client_http.h"
-#include "zms/util/dns_cache.h"
+#include "zcs/util/dns_cache.h"
 #include "zn/net/tcp_client.h"
 #include "zn/net/tls_client.h"
 #include "zn/util/log.h"
@@ -26,10 +26,10 @@
 #define strncasecmp _strnicmp
 #endif
 
-#define ZMS_HTTP_RX_MAX (256u * 1024u)
-#define ZMS_HTTP_BODY_MAX (128u * 1024u)
+#define ZCS_HTTP_RX_MAX (256u * 1024u)
+#define ZCS_HTTP_BODY_MAX (128u * 1024u)
 
-struct zms_http_client {
+struct zcs_http_client {
     zn_poller *poller;
     zn_poller_timer *timer;
     zn_tcp_client *tcp;
@@ -53,13 +53,13 @@ struct zms_http_client {
     int status;
     char location[512];
     int done;
-    zms_http_client_cb cb;
+    zcs_http_client_cb cb;
     void *user;
 };
 
 static void http_finish_async(void *user);
 
-static void http_capture_location(zms_http_client *c, const char *line, size_t len)
+static void http_capture_location(zcs_http_client *c, const char *line, size_t len)
 {
     const char *v;
     size_t i;
@@ -87,7 +87,7 @@ static void http_capture_location(zms_http_client *c, const char *line, size_t l
  *
  * 只关心三样：状态行、Location（WHIP 用它返回资源地址）、以及
  * Content-Length / Transfer-Encoding 用来决定 body 读取方式。 */
-static int http_parse_headers(zms_http_client *c)
+static int http_parse_headers(zcs_http_client *c)
 {
     char *end;
     char *line;
@@ -142,7 +142,7 @@ static int http_parse_headers(zms_http_client *c)
  *   - Content-Length：body 就在 rx 缓冲里，直接指向它（零拷贝）。
  *   - chunked：长度未知且分块，无法原地指向，必须另开 body 缓冲边解边拼。
  * 这就是 chunked 分支要 malloc 的原因。 */
-static int http_parse_body(zms_http_client *c)
+static int http_parse_body(zcs_http_client *c)
 {
     if (!c->chunked) {
         if (c->content_length >= 0) {
@@ -160,7 +160,7 @@ static int http_parse_body(zms_http_client *c)
         return 1;
     }
     if (!c->body) {
-        c->body = (char *)malloc(ZMS_HTTP_BODY_MAX);
+        c->body = (char *)malloc(ZCS_HTTP_BODY_MAX);
         if (!c->body) {
             return -1;
         }
@@ -193,7 +193,7 @@ static int http_parse_body(zms_http_client *c)
         if (avail < (size_t)(crlf + 2 - start) + size + 2) {
             return 0;
         }
-        if (c->body_len + size > ZMS_HTTP_BODY_MAX) {
+        if (c->body_len + size > ZCS_HTTP_BODY_MAX) {
             return -1;
         }
         memcpy(c->body + c->body_len, crlf + 2, size);
@@ -213,8 +213,8 @@ static int http_parse_body(zms_http_client *c)
  * 不能把指向自身字段的指针交给 cb 长期持有。 */
 static void http_finish_async(void *user)
 {
-    zms_http_client *c = (zms_http_client *)user;
-    zms_http_client_cb cb;
+    zcs_http_client *c = (zcs_http_client *)user;
+    zcs_http_client_cb cb;
     void *cb_user;
     int status;
     char *body;
@@ -234,14 +234,14 @@ static void http_finish_async(void *user)
     if (cb) {
         cb(status, location[0] ? location : NULL, body, body_len, cb_user);
     }
-    zms_http_client_destroy(c);
+    zcs_http_client_destroy(c);
 }
 
 /* 幂等的收尾入口：done 标志保证 cb 只会收到一次（超时与数据到达可能
  * 在同一 tick 竞争，先到的赢）。status>0 时覆盖状态；否则保留已解析到的
  * 状态码。收尾动作（取消定时器 + 异步回调销毁）委托给 http_finish_async，
  * poller 不可用时退化为同步执行（例如轮询线程已停）。 */
-static void http_finish(zms_http_client *c, int status)
+static void http_finish(zcs_http_client *c, int status)
 {
     if (!c || c->done) {
         return;
@@ -264,7 +264,7 @@ static void http_finish(zms_http_client *c, int status)
 
 static uint64_t http_on_timeout(void *user)
 {
-    zms_http_client *c = (zms_http_client *)user;
+    zcs_http_client *c = (zcs_http_client *)user;
     if (!c) {
         return 0;
     }
@@ -281,14 +281,14 @@ static uint64_t http_on_timeout(void *user)
     return 0;
 }
 
-static void http_on_data(zms_http_client *c, const void *data, size_t len)
+static void http_on_data(zcs_http_client *c, const void *data, size_t len)
 {
     if (!c || c->done) {
         return;
     }
     /* 硬上限：一个信令响应不该超过 256KB；超了基本是服务端异常（比如误把
      * 大文件当 SDP 回），直接判失败而不是无限吞数据把 rx 撑爆。 */
-    if (c->rx_len + len > ZMS_HTTP_RX_MAX) {
+    if (c->rx_len + len > ZCS_HTTP_RX_MAX) {
         zn_warn("[webrtc-http] response too large");
         http_finish(c, 0);
         return;
@@ -320,12 +320,12 @@ static void http_on_data(zms_http_client *c, const void *data, size_t len)
 static void http_tcp_on_recv(zn_tcp_client *client, const void *data, size_t len, void *user)
 {
     (void)client;
-    http_on_data((zms_http_client *)user, data, len);
+    http_on_data((zcs_http_client *)user, data, len);
 }
 
 static void http_tcp_on_connect(zn_tcp_client *client, void *user)
 {
-    zms_http_client *c = (zms_http_client *)user;
+    zcs_http_client *c = (zcs_http_client *)user;
     (void)client;
     if (!c) {
         return;
@@ -338,18 +338,18 @@ static void http_tcp_on_error(zn_tcp_client *client, void *user)
 {
     (void)client;
     zn_warn("[webrtc-http] tcp error");
-    http_finish((zms_http_client *)user, 0);
+    http_finish((zcs_http_client *)user, 0);
 }
 
 static void http_tls_on_recv(zn_tls_client *client, const void *data, size_t len, void *user)
 {
     (void)client;
-    http_on_data((zms_http_client *)user, data, len);
+    http_on_data((zcs_http_client *)user, data, len);
 }
 
 static void http_tls_on_connect(zn_tls_client *client, void *user)
 {
-    zms_http_client *c = (zms_http_client *)user;
+    zcs_http_client *c = (zcs_http_client *)user;
     (void)client;
     if (!c) {
         return;
@@ -362,10 +362,10 @@ static void http_tls_on_error(zn_tls_client *client, void *user)
 {
     (void)client;
     zn_warn("[webrtc-http] tls error");
-    http_finish((zms_http_client *)user, 0);
+    http_finish((zcs_http_client *)user, 0);
 }
 
-static int http_parse_url(zms_http_client *c, const char *url)
+static int http_parse_url(zcs_http_client *c, const char *url)
 {
     const char *p;
     const char *slash;
@@ -406,12 +406,12 @@ static int http_parse_url(zms_http_client *c, const char *url)
     return 0;
 }
 
-zms_http_client *zms_http_client_post(zn_poller *poller, const char *url, const char *content_type,
+zcs_http_client *zcs_http_client_post(zn_poller *poller, const char *url, const char *content_type,
                                       const char *body, size_t body_len, const char *token,
                                       struct zn_ssl_ctx *ssl_ctx, int timeout_ms,
-                                      zms_http_client_cb cb, void *user)
+                                      zcs_http_client_cb cb, void *user)
 {
-    zms_http_client *c;
+    zcs_http_client *c;
     char host_hdr[192];
     size_t cap;
     int n;
@@ -419,7 +419,7 @@ zms_http_client *zms_http_client_post(zn_poller *poller, const char *url, const 
     if (!poller || !url || !cb) {
         return NULL;
     }
-    c = (zms_http_client *)calloc(1, sizeof(*c));
+    c = (zcs_http_client *)calloc(1, sizeof(*c));
     if (!c) {
         return NULL;
     }
@@ -441,7 +441,7 @@ zms_http_client *zms_http_client_post(zn_poller *poller, const char *url, const 
      * 头部留的余量，远大于实际头长，避免为算精确长度引入分支。 */
     cap = body_len + 1024 + (token ? strlen(token) : 0);
     c->req = (char *)malloc(cap);
-    c->rx = (char *)malloc(ZMS_HTTP_RX_MAX + 1);
+    c->rx = (char *)malloc(ZCS_HTTP_RX_MAX + 1);
     if (!c->req || !c->rx) {
         free(c->req);
         free(c->rx);
@@ -499,7 +499,7 @@ zms_http_client *zms_http_client_post(zn_poller *poller, const char *url, const 
         opts.user = c;
         opts.sni_host = c->host;
         c->tls = zn_tls_client_create(&opts);
-        if (!c->tls || zn_tls_client_connect(c->tls, zms_dns_target(c->host, ipbuf, sizeof(ipbuf)),
+        if (!c->tls || zn_tls_client_connect(c->tls, zcs_dns_target(c->host, ipbuf, sizeof(ipbuf)),
                                              c->port) != ZN_OK) {
             zn_warn("[webrtc-http] tls connect failed %s:%u", c->host, (unsigned)c->port);
             goto fail;
@@ -517,7 +517,7 @@ zms_http_client *zms_http_client_post(zn_poller *poller, const char *url, const 
         opts.ops = &ops;
         opts.user = c;
         c->tcp = zn_tcp_client_create(&opts);
-        if (!c->tcp || zn_tcp_client_connect(c->tcp, zms_dns_target(c->host, ipbuf, sizeof(ipbuf)),
+        if (!c->tcp || zn_tcp_client_connect(c->tcp, zcs_dns_target(c->host, ipbuf, sizeof(ipbuf)),
                                              c->port) != ZN_OK) {
             zn_warn("[webrtc-http] tcp connect failed %s:%u", c->host, (unsigned)c->port);
             goto fail;
@@ -546,7 +546,7 @@ fail:
     return NULL;
 }
 
-void zms_http_client_destroy(zms_http_client *c)
+void zcs_http_client_destroy(zcs_http_client *c)
 {
     if (!c) {
         return;

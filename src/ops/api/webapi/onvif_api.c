@@ -10,15 +10,15 @@
  *   - job_run 在**线程池工作线程**上跑网络 IO，把结果写进 job 结构；
  *   - job_on_io 被投递回**原 HTTP 会话的 poller**上执行，此时才生成 JSON、
  *     发回包并释放 session（HTTP 会话 API 不是线程安全的，必须在 poller 上）。
- * 两段之间用 zms_http_session_async_hold/release 保活会话，防止客户端中途断开。
+ * 两段之间用 zcs_http_session_async_hold/release 保活会话，防止客户端中途断开。
  */
 #include "ops/api/webapi/onvif_api.h"
-#include "zms/core/stream/limits.h"
-#include "zms/device/onvif/onvif.h"
-#include "zms/ops/config/config.h"
-#include "zms/device/onvif/onvif_registry.h"
-#include "zms/util/thread_pool.h"
-#include "zms/protocol/http/session_api.h"
+#include "zcs/core/stream/limits.h"
+#include "zcs/device/onvif/onvif.h"
+#include "zcs/ops/config/config.h"
+#include "zcs/device/onvif/onvif_registry.h"
+#include "zcs/util/thread_pool.h"
+#include "zcs/protocol/http/session_api.h"
 #include "zn/net/tcp_server.h"
 #include "zn/util/log.h"
 #include <stdarg.h>
@@ -36,12 +36,12 @@ typedef enum {
 } onvif_kind;
 
 typedef struct onvif_job {
-    zms_http_session *hs;
+    zcs_http_session *hs;
     zn_tcp_session *tcp;
     zn_poller *poller;
     zn_poller_pool *pool;
     int kind;
-    char addr[ZMS_ONVIF_XADDR_MAX];
+    char addr[ZCS_ONVIF_XADDR_MAX];
     char user[64];
     char pass[128];
     char profile[64];
@@ -56,13 +56,13 @@ typedef struct onvif_job {
     /* 结果 */
     int status;
     char err[128];
-    zms_onvif_device dev;
-    zms_onvif_device devs[16];
+    zcs_onvif_device dev;
+    zcs_onvif_device devs[16];
     size_t dev_count;
-    zms_onvif_profile profiles[8];
+    zcs_onvif_profile profiles[8];
     size_t profile_count;
     char key[256];
-    char uri[ZMS_ONVIF_URI_MAX];
+    char uri[ZCS_ONVIF_URI_MAX];
 } onvif_job;
 
 /* ── JSON ───────────────────────────────────────────────────────────────── */
@@ -194,7 +194,7 @@ static void job_run(onvif_job *j)
 {
     if (j->kind == ONVIF_K_DISCOVER) {
         size_t n = 0;
-        if (zms_onvif_discover(j->timeout_ms, j->devs, 16, &n) != 0) {
+        if (zcs_onvif_discover(j->timeout_ms, j->devs, 16, &n) != 0) {
             job_fail(j, "discover failed");
             return;
         }
@@ -206,35 +206,35 @@ static void job_run(onvif_job *j)
     {
         /* 除 discover 外都先建 ONVIF 客户端（内部完成 SOAP 认证与设备信息
          * 拉取）。连接失败统一走 job_fail，job 里只留错误串供回包使用。 */
-        zms_onvif_client *c = zms_onvif_connect(j->addr, j->user[0] ? j->user : NULL,
+        zcs_onvif_client *c = zcs_onvif_connect(j->addr, j->user[0] ? j->user : NULL,
                                                 j->pass[0] ? j->pass : NULL, j->timeout_ms);
         if (!c) {
             job_fail(j, "connect failed");
             return;
         }
         if (j->kind == ONVIF_K_PTZ) {
-            const zms_onvif_device *info = zms_onvif_device_info(c);
+            const zcs_onvif_device *info = zcs_onvif_device_info(c);
             /* 设备可能没有 PTZ 服务：直接报错比发一个注定失败的 SOAP 更清晰。 */
             if (!info || info->ptz_xaddr[0] == '\0') {
                 job_fail(j, "device has no PTZ service");
             } else {
-                int rc = j->stop ? zms_onvif_ptz_stop(c, j->profile)
-                                 : zms_onvif_ptz_move(c, j->profile, j->x, j->y, j->z);
+                int rc = j->stop ? zcs_onvif_ptz_stop(c, j->profile)
+                                 : zcs_onvif_ptz_move(c, j->profile, j->x, j->y, j->z);
                 if (rc != 0) {
                     job_fail(j, "ptz failed");
                 }
             }
         } else {
-            const zms_onvif_device *info = zms_onvif_device_info(c);
+            const zcs_onvif_device *info = zcs_onvif_device_info(c);
             if (info) {
                 j->dev = *info;
             }
-            if (zms_onvif_get_profiles(c, j->profiles, sizeof(j->profiles) / sizeof(j->profiles[0]),
+            if (zcs_onvif_get_profiles(c, j->profiles, sizeof(j->profiles) / sizeof(j->profiles[0]),
                                        &j->profile_count) != 0) {
                 job_fail(j, "get profiles failed");
             }
         }
-        zms_onvif_close(c);
+        zcs_onvif_close(c);
     }
 
     /* ADD 的收尾（仍在线程池里做，未触碰任何 HTTP/会话状态）：
@@ -271,7 +271,7 @@ static void job_run(onvif_job *j)
         /* 未指定流名时用 profile token 消毒后当流名（token 可能带非法字符，
          * stream_sanitize 把非 [A-Za-z0-9_-] 换成下划线，保证 URL 安全）。 */
         if (j->stream[0] == '\0') {
-            char tmp[ZMS_STREAM_MAX];
+            char tmp[ZCS_STREAM_MAX];
             stream_sanitize(j->profile, tmp, sizeof(tmp));
             snprintf(j->stream, sizeof(j->stream), "%s", tmp);
         }
@@ -290,7 +290,7 @@ static void job_apply(onvif_job *j)
     /* registry_add 会创建 live_pull_proxy 并加入全局 registry，属于会与
      * 其它会话共享的状态变更，因此挪到 poller 线程（job_on_io）里做，
      * 而不是线程池工作线程。失败则把 job 标成失败，回包走错误 JSON。 */
-    if (zms_onvif_registry_add(j->addr, j->user, j->pass, j->profile, j->uri,
+    if (zcs_onvif_registry_add(j->addr, j->user, j->pass, j->profile, j->uri,
                                j->vhost[0] ? j->vhost : NULL, j->app, j->stream, j->pool, j->key,
                                sizeof(j->key)) != 0) {
         job_fail(j, "add pull proxy failed");
@@ -314,7 +314,7 @@ static size_t job_build_body(onvif_job *j, char *body, size_t cap)
         size_t i;
         jw_puts(&w, "{\"code\":0,\"data\":[");
         for (i = 0; i < j->dev_count; ++i) {
-            const zms_onvif_device *d = &j->devs[i];
+            const zcs_onvif_device *d = &j->devs[i];
             if (i) {
                 jw_putc(&w, ',');
             }
@@ -334,7 +334,7 @@ static size_t job_build_body(onvif_job *j, char *body, size_t cap)
     case ONVIF_K_PROBE:
     case ONVIF_K_ADD: {
         size_t i;
-        const zms_onvif_device *d = &j->dev;
+        const zcs_onvif_device *d = &j->dev;
         jw_puts(&w, "{\"code\":0,\"data\":{");
         jw_kv_str(&w, "xaddr", d->xaddr);
         jw_putc(&w, ',');
@@ -351,7 +351,7 @@ static size_t job_build_body(onvif_job *j, char *body, size_t cap)
         jw_kv_str(&w, "ptz", d->ptz_xaddr);
         jw_puts(&w, ",\"profiles\":[");
         for (i = 0; i < j->profile_count; ++i) {
-            const zms_onvif_profile *p = &j->profiles[i];
+            const zcs_onvif_profile *p = &j->profiles[i];
             if (i) {
                 jw_putc(&w, ',');
             }
@@ -400,7 +400,7 @@ static size_t job_build_body(onvif_job *j, char *body, size_t cap)
 
 static int sess_alive(const onvif_job *j)
 {
-    return j && zms_http_session_is_live(j->hs);
+    return j && zcs_http_session_is_live(j->hs);
 }
 
 static void job_work(void *user)
@@ -420,15 +420,15 @@ static void job_on_io(void *user)
         return;
     }
     if (!body) {
-        zms_http_response_send_error(j->hs, 500, "Internal Server Error");
-        zms_http_session_async_release(j->hs);
+        zcs_http_response_send_error(j->hs, 500, "Internal Server Error");
+        zcs_http_session_async_release(j->hs);
         free(j);
         return;
     }
     /* 客户端可能已在异步期间断开：hold 只是延缓释放，会话仍可能被标记
      * 为非 live。此时不能尝试回包（socket 已不可用），直接释放收工。 */
     if (!sess_alive(j)) {
-        zms_http_session_async_release(j->hs);
+        zcs_http_session_async_release(j->hs);
         free(body);
         free(j);
         return;
@@ -437,8 +437,8 @@ static void job_on_io(void *user)
      * body。反过来会把 apply 的失败吞掉，回一个假成功。 */
     job_apply(j);
     len = job_build_body(j, body, ONVIF_JOB_BODY_MAX);
-    zms_http_response_send_json(j->hs, 200, body, len);
-    zms_http_session_async_release(j->hs);
+    zcs_http_response_send_json(j->hs, 200, body, len);
+    zcs_http_session_async_release(j->hs);
     free(body);
     free(j);
 }
@@ -466,7 +466,7 @@ typedef struct {
     int first;
 } list_ctx;
 
-static int list_visit(const zms_onvif_entry_info *info, void *user)
+static int list_visit(const zcs_onvif_entry_info *info, void *user)
 {
     list_ctx *ctx = (list_ctx *)user;
     jw_t *w = ctx->w;
@@ -499,7 +499,7 @@ static size_t handle_list_real(char *body, size_t cap)
     jw_puts(&w, "{\"code\":0,\"data\":[");
     ctx.w = &w;
     ctx.first = 1;
-    zms_onvif_registry_foreach(list_visit, &ctx);
+    zcs_onvif_registry_foreach(list_visit, &ctx);
     jw_puts(&w, "]}");
     return w.len;
 }
@@ -511,13 +511,13 @@ static size_t handle_list_real(char *body, size_t cap)
  *         0 = 已转异步（后续由 job_on_io 回包，调用方不要再回）
  *        -1 = 非本模块端点（交回上层继续路由）
  *  这也是为什么异步分支里 *http_status=0 且 return 0：告诉调用方“别回包”。 */
-int zms_webapi_onvif_handle(zn_tcp_session *tcp, const zms_web_api_opts *opts,
-                            const zms_onvif_api_req *req, int *http_status, char *body,
+int zcs_webapi_onvif_handle(zn_tcp_session *tcp, const zcs_web_api_opts *opts,
+                            const zcs_onvif_api_req *req, int *http_status, char *body,
                             size_t body_cap)
 {
     onvif_job *job;
     int kind;
-    const zms_config *cfg = opts ? opts->cfg : NULL;
+    const zcs_config *cfg = opts ? opts->cfg : NULL;
 
     if (!req || !req->endpoint || !http_status || !body) {
         return -1;
@@ -531,9 +531,9 @@ int zms_webapi_onvif_handle(zn_tcp_session *tcp, const zms_web_api_opts *opts,
     if (strcmp(req->endpoint, "del") == 0) {
         int removed = 0;
         if (req->key && req->key[0]) {
-            removed = zms_onvif_registry_del_key(req->key);
+            removed = zcs_onvif_registry_del_key(req->key);
         } else if (req->addr && req->addr[0]) {
-            (void)zms_onvif_registry_del_addr(req->addr, &removed);
+            (void)zcs_onvif_registry_del_addr(req->addr, &removed);
         } else {
             snprintf(body, body_cap, "{\"code\":-1,\"msg\":\"missing key/addr\"}");
             *http_status = 200;
@@ -565,7 +565,7 @@ int zms_webapi_onvif_handle(zn_tcp_session *tcp, const zms_web_api_opts *opts,
         return 1;
     }
     job->kind = kind;
-    job->hs = (zms_http_session *)zn_tcp_session_user(tcp);
+    job->hs = (zcs_http_session *)zn_tcp_session_user(tcp);
     job->tcp = tcp;
     job->poller = opts->poller;
     job->pool = opts->poller_pool;
@@ -606,7 +606,7 @@ int zms_webapi_onvif_handle(zn_tcp_session *tcp, const zms_web_api_opts *opts,
                                           : (cfg && cfg->onvif.timeout_ms > 0 ? cfg->onvif.timeout_ms
                                                                               : 5000);
 
-    if (!job->hs || !zms_vod_thread_pool_enabled() || !opts->poller) {
+    if (!job->hs || !zcs_vod_thread_pool_enabled() || !opts->poller) {
         /* 没有异步执行环境就明确失败：ONVIF 调用含阻塞 DNS/HTTP，
          * 绝不能在 HTTP poller 上同步跑。 */
         free(job);
@@ -615,11 +615,11 @@ int zms_webapi_onvif_handle(zn_tcp_session *tcp, const zms_web_api_opts *opts,
                              "{\"code\":-1,\"msg\":\"async io unavailable\"}");
     }
 
-    zms_http_session_async_hold(job->hs);
-    if (zms_vod_thread_pool_run(opts->poller, job_work, job_on_io, job) != ZN_OK) {
+    zcs_http_session_async_hold(job->hs);
+    if (zcs_vod_thread_pool_run(opts->poller, job_work, job_on_io, job) != ZN_OK) {
         size_t len;
         zn_warn("onvif: submit job failed");
-        zms_http_session_async_release(job->hs);
+        zcs_http_session_async_release(job->hs);
         free(job);
         *http_status = 503;
         len = (size_t)snprintf(body, body_cap,

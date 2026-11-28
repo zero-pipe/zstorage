@@ -2,7 +2,7 @@
  * @file rtcp.c
  * @brief RTCP SR/RR/复合包编解码。
  */
-#include "zms/media/wire/rtcp.h"
+#include "zcs/media/wire/rtcp.h"
 #include <string.h>
 
 static uint32_t be32(const uint8_t *p)
@@ -18,7 +18,7 @@ static void put_be32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)v;
 }
 
-zn_err_t zms_rtcp_parse_sr(const uint8_t *data, size_t len, zms_rtcp_sr *out)
+zn_err_t zcs_rtcp_parse_sr(const uint8_t *data, size_t len, zcs_rtcp_sr *out)
 {
     if (!data || !out || len < 28) {
         return ZN_ERR_INVALID;
@@ -37,7 +37,7 @@ zn_err_t zms_rtcp_parse_sr(const uint8_t *data, size_t len, zms_rtcp_sr *out)
     return ZN_OK;
 }
 
-zn_err_t zms_rtcp_parse_rr(const uint8_t *data, size_t len, zms_rtcp_rr *out)
+zn_err_t zcs_rtcp_parse_rr(const uint8_t *data, size_t len, zcs_rtcp_rr *out)
 {
     if (!data || !out || len < 32) {
         return ZN_ERR_INVALID;
@@ -58,7 +58,7 @@ zn_err_t zms_rtcp_parse_rr(const uint8_t *data, size_t len, zms_rtcp_rr *out)
     return ZN_OK;
 }
 
-size_t zms_rtcp_build_sr(uint8_t *out, size_t cap, uint32_t ssrc, uint32_t ntp_sec,
+size_t zcs_rtcp_build_sr(uint8_t *out, size_t cap, uint32_t ssrc, uint32_t ntp_sec,
                          uint32_t ntp_frac, uint32_t rtp_ts, uint32_t packet_count,
                          uint32_t octet_count)
 {
@@ -80,7 +80,7 @@ size_t zms_rtcp_build_sr(uint8_t *out, size_t cap, uint32_t ssrc, uint32_t ntp_s
     return 28;
 }
 
-size_t zms_rtcp_build_rr(uint8_t *out, size_t cap, uint32_t ssrc, uint32_t sender_ssrc,
+size_t zcs_rtcp_build_rr(uint8_t *out, size_t cap, uint32_t ssrc, uint32_t sender_ssrc,
                          uint32_t fraction_lost, uint32_t highest_seq, uint32_t jitter)
 {
     if (!out || cap < 32) {

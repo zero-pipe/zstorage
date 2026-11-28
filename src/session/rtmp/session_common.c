@@ -4,10 +4,10 @@
  */
 #include "session/rtmp/session_internal.h"
 #include "publish/rtmp/zm_ingest.h"
-#include "zms/play/dispatch.h"
-#include "zms/play/play_binding.h"
-#include "zms/core/event.h"
-#include "zms/publish/ingest/common/stream_ingest.h"
+#include "zcs/play/dispatch.h"
+#include "zcs/play/play_binding.h"
+#include "zcs/core/event.h"
+#include "zcs/publish/ingest/common/stream_ingest.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -22,13 +22,13 @@ static void merge_slash_in_app(char *app, char *stream)
         return;
     }
     if (stream[0]) {
-        char buf[ZMS_STREAM_MAX];
+        char buf[ZCS_STREAM_MAX];
         snprintf(buf, sizeof(buf), "%s/%s", slash + 1, stream);
         strncpy(stream, buf, sizeof(stream) - 1);
-        stream[ZMS_STREAM_MAX - 1] = '\0';
+        stream[ZCS_STREAM_MAX - 1] = '\0';
     } else {
-        strncpy(stream, slash + 1, ZMS_STREAM_MAX - 1);
-        stream[ZMS_STREAM_MAX - 1] = '\0';
+        strncpy(stream, slash + 1, ZCS_STREAM_MAX - 1);
+        stream[ZCS_STREAM_MAX - 1] = '\0';
     }
 }
 
@@ -44,27 +44,27 @@ static void rtmp_split_connect_app(const char *app_field, char *app, char *conn_
         return;
     }
     if (!strchr(app_field, '/')) {
-        strncpy(app, app_field, ZMS_APP_MAX - 1);
-        app[ZMS_APP_MAX - 1] = '\0';
+        strncpy(app, app_field, ZCS_APP_MAX - 1);
+        app[ZCS_APP_MAX - 1] = '\0';
         return;
     }
     {
         char fake[384];
         snprintf(fake, sizeof(fake), "rtmp://host/%s", app_field);
-        zms_media_split_path(fake, app, conn_stream);
+        zcs_media_split_path(fake, app, conn_stream);
     }
 }
 
-zms_media_source *zms_rtmp_session_find_play_source(const char *vhost, const char *rtmp_app,
+zcs_media_source *zcs_rtmp_session_find_play_source(const char *vhost, const char *rtmp_app,
                                                     const char *play_name,
                                                     char *out_app, size_t app_cap, char *out_stream,
                                                     size_t stream_cap)
 {
-    char app[ZMS_APP_MAX];
-    char stream[ZMS_STREAM_MAX];
-    char conn_stream[ZMS_STREAM_MAX];
-    char play_app[ZMS_APP_MAX];
-    zms_media_source *src = NULL;
+    char app[ZCS_APP_MAX];
+    char stream[ZCS_STREAM_MAX];
+    char conn_stream[ZCS_STREAM_MAX];
+    char play_app[ZCS_APP_MAX];
+    zcs_media_source *src = NULL;
 
     app[0] = stream[0] = conn_stream[0] = play_app[0] = '\0';
 
@@ -80,7 +80,7 @@ zms_media_source *zms_rtmp_session_find_play_source(const char *vhost, const cha
             } else {
                 snprintf(path, sizeof(path), "rtmp://host/%s", play_name);
             }
-            zms_media_split_path(path, play_app, stream);
+            zcs_media_split_path(path, play_app, stream);
             if (play_app[0]) {
                 strncpy(app, play_app, sizeof(app) - 1);
             }
@@ -98,19 +98,19 @@ zms_media_source *zms_rtmp_session_find_play_source(const char *vhost, const cha
     }
     stream[sizeof(stream) - 1] = '\0';
 
-    src = zms_media_source_find_for_play_ex(ZMS_SCHEMA_RTMP, vhost, app, stream);
+    src = zcs_media_source_find_for_play_ex(ZCS_SCHEMA_RTMP, vhost, app, stream);
     if (!src && stream[0] && !strchr(stream, '/')) {
-        char alt[ZMS_STREAM_MAX];
+        char alt[ZCS_STREAM_MAX];
         int n = snprintf(alt, sizeof(alt), "stream/%s", stream);
         if (n > 0 && (size_t)n < sizeof(alt)) {
-            src = zms_media_source_find_for_play_ex(ZMS_SCHEMA_RTMP, vhost, app, alt);
+            src = zcs_media_source_find_for_play_ex(ZCS_SCHEMA_RTMP, vhost, app, alt);
         }
         if (src) {
             strncpy(stream, alt, sizeof(stream) - 1);
         }
     }
     if (!src && (!stream[0] || strcmp(stream, "stream") == 0)) {
-        src = zms_media_source_find_for_play_ex(ZMS_SCHEMA_RTMP, vhost, app, "stream");
+        src = zcs_media_source_find_for_play_ex(ZCS_SCHEMA_RTMP, vhost, app, "stream");
     }
 
     if (src) {
@@ -129,10 +129,10 @@ zms_media_source *zms_rtmp_session_find_play_source(const char *vhost, const cha
     return src;
 }
 
-void zms_rtmp_session_resolve_target(zms_rtmp_session *s, const char *app_in, const char *stream_in)
+void zcs_rtmp_session_resolve_target(zcs_rtmp_session *s, const char *app_in, const char *stream_in)
 {
-    char app[ZMS_APP_MAX];
-    char stream[ZMS_STREAM_MAX];
+    char app[ZCS_APP_MAX];
+    char stream[ZCS_STREAM_MAX];
 
     if (!s) {
         return;
@@ -161,14 +161,14 @@ void zms_rtmp_session_resolve_target(zms_rtmp_session *s, const char *app_in, co
     s->stream[sizeof(s->stream) - 1] = '\0';
 }
 
-void zms_rtmp_session_send(zms_rtmp_session *s, const void *data, size_t len)
+void zcs_rtmp_session_send(zcs_rtmp_session *s, const void *data, size_t len)
 {
     if (s && s->tcp && data && len) {
         zn_tcp_session_send(s->tcp, data, len);
     }
 }
 
-void zms_rtmp_session_flush_tcp(zms_rtmp_session *s)
+void zcs_rtmp_session_flush_tcp(zcs_rtmp_session *s)
 {
     if (s && s->tcp) {
         zn_tcp_session_flush(s->tcp);
@@ -178,18 +178,18 @@ void zms_rtmp_session_flush_tcp(zms_rtmp_session *s)
 int rtmp_srv_send(void *param, const void *header, size_t header_len, const void *payload,
                   size_t payload_len)
 {
-    zms_rtmp_session *s = (zms_rtmp_session *)param;
+    zcs_rtmp_session *s = (zcs_rtmp_session *)param;
     int sent = 0;
 
     if (!s) {
         return -1;
     }
     if (header && header_len) {
-        zms_rtmp_session_send(s, header, header_len);
+        zcs_rtmp_session_send(s, header, header_len);
         sent += (int)header_len;
     }
     if (payload && payload_len) {
-        zms_rtmp_session_send(s, payload, payload_len);
+        zcs_rtmp_session_send(s, payload, payload_len);
         sent += (int)payload_len;
     }
     if (s->tcp) {
@@ -200,97 +200,97 @@ int rtmp_srv_send(void *param, const void *header, size_t header_len, const void
 
 static void rtmp_publisher_kick(void *ctx, int force)
 {
-    zms_rtmp_session *s = (zms_rtmp_session *)ctx;
+    zcs_rtmp_session *s = (zcs_rtmp_session *)ctx;
     (void)force;
     if (s && s->tcp) {
         zn_tcp_session_close(s->tcp);
     }
 }
 
-void zms_rtmp_session_play_teardown(zms_rtmp_session *s)
+void zcs_rtmp_session_play_teardown(zcs_rtmp_session *s)
 {
-    zms_play_binding bind;
+    zcs_play_binding bind;
 
     if (!s) {
         return;
     }
     s->pl.boot_pending = 0;
-    zms_session_detach_play(ZMS_SESSION_RTMP, s);
+    zcs_session_detach_play(ZCS_SESSION_RTMP, s);
     memset(&bind, 0, sizeof(bind));
     bind.source = &s->source;
     bind.reader_attached = &s->pl.reader_attached;
     bind.play_start_ms = &s->pl.start_ms;
     bind.player = "rtmp";
-    zms_play_binding_reader_stop(&bind);
+    zcs_play_binding_reader_stop(&bind);
 }
 
-void zms_rtmp_session_play_readers_detach(zms_rtmp_session *s)
+void zcs_rtmp_session_play_readers_detach(zcs_rtmp_session *s)
 {
     if (!s) {
         return;
     }
     s->pl.boot_pending = 0;
-    zms_session_detach_play(ZMS_SESSION_RTMP, s);
+    zcs_session_detach_play(ZCS_SESSION_RTMP, s);
 }
 
-static void zms_rtmp_session_publish_stop(zms_rtmp_session *s)
+static void zcs_rtmp_session_publish_stop(zcs_rtmp_session *s)
 {
-    zms_media_source *src;
+    zcs_media_source *src;
 
-    if (!s || s->state != ZMS_RTMP_SESSION_STATE_PUBLISHING) {
+    if (!s || s->state != ZCS_RTMP_SESSION_STATE_PUBLISHING) {
         return;
     }
     src = s->source;
-    zms_rtmp_zm_ingest_destroy((zms_rtmp_zm_ingest *)s->zm_ingest);
+    zcs_rtmp_zm_ingest_destroy((zcs_rtmp_zm_ingest *)s->zm_ingest);
     s->zm_ingest = NULL;
     {
-        int linger = src ? zms_media_source_linger(src, ZMS_ORIGIN_RTMP_PUSH) : 0;
+        int linger = src ? zcs_media_source_linger(src, ZCS_ORIGIN_RTMP_PUSH) : 0;
 
         if (!linger && s->ingress) {
-            zms_live_ingest_reset(s->ingress);
+            zcs_live_ingest_reset(s->ingress);
         }
         if (src) {
-            zms_media_source_clear_publisher(src, s);
+            zcs_media_source_clear_publisher(src, s);
             if (!linger) {
-                zms_media_event_publish_fini(src, ZMS_ORIGIN_RTMP_PUSH);
+                zcs_media_event_publish_fini(src, ZCS_ORIGIN_RTMP_PUSH);
             }
         }
     }
-    s->state = ZMS_RTMP_SESSION_STATE_IDLE;
+    s->state = ZCS_RTMP_SESSION_STATE_IDLE;
 }
 
-void zms_rtmp_session_teardown(zms_rtmp_session *s)
+void zcs_rtmp_session_teardown(zcs_rtmp_session *s)
 {
     if (!s) {
         return;
     }
-    zms_rtmp_session_play_teardown(s);
-    zms_rtmp_session_publish_stop(s);
+    zcs_rtmp_session_play_teardown(s);
+    zcs_rtmp_session_publish_stop(s);
     s->source = NULL;
 }
 
-void zms_rtmp_session_play_readers_attach(zms_rtmp_session *s)
+void zcs_rtmp_session_play_readers_attach(zcs_rtmp_session *s)
 {
-    zms_session_play_opts pcfg;
+    zcs_session_play_opts pcfg;
 
     if (!s || !s->source) {
         return;
     }
-    zms_rtmp_session_play_readers_detach(s);
+    zcs_rtmp_session_play_readers_detach(s);
     memset(&pcfg, 0, sizeof(pcfg));
-    pcfg.player = ZMS_SESSION_RTMP;
-    if (zms_session_attach_play(ZMS_SESSION_RTMP, s, s->source, &pcfg) != ZN_OK) {
+    pcfg.player = ZCS_SESSION_RTMP;
+    if (zcs_session_attach_play(ZCS_SESSION_RTMP, s, s->source, &pcfg) != ZN_OK) {
         return;
     }
 }
 
-void zms_rtmp_session_publish_teardown(zms_rtmp_session *s)
+void zcs_rtmp_session_publish_teardown(zcs_rtmp_session *s)
 {
-    zms_rtmp_session_teardown(s);
+    zcs_rtmp_session_teardown(s);
 }
 
 /* publisher kick 导出给 media_source */
-void zms_rtmp_session_publisher_kick(void *ctx, int force)
+void zcs_rtmp_session_publisher_kick(void *ctx, int force)
 {
     rtmp_publisher_kick(ctx, force);
 }

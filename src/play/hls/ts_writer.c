@@ -7,21 +7,21 @@
  * Copyright (c) zero-media-server
  */
 #include "play/hls/segmenter_internal.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/codec/h266/h266_over_rtmp.h"
-#include "zms/media/codec/av1/av1_over_rtmp.h"
-#include "zms/media/codec/vpx/vpx_over_rtmp.h"
-#include "zms/media/codec/aac/aac_over_rtp.h"
-#include "zms/media/codec/aac/aac_over_rtmp.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
-#include "zms/media/container/mpegts/mpegts_mux_feed.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/h266/h266_over_rtmp.h"
+#include "zcs/media/codec/av1/av1_over_rtmp.h"
+#include "zcs/media/codec/vpx/vpx_over_rtmp.h"
+#include "zcs/media/codec/aac/aac_over_rtp.h"
+#include "zcs/media/codec/aac/aac_over_rtmp.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/container/mpegts/mpegts_mux_feed.h"
 #include "webm-vpx.h"
 #include "zn/util/log.h"
 #include <string.h>
 
-static void hls_ts_set_extradata(zms_http_hls_segmenter *rec, int stream_type, const void *extra,
+static void hls_ts_set_extradata(zcs_http_hls_segmenter *rec, int stream_type, const void *extra,
                                  size_t len)
 {
     if (rec && rec->ts_mux_ops && rec->ts_mux && rec->ts_mux_ops->set_extradata) {
@@ -29,14 +29,14 @@ static void hls_ts_set_extradata(zms_http_hls_segmenter *rec, int stream_type, c
     }
 }
 
-static void hls_ts_flush(zms_http_hls_segmenter *rec, int stream_type, int64_t pts_ms)
+static void hls_ts_flush(zcs_http_hls_segmenter *rec, int stream_type, int64_t pts_ms)
 {
     if (rec && rec->ts_mux_ops && rec->ts_mux && rec->ts_mux_ops->flush) {
         rec->ts_mux_ops->flush(rec->ts_mux, stream_type, pts_ms);
     }
 }
 
-static zn_err_t hls_ts_input(zms_http_hls_segmenter *rec, int stream_type, const void *data,
+static zn_err_t hls_ts_input(zcs_http_hls_segmenter *rec, int stream_type, const void *data,
                               size_t len, int64_t pts_ms, int64_t dts_ms, int flags)
 {
     int64_t seg_ms;
@@ -77,14 +77,14 @@ static zn_err_t hls_ts_input(zms_http_hls_segmenter *rec, int stream_type, const
 
 static int hls_psi_is_video(int stream_type)
 {
-    return zms_codec_track_type(zms_codec_from_mpeg_psi(stream_type)) == ZMS_TRACK_VIDEO;
+    return zcs_codec_track_type(zcs_codec_from_mpeg_psi(stream_type)) == ZCS_TRACK_VIDEO;
 }
 
 /* 分段后端 sink：记录末时间戳（分片 flush + HTTP 服务时序），再将 mux AU 交给 HLS TS mux ops。 */
 static zn_err_t hls_es_sink(void *user, int stream_type, const void *data, size_t len,
                              int64_t pts_ms, int64_t dts_ms, int flags)
 {
-    zms_http_hls_segmenter *rec = (zms_http_hls_segmenter *)user;
+    zcs_http_hls_segmenter *rec = (zcs_http_hls_segmenter *)user;
 
     rec->last_mux_dts_ms = (uint64_t)pts_ms;
     if (hls_psi_is_video(stream_type)) {
@@ -93,7 +93,7 @@ static zn_err_t hls_es_sink(void *user, int stream_type, const void *data, size_
     return hls_ts_input(rec, stream_type, data, len, pts_ms, dts_ms, flags);
 }
 
-static void hls_ts_feed_view(zms_http_hls_segmenter *rec, zms_mpegts_mux_feed_view *f)
+static void hls_ts_feed_view(zcs_http_hls_segmenter *rec, zcs_mpegts_mux_feed_view *f)
 {
     memset(f, 0, sizeof(*f));
     f->sink = hls_es_sink;
@@ -108,12 +108,12 @@ static void hls_ts_feed_view(zms_http_hls_segmenter *rec, zms_mpegts_mux_feed_vi
     f->video_armed = &rec->video_armed;
 }
 
-int hls_video_psi(zms_codec_id codec)
+int hls_video_psi(zcs_codec_id codec)
 {
     /* 中央 codec 元数据（codec_id.c）持有 codec→stream_type 映射；
      * 新视频 codec 仅在其表增一行，勿在此再加 switch。 */
-    int psi = zms_codec_mpeg_psi(codec);
-    return psi ? psi : zms_codec_mpeg_psi(ZMS_CODEC_H264);
+    int psi = zcs_codec_mpeg_psi(codec);
+    return psi ? psi : zcs_codec_mpeg_psi(ZCS_CODEC_H264);
 }
 
 static const uint8_t k_hls_opus_default_extradata[30] = {
@@ -134,7 +134,7 @@ static const uint8_t k_hls_opus_channel_map[8][8] = {
     {0, 6, 1, 2, 3, 4, 5, 7},
 };
 
-static int hls_build_vpx_extradata(zms_codec_id vc, const uint8_t *keyframe, size_t len,
+static int hls_build_vpx_extradata(zcs_codec_id vc, const uint8_t *keyframe, size_t len,
                                    uint8_t *out, size_t cap)
 {
     struct webm_vpx_t vpx;
@@ -146,11 +146,11 @@ static int hls_build_vpx_extradata(zms_codec_id vc, const uint8_t *keyframe, siz
         return -1;
     }
     memset(&vpx, 0, sizeof(vpx));
-    if (vc == ZMS_CODEC_VP9) {
+    if (vc == ZCS_CODEC_VP9) {
         if (webm_vpx_codec_configuration_record_from_vp9(&vpx, &w, &h, keyframe, len) < 0) {
             return -1;
         }
-    } else if (vc == ZMS_CODEC_VP8) {
+    } else if (vc == ZCS_CODEC_VP8) {
         if (webm_vpx_codec_configuration_record_from_vp8(&vpx, &w, &h, keyframe, len) < 0) {
             return -1;
         }
@@ -185,7 +185,7 @@ static void hls_build_opus_extradata(int channels, int sample_rate, uint8_t *out
     *out_len = sizeof(k_hls_opus_default_extradata);
 }
 
-static void hls_ensure_vpx_extradata(zms_http_hls_segmenter *rec, zms_codec_id vc,
+static void hls_ensure_vpx_extradata(zcs_http_hls_segmenter *rec, zcs_codec_id vc,
                                      const uint8_t *keyframe, size_t len)
 {
     uint8_t vpxc[32];
@@ -195,7 +195,7 @@ static void hls_ensure_vpx_extradata(zms_http_hls_segmenter *rec, zms_codec_id v
     if (!rec || rec->sent_video_cfg || !rec->ts_mux || !keyframe || len == 0) {
         return;
     }
-    if (vc != ZMS_CODEC_VP8 && vc != ZMS_CODEC_VP9) {
+    if (vc != ZCS_CODEC_VP8 && vc != ZCS_CODEC_VP9) {
         return;
     }
     n = hls_build_vpx_extradata(vc, keyframe, len, vpxc, sizeof(vpxc));
@@ -206,10 +206,10 @@ static void hls_ensure_vpx_extradata(zms_http_hls_segmenter *rec, zms_codec_id v
     hls_ts_set_extradata(rec, psi, vpxc, (size_t)n);
     rec->video_codec = vc;
     rec->sent_video_cfg = 1;
-    zn_info("HLS recorder: %s TS extradata ready (keyframe)", zms_codec_name(vc));
+    zn_info("HLS recorder: %s TS extradata ready (keyframe)", zcs_codec_name(vc));
 }
 
-void hls_ensure_opus_extradata(zms_http_hls_segmenter *rec)
+void hls_ensure_opus_extradata(zcs_http_hls_segmenter *rec)
 {
     uint8_t opus_head[32];
     size_t head_len = 0;
@@ -227,18 +227,18 @@ void hls_ensure_opus_extradata(zms_http_hls_segmenter *rec)
     if (head_len == 0) {
         return;
     }
-    hls_ts_set_extradata(rec, zms_codec_mpeg_psi(ZMS_CODEC_OPUS), opus_head, head_len);
+    hls_ts_set_extradata(rec, zcs_codec_mpeg_psi(ZCS_CODEC_OPUS), opus_head, head_len);
     rec->sent_audio_cfg = 1;
     zn_info("HLS recorder: Opus TS extradata ready rate=%d ch=%d", sr, ch);
 }
 
-static zms_codec_id hls_psi_to_video_codec(int psi)
+static zcs_codec_id hls_psi_to_video_codec(int psi)
 {
-    zms_codec_id c = zms_codec_from_mpeg_psi(psi);
-    return c != ZMS_CODEC_INVALID ? c : ZMS_CODEC_H264;
+    zcs_codec_id c = zcs_codec_from_mpeg_psi(psi);
+    return c != ZCS_CODEC_INVALID ? c : ZCS_CODEC_H264;
 }
 
-void feed_raw_video_es(zms_http_hls_segmenter *rec, int psi, const uint8_t *es, size_t len,
+void feed_raw_video_es(zcs_http_hls_segmenter *rec, int psi, const uint8_t *es, size_t len,
                        uint32_t dts_ms, int keyframe)
 {
     uint32_t rel_dts_ms;
@@ -254,78 +254,78 @@ void feed_raw_video_es(zms_http_hls_segmenter *rec, int psi, const uint8_t *es, 
             return;
         }
         rec->video_armed = 1;
-        zms_mux_av_timeline_lock_origin(&rec->mux_av, dts_ms);
+        zcs_mux_av_timeline_lock_origin(&rec->mux_av, dts_ms);
         zn_info("HLS recorder: first video sync psi=0x%x at dts_ms=%u (gop_queue)", psi,
                  (unsigned)dts_ms);
     }
-    rel_dts_ms = hls_mux_dts_ms(rec, ZMS_TRACK_VIDEO, dts_ms);
+    rel_dts_ms = hls_mux_dts_ms(rec, ZCS_TRACK_VIDEO, dts_ms);
     rec->last_mux_dts_ms = rel_dts_ms;
     rec->last_video_dts_ms = rel_dts_ms;
     (void)hls_ts_input(rec, psi, es, len, (int64_t)rel_dts_ms, (int64_t)rel_dts_ms,
-                       keyframe ? ZMS_CONTAINER_MUX_FLAG_KEYFRAME : 0);
+                       keyframe ? ZCS_CONTAINER_MUX_FLAG_KEYFRAME : 0);
 }
 
-void feed_video_tag_cfg(zms_http_hls_segmenter *rec, const uint8_t *cfg, size_t clen)
+void feed_video_tag_cfg(zcs_http_hls_segmenter *rec, const uint8_t *cfg, size_t clen)
 {
-    zms_codec_id vc;
+    zcs_codec_id vc;
 
     if (!rec || !cfg || clen < 2) {
         return;
     }
-    vc = zms_flv_video_config_codec(cfg, clen);
-    if (vc == ZMS_CODEC_INVALID && rec->src && rec->src->video.codec != ZMS_CODEC_INVALID) {
+    vc = zcs_flv_video_config_codec(cfg, clen);
+    if (vc == ZCS_CODEC_INVALID && rec->src && rec->src->video.codec != ZCS_CODEC_INVALID) {
         vc = rec->src->video.codec;
     }
     rec->video_codec = vc;
-    if (vc == ZMS_CODEC_H264) {
+    if (vc == ZCS_CODEC_H264) {
         const uint8_t *avcc = NULL;
         size_t avcc_len = 0;
-        (void)zms_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
-        if (rec->ts_mux && zms_rtmp_avc_extradata(cfg, clen, &avcc, &avcc_len)) {
-            hls_ts_set_extradata(rec, zms_codec_mpeg_psi(ZMS_CODEC_H264), avcc, avcc_len);
+        (void)zcs_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
+        if (rec->ts_mux && zcs_rtmp_avc_extradata(cfg, clen, &avcc, &avcc_len)) {
+            hls_ts_set_extradata(rec, zcs_codec_mpeg_psi(ZCS_CODEC_H264), avcc, avcc_len);
         }
-    } else if (vc == ZMS_CODEC_H265) {
+    } else if (vc == ZCS_CODEC_H265) {
         const uint8_t *hvcc = NULL;
         size_t hvcc_len = 0;
-        (void)zms_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
-        if (rec->ts_mux && zms_h265_video_config_hvcc(cfg, clen, &hvcc, &hvcc_len)) {
+        (void)zcs_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
+        if (rec->ts_mux && zcs_h265_video_config_hvcc(cfg, clen, &hvcc, &hvcc_len)) {
             rec->hevc_esinfo_len = 0;
             if (hvcc && hvcc_len > 0) {
-                int es_len = zms_mpegts_hevc_esinfo(hvcc, hvcc_len, rec->hevc_esinfo,
+                int es_len = zcs_mpegts_hevc_esinfo(hvcc, hvcc_len, rec->hevc_esinfo,
                                                     sizeof(rec->hevc_esinfo));
                 if (es_len > 0) {
                     rec->hevc_esinfo_len = (size_t)es_len;
                 }
             }
             if (rec->hevc_esinfo_len > 0) {
-                hls_ts_set_extradata(rec, zms_codec_mpeg_psi(ZMS_CODEC_H265), rec->hevc_esinfo,
+                hls_ts_set_extradata(rec, zcs_codec_mpeg_psi(ZCS_CODEC_H265), rec->hevc_esinfo,
                                      rec->hevc_esinfo_len);
             } else {
-                hls_ts_set_extradata(rec, zms_codec_mpeg_psi(ZMS_CODEC_H265), hvcc, hvcc_len);
+                hls_ts_set_extradata(rec, zcs_codec_mpeg_psi(ZCS_CODEC_H265), hvcc, hvcc_len);
             }
         }
-    } else if (vc == ZMS_CODEC_H266) {
+    } else if (vc == ZCS_CODEC_H266) {
         const uint8_t *vvcc = NULL;
         size_t vvcc_len = 0;
-        (void)zms_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
-        if (rec->ts_mux && zms_h266_video_config_vvcc(cfg, clen, &vvcc, &vvcc_len) && vvcc &&
+        (void)zcs_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
+        if (rec->ts_mux && zcs_h266_video_config_vvcc(cfg, clen, &vvcc, &vvcc_len) && vvcc &&
             vvcc_len > 0) {
-            hls_ts_set_extradata(rec, zms_codec_mpeg_psi(ZMS_CODEC_H266), vvcc, vvcc_len);
+            hls_ts_set_extradata(rec, zcs_codec_mpeg_psi(ZCS_CODEC_H266), vvcc, vvcc_len);
         }
-    } else if (vc == ZMS_CODEC_AV1) {
+    } else if (vc == ZCS_CODEC_AV1) {
         const uint8_t *av1c = NULL;
         size_t av1c_len = 0;
-        (void)zms_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
-        if (rec->ts_mux && zms_av1_over_rtmp_config_extradata(cfg, clen, &av1c, &av1c_len) &&
+        (void)zcs_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
+        if (rec->ts_mux && zcs_av1_over_rtmp_config_extradata(cfg, clen, &av1c, &av1c_len) &&
             av1c && av1c_len > 0) {
-            hls_ts_set_extradata(rec, zms_codec_mpeg_psi(ZMS_CODEC_AV1), av1c, av1c_len);
+            hls_ts_set_extradata(rec, zcs_codec_mpeg_psi(ZCS_CODEC_AV1), av1c, av1c_len);
         }
-    } else if (vc == ZMS_CODEC_VP8 || vc == ZMS_CODEC_VP9) {
+    } else if (vc == ZCS_CODEC_VP8 || vc == ZCS_CODEC_VP9) {
         const uint8_t *vpxc = NULL;
         size_t vpxc_len = 0;
         int psi = hls_video_psi(vc);
-        (void)zms_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
-        if (rec->ts_mux && zms_vpx_over_rtmp_config_extradata(vc, cfg, clen, &vpxc, &vpxc_len) &&
+        (void)zcs_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
+        if (rec->ts_mux && zcs_vpx_over_rtmp_config_extradata(vc, cfg, clen, &vpxc, &vpxc_len) &&
             vpxc && vpxc_len > 0) {
             hls_ts_set_extradata(rec, psi, vpxc, vpxc_len);
         }
@@ -335,87 +335,87 @@ void feed_video_tag_cfg(zms_http_hls_segmenter *rec, const uint8_t *cfg, size_t 
 /* feed_h264_video_es / feed_h265_video_es：H.264/H.265 mux 编排
  *（arming、SPS/PPS 前置、sync 检测、时间线）在 mpegts_mux_feed，
  * 与 SRT 连续路径共享。HLS sink 保留分片 flush 记账。 */
-void feed_h264_video_es(zms_http_hls_segmenter *rec, const uint8_t *annexb, size_t len,
+void feed_h264_video_es(zcs_http_hls_segmenter *rec, const uint8_t *annexb, size_t len,
                         uint32_t dts_ms, int keyframe)
 {
-    zms_mpegts_mux_feed_view f;
+    zcs_mpegts_mux_feed_view f;
 
     if (!rec || !rec->ts_mux) {
         return;
     }
     hls_ts_feed_view(rec, &f);
-    zms_mpegts_feed_h264(&f, annexb, len, dts_ms, keyframe);
+    zcs_mpegts_feed_h264(&f, annexb, len, dts_ms, keyframe);
 }
 
-void feed_h265_video_es(zms_http_hls_segmenter *rec, const uint8_t *annexb, size_t len,
+void feed_h265_video_es(zcs_http_hls_segmenter *rec, const uint8_t *annexb, size_t len,
                         uint32_t dts_ms, int keyframe)
 {
-    zms_mpegts_mux_feed_view f;
+    zcs_mpegts_mux_feed_view f;
 
     if (!rec || !rec->ts_mux) {
         return;
     }
     hls_ts_feed_view(rec, &f);
-    zms_mpegts_feed_h265(&f, annexb, len, dts_ms, keyframe);
+    zcs_mpegts_feed_h265(&f, annexb, len, dts_ms, keyframe);
 }
 
-void feed_audio_tag_cfg(zms_http_hls_segmenter *rec, const uint8_t *cfg, size_t clen)
+void feed_audio_tag_cfg(zcs_http_hls_segmenter *rec, const uint8_t *cfg, size_t clen)
 {
     const uint8_t *asc = NULL;
     size_t asc_len = 0;
-    zms_codec_id ac;
+    zcs_codec_id ac;
 
     if (!rec || !cfg || clen < 2) {
         return;
     }
-    ac = zms_flv_tag_audio_codec(cfg, clen);
-    if (ac == ZMS_CODEC_OPUS) {
+    ac = zcs_flv_tag_audio_codec(cfg, clen);
+    if (ac == ZCS_CODEC_OPUS) {
         if (rec->ts_mux && clen > 0) {
-            hls_ts_set_extradata(rec, zms_codec_mpeg_psi(ZMS_CODEC_OPUS), cfg, clen);
+            hls_ts_set_extradata(rec, zcs_codec_mpeg_psi(ZCS_CODEC_OPUS), cfg, clen);
             rec->sent_audio_cfg = 1;
         }
         return;
     }
-    if (ac != ZMS_CODEC_AAC || clen < 4) {
+    if (ac != ZCS_CODEC_AAC || clen < 4) {
         return;
     }
-    if (!zms_rtmp_aac_extradata(cfg, clen, &asc, &asc_len)) {
+    if (!zcs_rtmp_aac_extradata(cfg, clen, &asc, &asc_len)) {
         return;
     }
     {
-        (void)zms_aac_parse_asc(asc, asc_len, &rec->aac_sr, &rec->aac_ch);
-        zms_aac_config_set_defaults(&rec->aac, 44100, 2);
-        if (zms_aac_config_load_asc(&rec->aac, asc, asc_len)) {
+        (void)zcs_aac_parse_asc(asc, asc_len, &rec->aac_sr, &rec->aac_ch);
+        zcs_aac_config_set_defaults(&rec->aac, 44100, 2);
+        if (zcs_aac_config_load_asc(&rec->aac, asc, asc_len)) {
             rec->have_aac = 1;
         }
         if (rec->ts_mux) {
-            hls_ts_set_extradata(rec, zms_codec_mpeg_psi(ZMS_CODEC_AAC), asc, asc_len);
+            hls_ts_set_extradata(rec, zcs_codec_mpeg_psi(ZCS_CODEC_AAC), asc, asc_len);
         }
     }
 }
 
-void feed_audio_es(zms_http_hls_segmenter *rec, const uint8_t *es, size_t es_len, uint32_t dts_ms,
-                   zms_codec_id codec)
+void feed_audio_es(zcs_http_hls_segmenter *rec, const uint8_t *es, size_t es_len, uint32_t dts_ms,
+                   zcs_codec_id codec)
 {
-    zms_mpegts_mux_feed_view f;
+    zcs_mpegts_mux_feed_view f;
 
     if (!rec || !rec->ts_mux || !rec->enable_audio || !es || es_len == 0) {
         return;
     }
-    if (codec == ZMS_CODEC_OPUS) {
+    if (codec == ZCS_CODEC_OPUS) {
         hls_ensure_opus_extradata(rec);
         if (!rec->video_armed) {
             return;
         }
         {
-            uint32_t rel_dts_ms = hls_mux_dts_ms(rec, ZMS_TRACK_AUDIO, dts_ms);
+            uint32_t rel_dts_ms = hls_mux_dts_ms(rec, ZCS_TRACK_AUDIO, dts_ms);
             rec->last_mux_dts_ms = rel_dts_ms;
-            (void)hls_ts_input(rec, zms_codec_mpeg_psi(ZMS_CODEC_OPUS), es, es_len,
+            (void)hls_ts_input(rec, zcs_codec_mpeg_psi(ZCS_CODEC_OPUS), es, es_len,
                                (int64_t)rel_dts_ms, (int64_t)rel_dts_ms, 0);
         }
         return;
     }
-    if (codec != ZMS_CODEC_AAC) {
+    if (codec != ZCS_CODEC_AAC) {
         return;
     }
     if (!rec->video_armed) {
@@ -424,7 +424,7 @@ void feed_audio_es(zms_http_hls_segmenter *rec, const uint8_t *es, size_t es_len
 
     if (!rec->have_aac && rec->src && rec->src->gop_queue) {
         size_t clen = 0;
-        const uint8_t *cfg = zms_gop_queue_audio_config(rec->src->gop_queue, &clen);
+        const uint8_t *cfg = zcs_gop_queue_audio_config(rec->src->gop_queue, &clen);
         if (cfg && clen) {
             feed_audio_tag_cfg(rec, cfg, clen);
             rec->sent_audio_cfg = 1;
@@ -435,5 +435,5 @@ void feed_audio_es(zms_http_hls_segmenter *rec, const uint8_t *es, size_t es_len
     }
 
     hls_ts_feed_view(rec, &f);
-    zms_mpegts_feed_aac(&f, zms_codec_mpeg_psi(ZMS_CODEC_AAC), es, es_len, dts_ms);
+    zcs_mpegts_feed_aac(&f, zcs_codec_mpeg_psi(ZCS_CODEC_AAC), es, es_len, dts_ms);
 }

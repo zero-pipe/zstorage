@@ -4,16 +4,16 @@
  *
  * Copyright (c) zero-media-server
  */
-#include "zms/core/stream/stats.h"
-#include "zms/core/stream/hub.h"
-#include "zms/core/gop/queue.h"
-#include "zms/core/zms_atomic.h"
+#include "zcs/core/stream/stats.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/core/zcs_atomic.h"
 #include "zn/platform.h"
 #include <string.h>
 
-#define ZMS_STATS_SPEED_INTERVAL_MS 1000u
+#define ZCS_STATS_SPEED_INTERVAL_MS 1000u
 
-static void stats_refresh_speed(zms_media_stream_stats *st, uint64_t now)
+static void stats_refresh_speed(zcs_media_stream_stats *st, uint64_t now)
 {
     uint64_t dt;
 
@@ -29,7 +29,7 @@ static void stats_refresh_speed(zms_media_stream_stats *st, uint64_t now)
         return;
     }
     dt = now - st->speed_tick_ms;
-    if (dt < ZMS_STATS_SPEED_INTERVAL_MS) {
+    if (dt < ZCS_STATS_SPEED_INTERVAL_MS) {
         return;
     }
     st->ingress_speed_bps = (st->ingress_bytes - st->ingress_at_tick) * 1000ull / dt;
@@ -39,7 +39,7 @@ static void stats_refresh_speed(zms_media_stream_stats *st, uint64_t now)
     st->egress_at_tick = st->egress_bytes;
 }
 
-static void stats_refresh_fps(zms_media_stream_stats *st, uint64_t now)
+static void stats_refresh_fps(zcs_media_stream_stats *st, uint64_t now)
 {
     uint64_t dt;
 
@@ -56,7 +56,7 @@ static void stats_refresh_fps(zms_media_stream_stats *st, uint64_t now)
         return;
     }
     dt = now - st->fps_tick_ms;
-    if (dt < ZMS_STATS_SPEED_INTERVAL_MS) {
+    if (dt < ZCS_STATS_SPEED_INTERVAL_MS) {
         return;
     }
     /* frames/s = delta_frames * 1000 / dt_ms */
@@ -67,7 +67,7 @@ static void stats_refresh_fps(zms_media_stream_stats *st, uint64_t now)
     st->fps_a_at_tick = st->frame_count_a;
 }
 
-static void stats_add_bytes(zms_media_stream_stats *st, uint64_t *total, size_t nbytes)
+static void stats_add_bytes(zcs_media_stream_stats *st, uint64_t *total, size_t nbytes)
 {
     uint64_t now;
 
@@ -85,7 +85,7 @@ static void stats_add_bytes(zms_media_stream_stats *st, uint64_t *total, size_t 
     stats_refresh_speed(st, now);
 }
 
-void zms_media_stats_on_ingress(zms_media_source *s, size_t nbytes)
+void zcs_media_stats_on_ingress(zcs_media_source *s, size_t nbytes)
 {
     if (!s || nbytes == 0) {
         return;
@@ -93,7 +93,7 @@ void zms_media_stats_on_ingress(zms_media_source *s, size_t nbytes)
     stats_add_bytes(&s->stats, &s->stats.ingress_bytes, nbytes);
 }
 
-void zms_media_stats_on_egress(zms_media_source *s, size_t nbytes)
+void zcs_media_stats_on_egress(zcs_media_source *s, size_t nbytes)
 {
     if (!s || nbytes == 0) {
         return;
@@ -101,7 +101,7 @@ void zms_media_stats_on_egress(zms_media_source *s, size_t nbytes)
     stats_add_bytes(&s->stats, &s->stats.egress_bytes, nbytes);
 }
 
-void zms_media_stats_on_frame(zms_media_source *s, int is_video)
+void zcs_media_stats_on_frame(zcs_media_source *s, int is_video)
 {
     uint64_t now;
 
@@ -109,23 +109,23 @@ void zms_media_stats_on_frame(zms_media_source *s, int is_video)
         return;
     }
     if (is_video) {
-        ZMS_ATOMIC_ADD64(&s->stats.frame_count_v, 1);
+        ZCS_ATOMIC_ADD64(&s->stats.frame_count_v, 1);
     } else {
-        ZMS_ATOMIC_ADD64(&s->stats.frame_count_a, 1);
+        ZCS_ATOMIC_ADD64(&s->stats.frame_count_a, 1);
     }
     now = zn_monotonic_ms();
     stats_refresh_fps(&s->stats, now);
 }
 
-void zms_media_stats_on_drop(zms_media_source *s)
+void zcs_media_stats_on_drop(zcs_media_source *s)
 {
     if (!s) {
         return;
     }
-    ZMS_ATOMIC_ADD64(&s->stats.dropped_frames, 1);
+    ZCS_ATOMIC_ADD64(&s->stats.dropped_frames, 1);
 }
 
-void zms_media_stats_reset(zms_media_source *s)
+void zcs_media_stats_reset(zcs_media_source *s)
 {
     if (!s) {
         return;
@@ -133,9 +133,9 @@ void zms_media_stats_reset(zms_media_source *s)
     memset(&s->stats, 0, sizeof(s->stats));
 }
 
-void zms_media_stats_fill(const zms_media_source *s, zms_gop_queue *ring, zms_media_stats_view *out)
+void zcs_media_stats_fill(const zcs_media_source *s, zcs_gop_queue *ring, zcs_media_stats_view *out)
 {
-    zms_media_stream_stats snap;
+    zcs_media_stream_stats snap;
     uint64_t now;
 
     if (!out) {
@@ -148,9 +148,9 @@ void zms_media_stats_fill(const zms_media_source *s, zms_gop_queue *ring, zms_me
 
     /* 原子快照三个热计数器，再拷贝其余字段。 */
     snap = s->stats;
-    snap.frame_count_v = ZMS_ATOMIC_LOAD64(&s->stats.frame_count_v);
-    snap.frame_count_a = ZMS_ATOMIC_LOAD64(&s->stats.frame_count_a);
-    snap.dropped_frames = ZMS_ATOMIC_LOAD64(&s->stats.dropped_frames);
+    snap.frame_count_v = ZCS_ATOMIC_LOAD64(&s->stats.frame_count_v);
+    snap.frame_count_a = ZCS_ATOMIC_LOAD64(&s->stats.frame_count_a);
+    snap.dropped_frames = ZCS_ATOMIC_LOAD64(&s->stats.dropped_frames);
     now = zn_monotonic_ms();
     stats_refresh_speed(&snap, now);
     stats_refresh_fps(&snap, now);
@@ -164,9 +164,9 @@ void zms_media_stats_fill(const zms_media_source *s, zms_gop_queue *ring, zms_me
     out->dropped_frames = snap.dropped_frames;
 
     if (ring) {
-        out->gop_queue_pending = zms_gop_queue_pending_count(ring);
-        out->gop_queue_max_lag = zms_gop_queue_max_reader_lag(ring);
-        out->gop_queue_gop_count = zms_gop_queue_gop_count(ring);
-        out->gop_queue_readers = zms_gop_reader_count(ring);
+        out->gop_queue_pending = zcs_gop_queue_pending_count(ring);
+        out->gop_queue_max_lag = zcs_gop_queue_max_reader_lag(ring);
+        out->gop_queue_gop_count = zcs_gop_queue_gop_count(ring);
+        out->gop_queue_readers = zcs_gop_reader_count(ring);
     }
 }

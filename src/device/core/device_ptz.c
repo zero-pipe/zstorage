@@ -2,9 +2,9 @@
  * @file device_ptz.c
  * @brief PTZ 命令分发与事件记录。
  */
-#include "zms/device/core/device_ptz.h"
+#include "zcs/device/core/device_ptz.h"
 
-#include "zms/device/core/device_event.h"
+#include "zcs/device/core/device_event.h"
 #include "zb/os/sync.h"
 #include "zn/util/log.h"
 
@@ -12,7 +12,7 @@
 #include <string.h>
 
 static struct {
-    zms_device_ptz_handler fn;
+    zcs_device_ptz_handler fn;
     void *user;
     zb_mutex *mtx;
     int inited;
@@ -27,12 +27,12 @@ static void ensure_init(void)
     g_ptz.inited = g_ptz.mtx ? 1 : 0;
 }
 
-void zms_device_ptz_init(void)
+void zcs_device_ptz_init(void)
 {
     ensure_init();
 }
 
-void zms_device_ptz_fini(void)
+void zcs_device_ptz_fini(void)
 {
     if (!g_ptz.inited) {
         return;
@@ -46,7 +46,7 @@ void zms_device_ptz_fini(void)
     g_ptz.inited = 0;
 }
 
-int zms_device_ptz_set_handler(zms_device_ptz_handler fn, void *user)
+int zcs_device_ptz_set_handler(zcs_device_ptz_handler fn, void *user)
 {
     ensure_init();
     if (!g_ptz.mtx) {
@@ -59,7 +59,7 @@ int zms_device_ptz_set_handler(zms_device_ptz_handler fn, void *user)
     return 0;
 }
 
-int zms_device_ptz_has_backend(void)
+int zcs_device_ptz_has_backend(void)
 {
     int has;
     ensure_init();
@@ -72,12 +72,12 @@ int zms_device_ptz_has_backend(void)
     return has;
 }
 
-int zms_device_ptz_dispatch(const zms_device_ptz_cmd *cmd)
+int zcs_device_ptz_dispatch(const zcs_device_ptz_cmd *cmd)
 {
-    zms_device_ptz_handler fn;
+    zcs_device_ptz_handler fn;
     void *user;
     int rc = 0;
-    zms_device_event ev;
+    zcs_device_event ev;
 
     if (!cmd) {
         return -1;
@@ -95,11 +95,11 @@ int zms_device_ptz_dispatch(const zms_device_ptz_cmd *cmd)
         rc = fn(cmd, user);
     }
     memset(&ev, 0, sizeof(ev));
-    ev.type = ZMS_DEV_EVENT_PTZ;
+    ev.type = ZCS_DEV_EVENT_PTZ;
     snprintf(ev.channel_id, sizeof(ev.channel_id), "%s", cmd->channel_id);
     snprintf(ev.message, sizeof(ev.message), "stop=%d pan=%.2f tilt=%.2f zoom=%.2f", cmd->stop,
              cmd->pan, cmd->tilt, cmd->zoom);
-    zms_device_event_publish(&ev);
+    zcs_device_event_publish(&ev);
     if (!fn) {
         zn_info("device_ptz: no backend, accepted channel=%s pan=%.2f tilt=%.2f zoom=%.2f stop=%d",
                  cmd->channel_id, cmd->pan, cmd->tilt, cmd->zoom, cmd->stop);

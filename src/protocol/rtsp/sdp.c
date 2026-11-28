@@ -2,8 +2,8 @@
  * @file sdp.c
  * @brief RTSP SDP 协商：解析媒体轨并生成应答。
  */
-#include "zms/media/codec/g711/g711_over_rtp.h"
-#include "zms/protocol/rtsp/sdp.h"
+#include "zcs/media/codec/g711/g711_over_rtp.h"
+#include "zcs/protocol/rtsp/sdp.h"
 #include "sdp.h"
 #include "sdp-a-rtpmap.h"
 #include <ctype.h>
@@ -11,10 +11,10 @@
 #include <stdio.h>
 #include <string.h>
 
-static zms_codec_id codec_from_encoding(const char *encoding)
+static zcs_codec_id codec_from_encoding(const char *encoding)
 {
     if (!encoding || !encoding[0]) {
-        return ZMS_CODEC_INVALID;
+        return ZCS_CODEC_INVALID;
     }
     char lower[32];
     size_t i = 0;
@@ -23,55 +23,55 @@ static zms_codec_id codec_from_encoding(const char *encoding)
     }
     lower[i] = '\0';
     if (strstr(lower, "h264") || strstr(lower, "avc")) {
-        return ZMS_CODEC_H264;
+        return ZCS_CODEC_H264;
     }
     if (strstr(lower, "h265") || strstr(lower, "hevc")) {
-        return ZMS_CODEC_H265;
+        return ZCS_CODEC_H265;
     }
     if (strstr(lower, "av1") || strstr(lower, "av01")) {
-        return ZMS_CODEC_AV1;
+        return ZCS_CODEC_AV1;
     }
     if (strstr(lower, "vp8")) {
-        return ZMS_CODEC_VP8;
+        return ZCS_CODEC_VP8;
     }
     if (strstr(lower, "vp9")) {
-        return ZMS_CODEC_VP9;
+        return ZCS_CODEC_VP9;
     }
     if (strstr(lower, "h266") || strstr(lower, "vvc") || strstr(lower, "hev2")) {
-        return ZMS_CODEC_H266;
+        return ZCS_CODEC_H266;
     }
     if (strstr(lower, "mpeg4-generic") || strstr(lower, "aac") || strstr(lower, "mp4a")) {
-        return ZMS_CODEC_AAC;
+        return ZCS_CODEC_AAC;
     }
     if (strstr(lower, "opus")) {
-        return ZMS_CODEC_OPUS;
+        return ZCS_CODEC_OPUS;
     }
     if (strstr(lower, "pcma") || strstr(lower, "g711a") || strstr(lower, "alaw")) {
-        return ZMS_CODEC_G711A;
+        return ZCS_CODEC_G711A;
     }
     if (strstr(lower, "pcmu") || strstr(lower, "g711u") || strstr(lower, "ulaw") ||
         strstr(lower, "mu-law")) {
-        return ZMS_CODEC_G711U;
+        return ZCS_CODEC_G711U;
     }
-    return ZMS_CODEC_INVALID;
+    return ZCS_CODEC_INVALID;
 }
 
-static zms_track_type track_from_media_type(const char *media)
+static zcs_track_type track_from_media_type(const char *media)
 {
     if (!media) {
-        return ZMS_TRACK_INVALID;
+        return ZCS_TRACK_INVALID;
     }
     if (strcmp(media, "video") == 0) {
-        return ZMS_TRACK_VIDEO;
+        return ZCS_TRACK_VIDEO;
     }
     if (strcmp(media, "audio") == 0) {
-        return ZMS_TRACK_AUDIO;
+        return ZCS_TRACK_AUDIO;
     }
-    return ZMS_TRACK_INVALID;
+    return ZCS_TRACK_INVALID;
 }
 
 typedef struct {
-    zms_media_track *track;
+    zcs_media_track *track;
     int found;
 } rtpmap_ctx;
 
@@ -90,12 +90,12 @@ static void on_media_rtpmap(void *param, const char *name, const char *value)
         return;
     }
 
-    zms_codec_id codec = codec_from_encoding(enc);
-    if (codec == ZMS_CODEC_INVALID) {
+    zcs_codec_id codec = codec_from_encoding(enc);
+    if (codec == ZCS_CODEC_INVALID) {
         return;
     }
 
-    if (ctx->found && ctx->track->codec != ZMS_CODEC_INVALID && codec != ctx->track->codec) {
+    if (ctx->found && ctx->track->codec != ZCS_CODEC_INVALID && codec != ctx->track->codec) {
         return;
     }
 
@@ -111,12 +111,12 @@ static void on_media_rtpmap(void *param, const char *name, const char *value)
     ctx->found = 1;
 }
 
-static void fill_media_track(zms_media_track *cur, sdp_t *s, int media_idx)
+static void fill_media_track(zcs_media_track *cur, sdp_t *s, int media_idx)
 {
     const char *mtype = sdp_media_type(s, media_idx);
     cur->type = track_from_media_type(mtype);
-    cur->sample_rate = (cur->type == ZMS_TRACK_AUDIO) ? 44100 : 90000;
-    cur->channels = (cur->type == ZMS_TRACK_AUDIO) ? 2 : 1;
+    cur->sample_rate = (cur->type == ZCS_TRACK_AUDIO) ? 44100 : 90000;
+    cur->channels = (cur->type == ZCS_TRACK_AUDIO) ? 2 : 1;
 
     int fmts[16];
     int nfmt = sdp_media_formats(s, media_idx, fmts, (int)(sizeof(fmts) / sizeof(fmts[0])));
@@ -143,9 +143,9 @@ static void fill_media_track(zms_media_track *cur, sdp_t *s, int media_idx)
     }
 
     /* RFC 3551 静态 payload（PCMU=0、PCMA=8）在 publisher SDP 中常省略 a=rtpmap。 */
-    if (cur->codec == ZMS_CODEC_INVALID && nfmt > 0) {
-        zms_codec_id g711 = zms_g711_codec_from_rtp_pt((uint8_t)cur->payload_type);
-        if (g711 != ZMS_CODEC_INVALID) {
+    if (cur->codec == ZCS_CODEC_INVALID && nfmt > 0) {
+        zcs_codec_id g711 = zcs_g711_codec_from_rtp_pt((uint8_t)cur->payload_type);
+        if (g711 != ZCS_CODEC_INVALID) {
             cur->codec = g711;
             cur->sample_rate = 8000;
             cur->channels = 1;
@@ -153,7 +153,7 @@ static void fill_media_track(zms_media_track *cur, sdp_t *s, int media_idx)
     }
 }
 
-zn_err_t zms_sdp_parse(const char *sdp, size_t len, zms_sdp_session *out)
+zn_err_t zcs_sdp_parse(const char *sdp, size_t len, zcs_sdp_session *out)
 {
     if (!sdp || !out || len == 0) {
         return ZN_ERR_INVALID;
@@ -171,11 +171,11 @@ zn_err_t zms_sdp_parse(const char *sdp, size_t len, zms_sdp_session *out)
     }
 
     int nm = sdp_media_count(s);
-    for (int i = 0; i < nm && out->track_count < ZMS_SDP_TRACK_MAX; ++i) {
-        zms_media_track *cur = &out->tracks[out->track_count];
+    for (int i = 0; i < nm && out->track_count < ZCS_SDP_TRACK_MAX; ++i) {
+        zcs_media_track *cur = &out->tracks[out->track_count];
         memset(cur, 0, sizeof(*cur));
         fill_media_track(cur, s, i);
-        if (cur->type == ZMS_TRACK_INVALID || cur->codec == ZMS_CODEC_INVALID) {
+        if (cur->type == ZCS_TRACK_INVALID || cur->codec == ZCS_CODEC_INVALID) {
             continue;
         }
         out->track_count++;
@@ -188,7 +188,7 @@ zn_err_t zms_sdp_parse(const char *sdp, size_t len, zms_sdp_session *out)
     }
 
     for (unsigned i = 0; i < out->track_count; ++i) {
-        zms_media_track *t = &out->tracks[i];
+        zcs_media_track *t = &out->tracks[i];
         if (t->control[0] == '\0') {
             snprintf(t->control, sizeof(t->control), "track%u", i + 1);
         }
@@ -200,7 +200,7 @@ zn_err_t zms_sdp_parse(const char *sdp, size_t len, zms_sdp_session *out)
     return ZN_OK;
 }
 
-const zms_media_track *zms_sdp_track_at(const zms_sdp_session *s, unsigned index)
+const zcs_media_track *zcs_sdp_track_at(const zcs_sdp_session *s, unsigned index)
 {
     if (!s || index >= s->track_count) {
         return NULL;

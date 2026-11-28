@@ -2,13 +2,13 @@
  * @file protocol_opts.c
  * @brief 各协议入站默认选项。
  */
-#include "zms/publish/ingest/common/protocol_opts.h"
+#include "zcs/publish/ingest/common/protocol_opts.h"
 #include <string.h>
 
-static zms_protocol_opts g_protocol_defaults;
+static zcs_protocol_opts g_protocol_defaults;
 static int g_protocol_defaults_set;
 
-void zms_protocol_opts_set_defaults(const zms_protocol_opts *opts)
+void zcs_protocol_opts_set_defaults(const zcs_protocol_opts *opts)
 {
     if (!opts) {
         return;
@@ -17,7 +17,7 @@ void zms_protocol_opts_set_defaults(const zms_protocol_opts *opts)
     g_protocol_defaults_set = 1;
 }
 
-void zms_protocol_opts_default(zms_protocol_opts *opts)
+void zcs_protocol_opts_default(zcs_protocol_opts *opts)
 {
     if (!opts) {
         return;

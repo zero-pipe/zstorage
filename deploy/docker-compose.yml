@@ -1,16 +1,16 @@
-# ZMS 本地/测试部署示例
+# ZCS 本地/测试部署示例
 #   docker compose -f deploy/docker-compose.yml up -d
 services:
-  zms:
+  zcs:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
       args:
         # 需要 WebRTC / SRT 时打开（SRT 依赖 libsrt）
-        ZMS_ENABLE_WEBRTC: "OFF"
-        ZMS_ENABLE_SRT: "OFF"
-    image: zms:latest
-    container_name: zms
+        ZCS_ENABLE_WEBRTC: "OFF"
+        ZCS_ENABLE_SRT: "OFF"
+    image: zcs:latest
+    container_name: zcs
     restart: unless-stopped
     ports:
       - "1935:1935"   # RTMP
@@ -19,9 +19,9 @@ services:
       # WebRTC 媒体端口段（与 conf 中 [webrtc] 一致）
       - "50000-50100:50000-50100/udp"
     volumes:
-      - ./conf:/etc/zms:ro
-      - ./record:/var/lib/zms/record
-      - ./logs:/var/log/zms
+      - ./conf:/etc/zcs:ro
+      - ./record:/var/lib/zcs/record
+      - ./logs:/var/log/zcs
     ulimits:
       nofile:
         soft: 524288

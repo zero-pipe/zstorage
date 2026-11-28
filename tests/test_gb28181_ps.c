@@ -61,10 +61,10 @@ static const uint8_t k_fake_h264[] = {
 
 int main(void)
 {
-    zms_zm_ps_muxer_opts mopts;
-    zms_zm_ps_muxer *mux;
-    zms_zm_rtp_ps_opts ropts;
-    zms_zm_rtp_ps *rtp;
+    zcs_zm_ps_muxer_opts mopts;
+    zcs_zm_ps_muxer *mux;
+    zcs_zm_rtp_ps_opts ropts;
+    zcs_zm_rtp_ps *rtp;
     cap_buf ps;
     rtp_cap rc;
     uint8_t frame[900];
@@ -79,13 +79,13 @@ int main(void)
 
     mopts.write = ps_cb;
     mopts.user = &ps;
-    mux = zms_zm_ps_muxer_create(&mopts);
+    mux = zcs_zm_ps_muxer_create(&mopts);
     CHECK(mux != NULL);
-    vid = zms_zm_ps_muxer_add_video(mux, ZMS_CODEC_H264);
+    vid = zcs_zm_ps_muxer_add_video(mux, ZCS_CODEC_H264);
     CHECK(vid > 0);
 
     /* 90000 = 1 秒；IDR 触发 PSM。 */
-    CHECK(zms_zm_ps_muxer_input_video(mux, vid, frame, sizeof(frame), 1, 90000, 90000) == 0);
+    CHECK(zcs_zm_ps_muxer_input_video(mux, vid, frame, sizeof(frame), 1, 90000, 90000) == 0);
     CHECK(ps.len > 16);
 
     /* PS pack header + PSM + video PES。 */
@@ -114,9 +114,9 @@ int main(void)
     ropts.mtu = 300;
     ropts.write = rtp_cb;
     ropts.user = &rc;
-    rtp = zms_zm_rtp_ps_create(&ropts);
+    rtp = zcs_zm_rtp_ps_create(&ropts);
     CHECK(rtp != NULL);
-    CHECK(zms_zm_rtp_ps_input(rtp, ps.data, ps.len, 90000) == 0);
+    CHECK(zcs_zm_rtp_ps_input(rtp, ps.data, ps.len, 90000) == 0);
     CHECK(rc.count >= 2);
 
     /* 头字段与 marker 位；重组后与 PS 完全一致。 */
@@ -135,8 +135,8 @@ int main(void)
     CHECK(((uint32_t)rc.pkt[0][8] << 24 | (uint32_t)rc.pkt[0][9] << 16 |
            (uint32_t)rc.pkt[0][10] << 8 | rc.pkt[0][11]) == 0x01020304u);
 
-    zms_zm_rtp_ps_destroy(rtp);
-    zms_zm_ps_muxer_destroy(mux);
+    zcs_zm_rtp_ps_destroy(rtp);
+    zcs_zm_ps_muxer_destroy(mux);
     printf("test_gb28181_ps ok\n");
     return 0;
 }

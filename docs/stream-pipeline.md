@@ -1,6 +1,6 @@
-# ZMS 数据通路与运行约定
+# ZCS 数据通路与运行约定
 
-> 这是 **ZMS 唯一的一份总文档**：能力边界（能做什么/不能做什么）、URL 规则（怎么用）、
+> 这是 **ZCS 唯一的一份总文档**：能力边界（能做什么/不能做什么）、URL 规则（怎么用）、
 > 运行模型约定（改代码要守的规矩）、数据通路（代码怎么布局和衔接）、安全传输。
 >
 > 读法：只想用 → 看 1、2；要改代码 → 先看 3，再看 4、6；审安全 → 看 5。
@@ -28,7 +28,7 @@
 | **点播** | 本地文件 | `vod/io/` · `vod/play/play_lane.c` | ✅ |
 | **代理** | 拉流转发 | `pull/proxy.c` + `protocol/*/client.c` | ✅ |
 | **运维** | HTTP API / webhook / 健康检查 | `ops/api/` | ✅ |
-| **嵌入** | 链 `zms` 当库 | `zms/sdk.h`（create→start→run→stop→destroy） | ✅ |
+| **嵌入** | 链 `zcs` 当库 | `zcs/sdk.h`（create→start→run→stop→destroy） | ✅ |
 
 ### 1.2 音视频格式（每个出口允许的 codec 组合）
 
@@ -46,8 +46,8 @@
 
 | 能力 | 编译 | 配置 |
 |---|---|---|
-| SRT | `-DZMS_ENABLE_SRT=ON`（需 libsrt） | `[protocol] enable_srt=1`、`[srt] port=` |
-| WebRTC | `-DZMS_ENABLE_WEBRTC=ON` + OpenSSL | `[webrtc] enable=1`、`[general] externIP=` 填外网可达 IP |
+| SRT | `-DZCS_ENABLE_SRT=ON`（需 libsrt） | `[protocol] enable_srt=1`、`[srt] port=` |
+| WebRTC | `-DZCS_ENABLE_WEBRTC=ON` + OpenSSL | `[webrtc] enable=1`、`[general] externIP=` 填外网可达 IP |
 | TLS | `-DZN_ENABLE_OPENSSL=ON`（默认 ON） | `[ssl] cert_file/key_file` + 各协议 `sslport`（见第 5 节） |
 
 默认只编 RTMP / RTSP / HTTP。缺库只 WARNING，对应功能不编进去。
@@ -120,7 +120,7 @@ Host/`?vhost=` 区分。所有协议共用同一张流表，不允许各协议�
 |---|---|---|---|
 | poller 线程 | `poller_threads`（默认 2） | 所有 socket 事件、定时器、协议状态机、鉴权验签、webhook 通知、录制同步写 | 阻塞调用、DNS、sleep、跨线程等锁 |
 | 后台 IO 线程池 | 固定少量 | VOD 文件、录制「关文件」等慢磁盘 | 访问会话状态/poller 独占数据 |
-| 专用协议线程 | 仅协议库强制时（如 SRT） | 该协议收发 | 回调里直接改 zms 会话状态；须投递回 poller |
+| 专用协议线程 | 仅协议库强制时（如 SRT） | 该协议收发 | 回调里直接改 zcs 会话状态；须投递回 poller |
 
 - 延时用 `zn_poller_do_delay` / `zn_timer_*`，禁止 `zb_sleep_ms`。
 - poller 线程内访问会话数据是**独占**的，不加锁；跨线程访问必须 `zn_poller_async(io, fn, ctx, 0)` 回投到属主 poller。
@@ -135,10 +135,10 @@ Host/`?vhost=` 区分。所有协议共用同一张流表，不允许各协议�
 | 播放：HTTP-FLV/TS/MP4、HLS、RTSP/RTMP/SRT play、WHEP | **是** |
 
 - 业务鉴权在 web 后台做完，签发带时效 token；流媒体**只做本地验签**（解参、验签、验时效→允许/拒绝+是否录制），**不查库、不回调、不发网络请求**。
-- 入口唯一：`zms_auth_check()`；实现通过 `zms_auth_set_verifier()` 注册。`[auth] enable=0`（默认）全放行；`=1` 未注册实现时 **fail-closed**。
+- 入口唯一：`zcs_auth_check()`；实现通过 `zcs_auth_set_verifier()` 注册。`[auth] enable=0`（默认）全放行；`=1` 未注册实现时 **fail-closed**。
 - 必须在调用方线程同步返回、纯本地计算；**禁止**网络/DNS/磁盘/sleep/等锁。
 - 拒绝按协议回码：RTMP `BadAuth`、RTSP/HTTP `403`、SRT 关闭、RTP-PS `ZN_ERR_DENIED`。
-- 各协议只把原始 query 放进 `zms_auth_request.params`，不解析业务字段。
+- 各协议只把原始 query 放进 `zcs_auth_request.params`，不解析业务字段。
 
 ### 3.3 录制模型（对齐 ZLMediaKit）
 
@@ -149,7 +149,7 @@ Host/`?vhost=` 区分。所有协议共用同一张流表，不允许各协议�
 
 ### 3.4 内存模型
 
-- 入站帧进 `zms_gop_queue` 后由队列持有引用；`read*` 返回的 `slot.data` 只保证到该 reader **下一次读取之前**有效（`held_ref`）。
+- 入站帧进 `zcs_gop_queue` 后由队列持有引用；`read*` 返回的 `slot.data` 只保证到该 reader **下一次读取之前**有效（`held_ref`）。
 - 因此：同线程「读一帧→立即消费/写盘」安全；**交给别的线程或长期保存必须先拷贝或增引用**。
 - 会话对象只能在其 poller 线程释放；有未完成异步回调时不得释放（`destroy_token`/引用计数）；延迟销毁只有一个归属者。
 - 缓冲池分配的缓冲区归分配线程所有，跨线程释放必须回投。
@@ -169,8 +169,8 @@ flowchart LR
   end
 
   I["ingest 归一<br/>publish/ingest"]
-  H[("Stream Hub<br/>zms_media_source")]
-  G[("GOP 环<br/>zms_gop_queue")]
+  H[("Stream Hub<br/>zcs_media_source")]
+  G[("GOP 环<br/>zcs_gop_queue")]
   VB[("点播缓冲<br/>vod_buffer")]
 
   subgraph OUT["Egress 出站"]
@@ -197,16 +197,16 @@ flowchart LR
 |---|---|---|
 | `protocol/` | 最外层 | 纯线协议编解码：握手、分帧、解析、SDP/STUN/DTLS。**不认识会话、不碰业务** |
 | `session/<proto>/` | 连接生命周期 | 每协议 server + 会话状态机：把报文变成「推 or 播」，驱动出站节拍 |
-| `publish/ingest/` | 入站归一 | 协议裸流→统一 `zms_frame`，时间戳映射、AAC ADTS→raw，再写 GOP 环（协议无关） |
-| `core/stream/hub.c` | 中枢注册表 | `zms_media_source` 增删查、推流注册、播放查找、停推关闭 |
+| `publish/ingest/` | 入站归一 | 协议裸流→统一 `zcs_frame`，时间戳映射、AAC ADTS→raw，再写 GOP 环（协议无关） |
+| `core/stream/hub.c` | 中枢注册表 | `zcs_media_source` 增删查、推流注册、播放查找、停推关闭 |
 | `core/gop/queue.c` | 中枢缓存 | GOP 环形队列：单写多读、GOP 索引、循环裁剪、延迟释放 |
 | `play/` | 出站分发 | 播放 dispatch + HTTP 家族输出（HLS/DASH/HTTP-FLV 切片） |
 | `egress/` | 出站泵 | `source/`(挂读者) · `pipeline/`(泵) · `rtp/`(打包) · `recorder/`(录制) · `pacing/`(平滑) |
 | `vod/` | 点播域 | `io/` 文件读+seek，`play/play_lane` 播放垫片（自带通道，与直播互斥） |
 | `pull/` | 入站（客户端侧） | 代理拉流：连别人取回，走 ingest 入环 |
-| `bridge/` | 依赖适配 | ZMS ↔ zmedia（`zm_*`）边界；裸 zm C 头只应出现在这里 |
+| `bridge/` | 依赖适配 | ZCS ↔ zmedia（`zm_*`）边界；裸 zm C 头只应出现在这里 |
 | `media/` | 编解码适配 | codec ES 位流、容器读写、wire 编解码（薄封装 3rdpart/zmedia） |
-| `message/` | 跨协议外壳 | `zms_msg` 键值报文 + XML 助手（原 `proto/`） |
+| `message/` | 跨协议外壳 | `zcs_msg` 键值报文 + XML 助手（原 `proto/`） |
 | `ops/` | 组合根 | 进程启动、配置(`ops/config/`)、HTTP API、webhook、模块注册 |
 | `device/` | 设备域 | GB28181 / ONVIF 控制面（独立域，不进 ingress/egress） |
 
@@ -222,8 +222,8 @@ sequenceDiagram
   C->>S: OPTIONS
   S-->>C: 200
   C->>S: ANNOUNCE + SDP
-  S->>S: zms_sdp_parse → 轨道/编码
-  S->>I: zms_live_ingest_create_publish()
+  S->>S: zcs_sdp_parse → 轨道/编码
+  S->>I: zcs_live_ingest_create_publish()
   I->>H: register_publish_ex → 建 source + gop_queue
   S->>I: set SPS/PPS · AAC config
   S-->>C: 200 OK
@@ -231,7 +231,7 @@ sequenceDiagram
   S-->>C: 200 (interleaved 通道 或 UDP 端口)
   C->>S: RECORD
   S->>S: 鉴权 · attach_publish
-  S->>H: zms_media_source_set_publisher()
+  S->>H: zcs_media_source_set_publisher()
   S-->>C: 200 OK（进入 RECORD）
   loop RTP 持续到达
     C->>S: RTP
@@ -242,19 +242,19 @@ sequenceDiagram
 
 关键调用链：`announce.c:handle_announce` → `create_publish`；`session_setup.c:handle_setup`；
 `record.c:handle_record` → `attach_publish` → `set_publisher`；RTP：`record_input_rtp_raw`（record.c）
-→ `bridge/zm_rtp_ingest.c` 解包 → `rtsp_zm_on_packet` → `zms_live_ingest_input_frame`。
+→ `bridge/zm_rtp_ingest.c` 解包 → `rtsp_zm_on_packet` → `zcs_live_ingest_input_frame`。
 
 ### 4.4 入站归一：一块 RTP 怎么变成环里的一帧
 
 ```mermaid
 flowchart LR
   A["socket 字节<br/>interleaved / UDP"] --> B["zm_rtp_ingest<br/>去抖·FU-A 重组·AAC AU 恢复"]
-  B --> C["zms_frame<br/>codec/track/keyframe/dts"]
+  B --> C["zcs_frame<br/>codec/track/keyframe/dts"]
   C --> D["live_ingest<br/>raw→ms 单调映射·ADTS→raw"]
   D --> E["gop_queue_write<br/>alloc_write 复用槽·推进 write_idx"]
 ```
 
-| `zms_frame` 字段 | 含义 |
+| `zcs_frame` 字段 | 含义 |
 |---|---|
 | `codec / track` | H264/H265/AAC…；视频/音频 |
 | `dts_ms / pts_ms` | 驱动 A/V 交织与 pacing |
@@ -266,14 +266,14 @@ flowchart LR
 
 ### 4.5 GOP 环内存布局（播放方按这个读）
 
-每条直播 source 一份 `zms_gop_queue`：固定 512 槽位环形数组，单写多读；每个读者有独立 `read_idx`。
+每条直播 source 一份 `zcs_gop_queue`：固定 512 槽位环形数组，单写多读；每个读者有独立 `read_idx`。
 槽位的 `zn_buf` 用引用计数，被覆盖的 buf 延迟 16 帧释放。
 
-**zms_gop_queue**
+**zcs_gop_queue**
 
 | 字段 | 作用 |
 |---|---|
-| `slots[512]` | `zms_frame_slot`：公开视图 + `zn_buf*` + seqlock |
+| `slots[512]` | `zcs_frame_slot`：公开视图 + `zn_buf*` + seqlock |
 | `write_idx` | 写端绝对计数（环形取模） |
 | `oldest_seq` | 逻辑最旧，落后者 snap 对齐 |
 | `gop_start[32] / gop_dts[32] / gop_count` | 各 GOP 起点下标/时间/数量 |
@@ -284,7 +284,7 @@ flowchart LR
 | `mu / wake_q` | 互斥 + 唤醒(MPSC) |
 | `retire[1024]` | 被覆盖 buf 的延迟释放环 |
 
-**zms_gop_reader**（每个播放连接一份）
+**zcs_gop_reader**（每个播放连接一份）
 
 | 字段 | 作用 |
 |---|---|
@@ -309,13 +309,13 @@ sequenceDiagram
   participant E as Egress / GOP
 
   P->>S: OPTIONS / DESCRIBE
-  S->>E: zms_media_source_find_for_play_ex → source
+  S->>E: zcs_media_source_find_for_play_ex → source
   S->>S: build_sdp（轨道 + config）
   S-->>P: 200 + SDP
   P->>S: SETUP video / audio
   S-->>P: 200 Transport
   P->>S: PLAY
-  S->>D: zms_session_attach_play(on_play_live)
+  S->>D: zcs_session_attach_play(on_play_live)
   D->>E: open_live_gop → subscribe_gop(seek_gop_key)
   D->>P: bootstrap：SPS/PPS + IDR
   S-->>P: 200 OK
@@ -327,9 +327,9 @@ sequenceDiagram
 ```
 
 关键调用链：`session_describe.c` → `find_for_play_ex` → `build_sdp`；`session_play.c:handle_play`
-→ `zms_session_attach_play`（`play/dispatch.c`）→ `rtsp_protocol_on_play_live`（`session/rtsp/dispatch.c`）
-→ `zms_egress_source_open_live_gop` → `zms_media_source_subscribe_gop`。持续输出：
-`play_tick` → `zms_rtp_play_run_pump` → `zms_egress_pipeline_pump_rtsp` → `gop_reader_read_muxed`
+→ `zcs_session_attach_play`（`play/dispatch.c`）→ `rtsp_protocol_on_play_live`（`session/rtsp/dispatch.c`）
+→ `zcs_egress_source_open_live_gop` → `zcs_media_source_subscribe_gop`。持续输出：
+`play_tick` → `zcs_rtp_play_run_pump` → `zcs_egress_pipeline_pump_rtsp` → `gop_reader_read_muxed`
 → rtp muxer → `sender_submit/flush`。
 
 ### 4.7 出站：一帧怎么变成 RTP 发出去
@@ -343,7 +343,7 @@ flowchart LR
 
 | 结构 | 关键字段 |
 |---|---|
-| `zms_egress_source` | `source` · `is_live` · `readers.gop` · `readers.vod` |
+| `zcs_egress_source` | `source` · `is_live` · `readers.gop` · `readers.vod` |
 | RTSP `rs->pl` | `src/gop_reader` · `rtp_muxer` · `sender` · `egress_pipe` · `video/audio_rtp_ch` · `boot_sent/live_catchup` |
 
 ### 4.8 其它协议的接入口
@@ -376,7 +376,7 @@ flowchart LR
 | WebRTC | ✅ DTLS + SRTP（`protocol/webrtc/dtls.c`，临时自签证书+fingerprint） | ✅ | 编进 WebRTC + OpenSSL |
 | GB28181 SIP | ✅ 独立 `tls_cert/key` + `tls_verify_peer` | — | `[gb28181]` |
 
-- 服务端 TLS 在组合根 [ops/server/zms_server.c](../src/ops/server/zms_server.c) 用 `server_mode=1` + `[ssl] cert/key` 建 ctx，分发给 RTMP/HTTP/RTSP 三个监听器；拉流侧用独立 ctx（`ops/config/pull_ssl.c`）。
+- 服务端 TLS 在组合根 [ops/server/zcs_server.c](../src/ops/server/zcs_server.c) 用 `server_mode=1` + `[ssl] cert/key` 建 ctx，分发给 RTMP/HTTP/RTSP 三个监听器；拉流侧用独立 ctx（`ops/config/pull_ssl.c`）。
 - **最低 TLS 1.2**（znet `ssl_ctx.c` 钉死），拉流 **`verify_peer` 默认 1**（校验对端），支持 `ca_file` 与 `client_cert/client_key` 双向认证。
 - 服务端模式 `SSL_VERIFY_NONE`：TLS 层只保证通道加密，"对方是谁"由应用层 Digest / token 鉴权保证。
 
@@ -400,8 +400,8 @@ flowchart LR
 | 改发送节拍/追帧/慢消费者 | `egress/pacing/*` + `egress/pipeline/egress_pipeline.c` |
 | 改 HLS/DASH 切片 | `play/hls/` · `play/dash/` |
 | 改点播 seek/追帧 | `vod/io/` · `vod/play/play_lane.c` |
-| 改鉴权 | `core/auth.c`（各 session 里的 `zms_auth_check` 调用点） |
-| 开 TLS / 配证书 | `[ssl]` + 各协议 `sslport`；装配在 `ops/server/zms_server.c` |
+| 改鉴权 | `core/auth.c`（各 session 里的 `zcs_auth_check` 调用点） |
+| 开 TLS / 配证书 | `[ssl]` + 各协议 `sslport`；装配在 `ops/server/zcs_server.c` |
 
 ---
 
@@ -420,8 +420,8 @@ flowchart LR
 
 - `zn_err_t` 函数**不得** `return -1`，统一 `ZN_ERR_INVALID/IO/STATE...`。
 - 调 `zn_err_t` 用 `!= ZN_OK`（不要 `<0`）；忽略返回值显式 `(void)` 且仅限"确实无所谓失败"的路径。
-- 工具函数优先复用 `src/util/`（`zms_base64_*`/`zms_hex_decode`/`zms_sha1_*`），不自写。
-- 例外：`zms_codec_*`、`zm_*` 第三方库沿用其原有约定。
+- 工具函数优先复用 `src/util/`（`zcs_base64_*`/`zcs_hex_decode`/`zcs_sha1_*`），不自写。
+- 例外：`zcs_codec_*`、`zm_*` 第三方库沿用其原有约定。
 - 风格守卫：`tests/check_errno_style.py`、`test_config_ini`。
 
 ### 7.2 评审红线（逐条）
@@ -429,22 +429,22 @@ flowchart LR
 - **线程**：新增可能跑在 poller 的调用，逐项确认无 `getaddrinfo`、阻塞 `connect/recv/send`、`sleep`、`fopen/fclose/fflush/rename/stat/readdir`、`join`、跨线程等锁；延时用 `zn_poller_do_delay`；跨线程只经 `zn_poller_async` 回投；回调单次处理设上限。
 - **生命周期**：异步回调存活期间对象不得释放（`destroy_token`/引用计数）；延迟销毁单一归属；会话 `free` 只在其 poller。
 - **内存/栈**：函数栈帧缓冲 ≤ 2KB；禁 `char buf[4096+]`、`alloca`；单会话结构体尽量 ≤ 4KB；公开头不放大值结构体。
-- **鉴权**：只走 `zms_auth_check()`；无 `*_auth_pending`/媒体缓存等待态；验签路径无网络/查库/hook。
+- **鉴权**：只走 `zcs_auth_check()`；无 `*_auth_pending`/媒体缓存等待态；验签路径无网络/查库/hook。
 - **录制**：写盘在 poller 同步；关文件只在后台 IO 池；`.tmp` 关闭后 `rename`。
 
 ### 7.3 构建与测试
 
 - 改 `src/protocol/webrtc/`、`src/protocol/srt/` 时，**必须**用对应功能 ON 的构建验证（本机关闭则该目录不参与编译，本地"通过"不算数）。
 - 远端 Release + `ctest` 全绿；内存改动补 ASan/UBSan。
-- 分层测试：单元(`tests/test_*.c`)、风格守卫、集成冒烟(`tests/smoke_e2e.py`，`ctest -L integration`)。断言用 `tests/zms_test.h` 的 `CHECK_EQ_*`，失败要打印实测值。
-- CI：`.github/workflows/ci.yml`（Linux 构建 + ctest 双矩阵、ASan+UBSan、libFuzzer 冒烟）；fuzz 靶 `-DZMS_BUILD_FUZZ=ON` + clang。
+- 分层测试：单元(`tests/test_*.c`)、风格守卫、集成冒烟(`tests/smoke_e2e.py`，`ctest -L integration`)。断言用 `tests/zcs_test.h` 的 `CHECK_EQ_*`，失败要打印实测值。
+- CI：`.github/workflows/ci.yml`（Linux 构建 + ctest 双矩阵、ASan+UBSan、libFuzzer 冒烟）；fuzz 靶 `-DZCS_BUILD_FUZZ=ON` + clang。
 
 ---
 
 ## 8. 目录与命名约定
 
 - **分层依赖只向下**：`core/media → bridge → egress → publish/play/vod/pull → session → protocol`；`ops` 顶层可依赖所有层。跨层只经 port 头（`*_port.h`、`play/dispatch.h`、`publish/ingest/common/*`）。
-- **protocol 与 session 分离**：`protocol/<p>/` 只做字节流→报文；`session/<p>/` 放会话状态机与业务。`include/zms/` 与 `src/` 一一对应；服务端会话门面（`*_server.h`、`rtmp/session.h`、`rtsp/session_auth.h`、`webrtc/whep.h`）在 `include/zms/session/`，`include/zms/protocol/` 下同名文件仅留兼容 shim。
-- **文件命名**：`<area>_<part>.c`（如 `session_play.c`、`rtp_payload_muxer.c`），避免缩写。私有头用 `*_internal.h`，跨层契约用 `<area>_port.h`。公共头一律 `#include "zms/..."`。
+- **protocol 与 session 分离**：`protocol/<p>/` 只做字节流→报文；`session/<p>/` 放会话状态机与业务。`include/zcs/` 与 `src/` 一一对应；服务端会话门面（`*_server.h`、`rtmp/session.h`、`rtsp/session_auth.h`、`webrtc/whep.h`）在 `include/zcs/session/`，`include/zcs/protocol/` 下同名文件仅留兼容 shim。
+- **文件命名**：`<area>_<part>.c`（如 `session_play.c`、`rtp_payload_muxer.c`），避免缩写。私有头用 `*_internal.h`，跨层契约用 `<area>_port.h`。公共头一律 `#include "zcs/..."`。
 - **ZM/ZN 边界**：`media/`、`bridge/` 是 ZM 适配层；裸 zm C 头只允许出现在 `bridge/`。
 - **阅读顺序**：① `core/stream/hub.c`（谁在推/播）→ ② `session/rtmp/session*.c`（一条会话怎么走）→ ③ `play/dispatch.c` → ④ `egress/pipeline/egress_pipeline.c` + `egress/rtp/rtp_muxer.c` → ⑤ `vod/play/play_lane.c` → ⑥ `session/webrtc/play_session.c` + `protocol/webrtc/ice.c`。

@@ -14,12 +14,12 @@
  * 并发：全部在喂入方单线程调用，结构体内存（seg/payload_acc/sniff_*）不做锁，
  * 供逐段拼接与嗅探复用。
  */
-#include "zms/media/container/mpegts/mpegts_demuxer.h"
-#include "zms/media/container/container_registry.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/clock.h"
-#include "zms/media/media_limits.h"
+#include "zcs/media/container/mpegts/mpegts_demuxer.h"
+#include "zcs/media/container/container_registry.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/clock.h"
+#include "zcs/media/media_limits.h"
 #include "zm/format/mpeg.h"
 #include "zm/codec/bitstream.h"
 #include "zn/util/log.h"
@@ -28,13 +28,13 @@
 
 #define MPEGTS_PKT_SIZE 188
 #define MPEGTS_SYNC_BYTE 0x47
-#define MPEGTS_SEG_CAP ZMS_MPEGTS_AU_MAX
-#define MPEGTS_SNIFF_CAP ZMS_MPEGTS_AU_MAX
+#define MPEGTS_SEG_CAP ZCS_MPEGTS_AU_MAX
+#define MPEGTS_SNIFF_CAP ZCS_MPEGTS_AU_MAX
 
-struct zms_mpegts_demuxer {
-    zms_mpegts_demuxer_opts opts;
+struct zcs_mpegts_demuxer {
+    zcs_mpegts_demuxer_opts opts;
     struct ts_demuxer_t *ts;
-    zms_frame frame;
+    zcs_frame frame;
     uint8_t seg[MPEGTS_SEG_CAP];
     size_t seg_len;
     uint8_t payload_acc[MPEGTS_SNIFF_CAP];
@@ -58,11 +58,11 @@ struct zms_mpegts_demuxer {
     int h264_au_idr_flag;
     /** TS 丢包/损坏后：P/B 需新 IDR（H.264 参考模型）。 */
     int h264_need_idr;
-    uint8_t h264_frag[ZMS_MPEGTS_AU_MAX];
+    uint8_t h264_frag[ZCS_MPEGTS_AU_MAX];
 };
 
 /* 复位 H264 AU 组装状态（新 AU / 丢包 / 溢出时调用）。 */
-static void mpegts_h264_au_reset(zms_mpegts_demuxer *d)
+static void mpegts_h264_au_reset(zcs_mpegts_demuxer *d)
 {
     if (!d) {
         return;
@@ -78,7 +78,7 @@ static void mpegts_h264_au_reset(zms_mpegts_demuxer *d)
  * 让上层在回调里能安全引用帧数据。PTS/DTS 缺一时用另一个补齐——很多流只有 PTS。
  * keyframe 判定：优先信 flags 的 IDR 标志，否则对 Annex-B 数据现探 IDR/sync。
  */
-static void mpegts_emit_es_frame(zms_mpegts_demuxer *d, zms_codec_id codec, const uint8_t *data,
+static void mpegts_emit_es_frame(zcs_mpegts_demuxer *d, zcs_codec_id codec, const uint8_t *data,
                                  size_t bytes, uint32_t pts_ms, uint32_t dts_ms, int flags)
 {
     int key = 0;
@@ -94,7 +94,7 @@ static void mpegts_emit_es_frame(zms_mpegts_demuxer *d, zms_codec_id codec, cons
     }
 
     d->frame.codec = codec;
-    d->frame.track = zms_codec_track_type(codec);
+    d->frame.track = zcs_codec_track_type(codec);
     d->frame.pts_ms = pts_ms;
     d->frame.dts_ms = dts_ms;
     if (d->frame.dts_ms == 0 && d->frame.pts_ms != 0) {
@@ -106,10 +106,10 @@ static void mpegts_emit_es_frame(zms_mpegts_demuxer *d, zms_codec_id codec, cons
 
     if (flags & MPEG_FLAG_IDR_FRAME) {
         key = 1;
-    } else if (codec == ZMS_CODEC_H264) {
-        key = zms_h264_es_is_annexb(emit, bytes) ? zms_h264_annexb_is_idr(emit, bytes) : 0;
-    } else if (codec == ZMS_CODEC_H265) {
-        key = zms_h265_annexb_is_sync_key(emit, bytes);
+    } else if (codec == ZCS_CODEC_H264) {
+        key = zcs_h264_es_is_annexb(emit, bytes) ? zcs_h264_annexb_is_idr(emit, bytes) : 0;
+    } else if (codec == ZCS_CODEC_H265) {
+        key = zcs_h265_annexb_is_sync_key(emit, bytes);
     } else {
         key = 0;
     }
@@ -125,7 +125,7 @@ static void mpegts_emit_es_frame(zms_mpegts_demuxer *d, zms_codec_id codec, cons
 
 /* 把一段 H264 数据追加进当前 AU。非 Annex-B（AVCC 长度前缀）先转 Annex-B 再拼。
  * 溢出直接丢弃整个 AU 并复位：半个 AU 比没有更糟，喂给解码器只会报错/花屏。 */
-static int mpegts_h264_au_append(zms_mpegts_demuxer *d, const uint8_t *data, size_t bytes)
+static int mpegts_h264_au_append(zcs_mpegts_demuxer *d, const uint8_t *data, size_t bytes)
 {
     const uint8_t *src = data;
     size_t src_len = bytes;
@@ -134,8 +134,8 @@ static int mpegts_h264_au_append(zms_mpegts_demuxer *d, const uint8_t *data, siz
     if (!d || !data || bytes == 0) {
         return 0;
     }
-    if (!zms_h264_es_is_annexb(data, bytes)) {
-        if (zms_h264_es_to_annexb(data, bytes, d->h264_frag, sizeof(d->h264_frag), &out_len) !=
+    if (!zcs_h264_es_is_annexb(data, bytes)) {
+        if (zcs_h264_es_to_annexb(data, bytes, d->h264_frag, sizeof(d->h264_frag), &out_len) !=
                 ZN_OK ||
             out_len == 0) {
             return -1;
@@ -165,7 +165,7 @@ static int mpegts_h264_au_append(zms_mpegts_demuxer *d, const uint8_t *data, siz
  *      每个 IDR 都可独立解码（不依赖上游是否在关键帧附带参数集）。
  * 交付后复位 AU 状态。
  */
-static void mpegts_h264_au_emit(zms_mpegts_demuxer *d)
+static void mpegts_h264_au_emit(zcs_mpegts_demuxer *d)
 {
     const uint8_t *data;
     size_t bytes;
@@ -184,12 +184,12 @@ static void mpegts_h264_au_emit(zms_mpegts_demuxer *d)
     emit_data = data;
     emit_len = bytes;
 
-    idr = zms_h264_annexb_is_idr(data, bytes) || d->h264_au_idr_flag;
+    idr = zcs_h264_annexb_is_idr(data, bytes) || d->h264_au_idr_flag;
 
     if (idr) {
         d->h264_need_idr = 0;
-    } else if (d->h264_need_idr || !zms_h264_es_has_slice(data, bytes) ||
-               !zms_h264_es_starts_access_unit(data, bytes)) {
+    } else if (d->h264_need_idr || !zcs_h264_es_has_slice(data, bytes) ||
+               !zcs_h264_es_starts_access_unit(data, bytes)) {
         mpegts_h264_au_reset(d);
         return;
     }
@@ -197,9 +197,9 @@ static void mpegts_h264_au_emit(zms_mpegts_demuxer *d)
     if (idr && d->sniff_sps_len > 0 && d->sniff_pps_len > 0) {
         const uint8_t *sps = NULL, *pps = NULL;
         size_t sps_len = 0, pps_len = 0;
-        if (!zms_h264_annexb_extract_sps_pps(data, bytes, &sps, &sps_len, &pps, &pps_len)) {
+        if (!zcs_h264_annexb_extract_sps_pps(data, bytes, &sps, &sps_len, &pps, &pps_len)) {
             size_t prep_len = 0;
-            if (zms_h264_annexb_prepend_sps_pps(d->sniff_sps, d->sniff_sps_len, d->sniff_pps,
+            if (zcs_h264_annexb_prepend_sps_pps(d->sniff_sps, d->sniff_sps_len, d->sniff_pps,
                                                 d->sniff_pps_len, data, bytes, d->payload_acc,
                                                 sizeof(d->payload_acc), &prep_len) == ZN_OK &&
                 prep_len > 0) {
@@ -220,8 +220,8 @@ static void mpegts_h264_au_emit(zms_mpegts_demuxer *d)
         emit_data = d->payload_acc;
     }
 
-    d->frame.codec = ZMS_CODEC_H264;
-    d->frame.track = ZMS_TRACK_VIDEO;
+    d->frame.codec = ZCS_CODEC_H264;
+    d->frame.track = ZCS_TRACK_VIDEO;
     d->frame.pts_ms = pts_ms;
     d->frame.dts_ms = dts_ms;
     d->frame.keyframe = idr ? 1 : 0;
@@ -234,7 +234,7 @@ static void mpegts_h264_au_emit(zms_mpegts_demuxer *d)
     mpegts_h264_au_reset(d);
 }
 
-static void mpegts_h264_on_es(zms_mpegts_demuxer *d, const uint8_t *data, size_t bytes,
+static void mpegts_h264_on_es(zcs_mpegts_demuxer *d, const uint8_t *data, size_t bytes,
                               int64_t pts_90k, int64_t dts_90k, int flags)
 {
     uint32_t dts_ms;
@@ -244,8 +244,8 @@ static void mpegts_h264_on_es(zms_mpegts_demuxer *d, const uint8_t *data, size_t
         return;
     }
 
-    dts_ms = zms_mpegts_90k_to_ms(dts_90k);
-    pts_ms = zms_mpegts_90k_to_ms(pts_90k);
+    dts_ms = zcs_mpegts_90k_to_ms(dts_90k);
+    pts_ms = zcs_mpegts_90k_to_ms(pts_90k);
     if (dts_ms == 0 && pts_ms != 0) {
         dts_ms = pts_ms;
     }
@@ -266,38 +266,38 @@ static void mpegts_h264_on_es(zms_mpegts_demuxer *d, const uint8_t *data, size_t
     mpegts_h264_au_emit(d);
 }
 
-static zms_codec_id mpegts_psi_to_codec(int psi)
+static zcs_codec_id mpegts_psi_to_codec(int psi)
 {
     switch (psi) {
     case PSI_STREAM_H264:
-        return ZMS_CODEC_H264;
+        return ZCS_CODEC_H264;
     case PSI_STREAM_H265:
     case PSI_STREAM_H265_subset:
-        return ZMS_CODEC_H265;
+        return ZCS_CODEC_H265;
     case PSI_STREAM_H266:
     case PSI_STREAM_H266_subset:
-        return ZMS_CODEC_H266;
+        return ZCS_CODEC_H266;
     case PSI_STREAM_AAC:
     case PSI_STREAM_MPEG4_AAC:
-        return ZMS_CODEC_AAC;
+        return ZCS_CODEC_AAC;
     case PSI_STREAM_AUDIO_OPUS:
-        return ZMS_CODEC_OPUS;
+        return ZCS_CODEC_OPUS;
     case PSI_STREAM_AUDIO_G711A:
-        return ZMS_CODEC_G711A;
+        return ZCS_CODEC_G711A;
     case PSI_STREAM_AUDIO_G711U:
-        return ZMS_CODEC_G711U;
+        return ZCS_CODEC_G711U;
     case PSI_STREAM_VP8:
-        return ZMS_CODEC_VP8;
+        return ZCS_CODEC_VP8;
     case PSI_STREAM_VP9:
-        return ZMS_CODEC_VP9;
+        return ZCS_CODEC_VP9;
     case PSI_STREAM_AV1:
-        return ZMS_CODEC_AV1;
+        return ZCS_CODEC_AV1;
     default:
-        return ZMS_CODEC_INVALID;
+        return ZCS_CODEC_INVALID;
     }
 }
 
-static void mpegts_try_apply_h264_ps(zms_mpegts_demuxer *d, const uint8_t *sps, size_t sps_len,
+static void mpegts_try_apply_h264_ps(zcs_mpegts_demuxer *d, const uint8_t *sps, size_t sps_len,
                                      const uint8_t *pps, size_t pps_len, const char *via)
 {
     if (!d || !d->opts.on_h264_ps || !sps || !pps || sps_len == 0 || pps_len == 0) {
@@ -308,7 +308,7 @@ static void mpegts_try_apply_h264_ps(zms_mpegts_demuxer *d, const uint8_t *sps, 
     zn_debug("[mpegts] h264_ps via=%s sps=%u pps=%u", via, (unsigned)sps_len, (unsigned)pps_len);
 }
 
-static void mpegts_try_apply_cached_ps(zms_mpegts_demuxer *d, const char *via)
+static void mpegts_try_apply_cached_ps(zcs_mpegts_demuxer *d, const char *via)
 {
     if (!d || !d->sniff_sps_len || !d->sniff_pps_len) {
         return;
@@ -317,14 +317,14 @@ static void mpegts_try_apply_cached_ps(zms_mpegts_demuxer *d, const char *via)
                              via);
 }
 
-static void mpegts_cache_annexb_ps(zms_mpegts_demuxer *d, const uint8_t *annexb, size_t len);
+static void mpegts_cache_annexb_ps(zcs_mpegts_demuxer *d, const uint8_t *annexb, size_t len);
 
 /*
  * 从 ES 帧里提取并缓存 H264 SPS/PPS，然后尝试回调 on_h264_ps。
  * 若与已生效的参数完全一致就跳过（避免每个 IDR 都重复回调）；提取失败则退化为
  * 整个 AU 的 Annex-B 扫描（mpegts_cache_annexb_ps），兼容参数集夹在 AU 中间的情况。
  */
-static void mpegts_cache_ps_from_es(zms_mpegts_demuxer *d, const uint8_t *data, size_t len,
+static void mpegts_cache_ps_from_es(zcs_mpegts_demuxer *d, const uint8_t *data, size_t len,
                                     const char *via)
 {
     const uint8_t *sps = NULL, *pps = NULL;
@@ -333,7 +333,7 @@ static void mpegts_cache_ps_from_es(zms_mpegts_demuxer *d, const uint8_t *data, 
     if (!d || !data || len == 0) {
         return;
     }
-    if (zms_h264_es_extract_sps_pps(data, len, &sps, &sps_len, &pps, &pps_len)) {
+    if (zcs_h264_es_extract_sps_pps(data, len, &sps, &sps_len, &pps, &pps_len)) {
         if (sps_len == 0 || sps_len > sizeof(d->sniff_sps) || pps_len == 0 ||
             pps_len > sizeof(d->sniff_pps)) {
             return;
@@ -354,7 +354,7 @@ static void mpegts_cache_ps_from_es(zms_mpegts_demuxer *d, const uint8_t *data, 
 
 static void mpegts_sniff_on_nal(void *param, const uint8_t *nalu, size_t bytes)
 {
-    zms_mpegts_demuxer *d = (zms_mpegts_demuxer *)param;
+    zcs_mpegts_demuxer *d = (zcs_mpegts_demuxer *)param;
     int t;
 
     if (!d || !nalu || bytes == 0) {
@@ -370,7 +370,7 @@ static void mpegts_sniff_on_nal(void *param, const uint8_t *nalu, size_t bytes)
     }
 }
 
-static void mpegts_cache_annexb_ps(zms_mpegts_demuxer *d, const uint8_t *annexb, size_t len)
+static void mpegts_cache_annexb_ps(zcs_mpegts_demuxer *d, const uint8_t *annexb, size_t len)
 {
     if (!d || !annexb || len < 5) {
         return;
@@ -380,7 +380,7 @@ static void mpegts_cache_annexb_ps(zms_mpegts_demuxer *d, const uint8_t *annexb,
     mpegts_try_apply_cached_ps(d, "annexb scan");
 }
 
-static void mpegts_roll_append(zms_mpegts_demuxer *d, const uint8_t *data, size_t len)
+static void mpegts_roll_append(zcs_mpegts_demuxer *d, const uint8_t *data, size_t len)
 {
     if (!d || !data || len == 0) {
         return;
@@ -399,7 +399,7 @@ static void mpegts_roll_append(zms_mpegts_demuxer *d, const uint8_t *data, size_
     d->sniff_roll_len += len;
 }
 
-static void mpegts_payload_acc_append(zms_mpegts_demuxer *d, const uint8_t *data, size_t len)
+static void mpegts_payload_acc_append(zcs_mpegts_demuxer *d, const uint8_t *data, size_t len)
 {
     if (!d || !data || len == 0) {
         return;
@@ -448,7 +448,7 @@ static size_t mpegts_ts_payload_offset(const uint8_t *pkt)
  * 拼接视角各扫一遍：累积载荷、上一包尾巴 + 当前包、当前包；直到参数生效为止。
  * 生效后立刻停（h264_ps_applied 提前返回），避免持续无谓扫描。
  */
-static void mpegts_sniff_ts_packet_payload(zms_mpegts_demuxer *d, const uint8_t *pkt)
+static void mpegts_sniff_ts_packet_payload(zcs_mpegts_demuxer *d, const uint8_t *pkt)
 {
     size_t off, pay_len;
     uint8_t scratch[512];
@@ -488,7 +488,7 @@ static void mpegts_on_ts_stream(void *param, int stream, int codecid, const void
 {
     const uint8_t *sps = NULL, *pps = NULL;
     size_t sps_len = 0, pps_len = 0;
-    zms_mpegts_demuxer *d = (zms_mpegts_demuxer *)param;
+    zcs_mpegts_demuxer *d = (zcs_mpegts_demuxer *)param;
 
     (void)stream;
     (void)finish;
@@ -496,7 +496,7 @@ static void mpegts_on_ts_stream(void *param, int stream, int codecid, const void
         return;
     }
     if (codecid == PSI_STREAM_H264 && extra && bytes > 0 &&
-        zms_h264_avcc_extract_sps_pps((const uint8_t *)extra, (size_t)bytes, &sps, &sps_len, &pps,
+        zcs_h264_avcc_extract_sps_pps((const uint8_t *)extra, (size_t)bytes, &sps, &sps_len, &pps,
                                       &pps_len)) {
         mpegts_try_apply_h264_ps(d, sps, sps_len, pps, pps_len, "PMT esinfo");
     }
@@ -512,8 +512,8 @@ static void mpegts_on_ts_stream(void *param, int stream, int codecid, const void
 static int mpegts_on_packet(void *param, int program, int stream, int codecid, int flags,
                             int64_t pts_90k, int64_t dts_90k, const void *data, size_t bytes)
 {
-    zms_mpegts_demuxer *d = (zms_mpegts_demuxer *)param;
-    zms_codec_id codec;
+    zcs_mpegts_demuxer *d = (zcs_mpegts_demuxer *)param;
+    zcs_codec_id codec;
 
     (void)program;
     (void)stream;
@@ -522,7 +522,7 @@ static int mpegts_on_packet(void *param, int program, int stream, int codecid, i
     }
 
     codec = mpegts_psi_to_codec(codecid);
-    if (codec == ZMS_CODEC_INVALID) {
+    if (codec == ZCS_CODEC_INVALID) {
         static int logged_unknown;
         if (!logged_unknown++) {
             zn_warn("[mpegts] unsupported_stream_type=0x%02x", codecid & 0xff);
@@ -531,24 +531,24 @@ static int mpegts_on_packet(void *param, int program, int stream, int codecid, i
     }
 
     if (flags & MPEG_FLAG_PACKET_LOST) {
-        if (codec == ZMS_CODEC_H264) {
+        if (codec == ZCS_CODEC_H264) {
             mpegts_h264_au_reset(d);
         }
     }
     if (flags & MPEG_FLAG_PACKET_CORRUPT) {
-        if (codec == ZMS_CODEC_H264) {
+        if (codec == ZCS_CODEC_H264) {
             mpegts_h264_au_reset(d);
             d->h264_need_idr = 1;
             return 0;
         }
-        if (codec == ZMS_CODEC_H265 || codec == ZMS_CODEC_H266) {
+        if (codec == ZCS_CODEC_H265 || codec == ZCS_CODEC_H266) {
             return 0;
         }
     }
 
     d->es_frames++;
 
-    if (codec == ZMS_CODEC_H264) {
+    if (codec == ZCS_CODEC_H264) {
         mpegts_cache_ps_from_es(d, (const uint8_t *)data, bytes, "ES frame");
         mpegts_cache_annexb_ps(d, (const uint8_t *)data, bytes);
         mpegts_h264_on_es(d, (const uint8_t *)data, bytes, pts_90k, dts_90k, flags);
@@ -556,8 +556,8 @@ static int mpegts_on_packet(void *param, int program, int stream, int codecid, i
     }
 
     {
-        uint32_t pts_ms = zms_mpegts_90k_to_ms(pts_90k);
-        uint32_t dts_ms = zms_mpegts_90k_to_ms(dts_90k);
+        uint32_t pts_ms = zcs_mpegts_90k_to_ms(pts_90k);
+        uint32_t dts_ms = zcs_mpegts_90k_to_ms(dts_90k);
         if (dts_ms == 0 && pts_ms != 0) {
             dts_ms = pts_ms;
         }
@@ -569,20 +569,20 @@ static int mpegts_on_packet(void *param, int program, int stream, int codecid, i
     return 0;
 }
 
-zms_mpegts_demuxer *zms_mpegts_demuxer_create(const zms_mpegts_demuxer_opts *opts)
+zcs_mpegts_demuxer *zcs_mpegts_demuxer_create(const zcs_mpegts_demuxer_opts *opts)
 {
-    zms_mpegts_demuxer *d;
+    zcs_mpegts_demuxer *d;
     struct ts_demuxer_notify_t notify;
 
     if (!opts || !opts->on_frame) {
         return NULL;
     }
-    d = (zms_mpegts_demuxer *)calloc(1, sizeof(*d));
+    d = (zcs_mpegts_demuxer *)calloc(1, sizeof(*d));
     if (!d) {
         return NULL;
     }
     d->opts = *opts;
-    zms_frame_init(&d->frame);
+    zcs_frame_init(&d->frame);
     d->ts = ts_demuxer_create(mpegts_on_packet, d);
     if (!d->ts) {
         free(d);
@@ -594,7 +594,7 @@ zms_mpegts_demuxer *zms_mpegts_demuxer_create(const zms_mpegts_demuxer_opts *opt
     return d;
 }
 
-void zms_mpegts_demuxer_destroy(zms_mpegts_demuxer *d)
+void zcs_mpegts_demuxer_destroy(zcs_mpegts_demuxer *d)
 {
     if (!d) {
         return;
@@ -602,11 +602,11 @@ void zms_mpegts_demuxer_destroy(zms_mpegts_demuxer *d)
     if (d->ts) {
         ts_demuxer_destroy(d->ts);
     }
-    zms_frame_clear(&d->frame);
+    zcs_frame_clear(&d->frame);
     free(d);
 }
 
-static zn_err_t mpegts_feed_ts_packet(zms_mpegts_demuxer *d, const uint8_t *pkt)
+static zn_err_t mpegts_feed_ts_packet(zcs_mpegts_demuxer *d, const uint8_t *pkt)
 {
     if (!d || !d->ts || !pkt) {
         return ZN_ERR_INVALID;
@@ -630,7 +630,7 @@ static zn_err_t mpegts_feed_ts_packet(zms_mpegts_demuxer *d, const uint8_t *pkt)
     return ZN_OK;
 }
 
-static void mpegts_seg_drop_prefix(zms_mpegts_demuxer *d, size_t n)
+static void mpegts_seg_drop_prefix(zcs_mpegts_demuxer *d, size_t n)
 {
     if (!d || n == 0) {
         return;
@@ -645,7 +645,7 @@ static void mpegts_seg_drop_prefix(zms_mpegts_demuxer *d, size_t n)
 
 /* 丢帧/损坏后的 resync：在 seg 里找 0x47，把它之前的垃圾丢掉；整段都找不到同步字
  * 且长度已超过 4 个包，说明缓冲里全是垃圾，直接清空（否则会无限堆积）。 */
-static void mpegts_seg_resync(zms_mpegts_demuxer *d)
+static void mpegts_seg_resync(zcs_mpegts_demuxer *d)
 {
     const uint8_t *sync;
 
@@ -680,7 +680,7 @@ static int mpegts_packet_confirmed(const uint8_t *buf, size_t len, size_t off)
     return 0;
 }
 
-static zn_err_t mpegts_seg_feed_packets(zms_mpegts_demuxer *d)
+static zn_err_t mpegts_seg_feed_packets(zcs_mpegts_demuxer *d)
 {
     size_t off = 0;
 
@@ -715,7 +715,7 @@ static zn_err_t mpegts_seg_feed_packets(zms_mpegts_demuxer *d)
     return ZN_OK;
 }
 
-static void mpegts_seg_feed_tail(zms_mpegts_demuxer *d)
+static void mpegts_seg_feed_tail(zcs_mpegts_demuxer *d)
 {
     if (!d || d->seg_len != MPEGTS_PKT_SIZE) {
         return;
@@ -734,7 +734,7 @@ static void mpegts_seg_feed_tail(zms_mpegts_demuxer *d)
  *   3) 其余走增量缓冲：拼进 seg 后用 seg_feed_packets 按 188 切包，容忍任意分片。
  * seg 缓冲满先 resync 再判，仍满才丢弃并报错（保护内存）。
  */
-zn_err_t zms_mpegts_demuxer_feed(zms_mpegts_demuxer *d, const uint8_t *data, size_t len)
+zn_err_t zcs_mpegts_demuxer_feed(zcs_mpegts_demuxer *d, const uint8_t *data, size_t len)
 {
     if (!d || !d->ts || !data || len == 0) {
         return ZN_ERR_INVALID;
@@ -784,7 +784,7 @@ zn_err_t zms_mpegts_demuxer_feed(zms_mpegts_demuxer *d, const uint8_t *data, siz
 
 /* 段结束/冲刷：把缓冲区里最后一个完整单包交付，丢掉残余（不足 188 的尾巴无法成包）。
  * 再 flush 底层 ts_demuxer 与可能挂起的 H264 AU。 */
-zn_err_t zms_mpegts_demuxer_flush(zms_mpegts_demuxer *d)
+zn_err_t zcs_mpegts_demuxer_flush(zcs_mpegts_demuxer *d)
 {
     if (!d || !d->ts) {
         return ZN_ERR_INVALID;
@@ -799,7 +799,7 @@ typedef struct {
     int unused;
 } mpegts_container_ctx;
 
-static void *mpegts_container_create(const zms_container_demux_opts *opts)
+static void *mpegts_container_create(const zcs_container_demux_opts *opts)
 {
     (void)opts;
     return calloc(1, sizeof(mpegts_container_ctx));
@@ -818,8 +818,8 @@ static zn_err_t mpegts_container_feed(void *ctx, const uint8_t *buf, size_t len)
     return ZN_OK;
 }
 
-const zms_container_demuxer_ops zms_container_mpegts_demuxer_ops = {
-    ZMS_CONTAINER_MPEGTS,
+const zcs_container_demuxer_ops zcs_container_mpegts_demuxer_ops = {
+    ZCS_CONTAINER_MPEGTS,
     "mpegts",
     mpegts_container_create,
     mpegts_container_destroy,

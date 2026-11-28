@@ -51,7 +51,7 @@ static uint32_t stun_crc32(const uint8_t *buf, size_t len)
     return ~crc;
 }
 
-int zms_webrtc_stun_is_binding_req(const uint8_t *data, size_t len)
+int zcs_webrtc_stun_is_binding_req(const uint8_t *data, size_t len)
 {
     uint16_t msg_type;
     uint16_t msg_len;
@@ -76,7 +76,7 @@ int zms_webrtc_stun_is_binding_req(const uint8_t *data, size_t len)
     return 1;
 }
 
-size_t zms_webrtc_stun_binding_reply(const uint8_t *req, size_t req_len, uint8_t *out,
+size_t zcs_webrtc_stun_binding_reply(const uint8_t *req, size_t req_len, uint8_t *out,
                                      size_t out_cap, uint32_t xor_ip_be, uint16_t xor_port,
                                      const char *pwd)
 {
@@ -91,7 +91,7 @@ size_t zms_webrtc_stun_binding_reply(const uint8_t *req, size_t req_len, uint8_t
     if (!req || req_len < 20 || !out || out_cap < 64 || !pwd || !pwd[0]) {
         return 0;
     }
-    if (!zms_webrtc_stun_is_binding_req(req, req_len)) {
+    if (!zcs_webrtc_stun_is_binding_req(req, req_len)) {
         return 0;
     }
 
@@ -132,7 +132,7 @@ size_t zms_webrtc_stun_binding_reply(const uint8_t *req, size_t req_len, uint8_t
     return total + 8u;
 }
 
-int zms_webrtc_packet_is_dtls(const uint8_t *data, size_t len)
+int zcs_webrtc_packet_is_dtls(const uint8_t *data, size_t len)
 {
     if (!data || len < 1) {
         return 0;
@@ -140,7 +140,7 @@ int zms_webrtc_packet_is_dtls(const uint8_t *data, size_t len)
     return data[0] >= 20 && data[0] <= 64;
 }
 
-int zms_webrtc_packet_is_rtp(const uint8_t *data, size_t len)
+int zcs_webrtc_packet_is_rtp(const uint8_t *data, size_t len)
 {
     if (!data || len < 12) {
         return 0;

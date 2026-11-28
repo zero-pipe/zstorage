@@ -2,22 +2,22 @@
  * @file http_server.c
  * @brief HTTP/WS 服务端会话管理。
  */
-#include "zms/play/vod_play_port.h"
-#include "zms/session/http/http_server.h"
-#include "zms/play/dispatch.h"
-#include "zms/protocol/http/websocket/framer.h"
-#include "zms/ops/config/config.h"
-#include "zms/protocol/http/route.h"
-#include "zms/protocol/http/session_api.h"
+#include "zcs/play/vod_play_port.h"
+#include "zcs/session/http/http_server.h"
+#include "zcs/play/dispatch.h"
+#include "zcs/protocol/http/websocket/framer.h"
+#include "zcs/ops/config/config.h"
+#include "zcs/protocol/http/route.h"
+#include "zcs/protocol/http/session_api.h"
 #include "session/http/session_internal.h"
-#include "zms/protocol/http/request_reader.h"
-#include "zms/play/play_binding.h"
-#include "zms/core/event.h"
-#if defined(ZMS_ENABLE_WEBRTC) && ZMS_ENABLE_WEBRTC
-#include "zms/session/webrtc/webrtc_server.h"
-#include "zms/ops/config/pull_ssl.h"
-#include "zms/ops/config/netcheck.h"
-#include "zms/media/media_limits.h"
+#include "zcs/protocol/http/request_reader.h"
+#include "zcs/play/play_binding.h"
+#include "zcs/core/event.h"
+#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
+#include "zcs/session/webrtc/webrtc_server.h"
+#include "zcs/ops/config/pull_ssl.h"
+#include "zcs/ops/config/netcheck.h"
+#include "zcs/media/media_limits.h"
 #endif
 #include "zn/net/tcp_server.h"
 #include "zn/poller/poller_pool.h"
@@ -25,11 +25,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct zms_http_server *g_http_service_instance;
+struct zcs_http_server *g_http_service_instance;
 
-static zms_play_binding http_play_binding(zms_http_session *hs)
+static zcs_play_binding http_play_binding(zcs_http_session *hs)
 {
-    zms_play_binding b;
+    zcs_play_binding b;
 
     memset(&b, 0, sizeof(b));
     b.source = &hs->source;
@@ -41,23 +41,23 @@ static zms_play_binding http_play_binding(zms_http_session *hs)
     return b;
 }
 
-static void http_play_teardown(zms_http_session *hs)
+static void http_play_teardown(zcs_http_session *hs)
 {
-    zms_play_binding bind;
+    zcs_play_binding bind;
 
     if (!hs) {
         return;
     }
     /* wire muxer 归协议所有；binding 仅关闭 readers/lane/记账。 */
     bind = http_play_binding(hs);
-    zms_play_binding_close(&bind, 1);
+    zcs_play_binding_close(&bind, 1);
     hs->play_event = NULL;
     hs->ws_mode = 0;
 }
 
 static int http_ws_send_raw(void *user, const void *data, size_t len)
 {
-    zms_http_session *hs = (zms_http_session *)user;
+    zcs_http_session *hs = (zcs_http_session *)user;
     if (!hs || !hs->tcp) {
         return -1;
     }
@@ -66,13 +66,13 @@ static int http_ws_send_raw(void *user, const void *data, size_t len)
 
 static void http_ws_on_close(void *user)
 {
-    zms_http_session *hs = (zms_http_session *)user;
+    zcs_http_session *hs = (zcs_http_session *)user;
     if (hs) {
-        zms_http_session_stop_stream(hs);
+        zcs_http_session_stop_stream(hs);
     }
 }
 
-void zms_http_session_stop_stream(zms_http_session *hs)
+void zcs_http_session_stop_stream(zcs_http_session *hs)
 {
     if (!hs) {
         return;
@@ -81,7 +81,7 @@ void zms_http_session_stop_stream(zms_http_session *hs)
         zn_tcp_session_out_discard(hs->tcp);
     }
     if (hs->file_fp) {
-        zms_http_close_file_async(hs->file_fp, hs->poller);
+        zcs_http_close_file_async(hs->file_fp, hs->poller);
         hs->file_fp = NULL;
     }
     free(hs->file_rd_buf);
@@ -92,9 +92,9 @@ void zms_http_session_stop_stream(zms_http_session *hs)
     hs->hls_send_len = 0;
     hs->hls_send_off = 0;
     http_play_teardown(hs);
-    hs->state = ZMS_HTTP_SESSION_STATE_IDLE;
+    hs->state = ZCS_HTTP_SESSION_STATE_IDLE;
     if (hs->splitter) {
-        zms_http_request_reader_reset(hs->splitter);
+        zcs_http_request_reader_reset(hs->splitter);
     }
 }
 
@@ -111,20 +111,20 @@ static int http_looks_like_request(const void *data, size_t len)
            strncmp(s, "OPTIONS ", 8) == 0;
 }
 
-int zms_http_session_authorize_play(zms_http_session *hs, const char *player,
-                                    zms_media_source *src)
+int zcs_http_session_authorize_play(zcs_http_session *hs, const char *player,
+                                    zcs_media_source *src)
 {
-    zms_auth_request req;
-    zms_auth_decision dec;
+    zcs_auth_request req;
+    zcs_auth_decision dec;
     char ip[64];
     unsigned port = 0;
 
     if (!hs || !src) {
         return 0;
     }
-    zms_auth_fill_peer(hs->tcp, ip, sizeof(ip), &port);
+    zcs_auth_fill_peer(hs->tcp, ip, sizeof(ip), &port);
     memset(&req, 0, sizeof(req));
-    req.action = ZMS_AUTH_ACTION_PLAY;
+    req.action = ZCS_AUTH_ACTION_PLAY;
     req.schema = player && player[0] ? player : src->schema;
     req.vhost = src->vhost[0] ? src->vhost : NULL;
     req.app = src->app;
@@ -132,14 +132,14 @@ int zms_http_session_authorize_play(zms_http_session *hs, const char *player,
     req.params = hs->params[0] ? hs->params : NULL;
     req.ip = ip[0] ? ip : NULL;
     req.port = port;
-    if (zms_auth_check(&req, &dec)) {
+    if (zcs_auth_check(&req, &dec)) {
         return 1;
     }
     zn_warn("[http] play denied schema=%s app=%s stream=%s", req.schema, req.app, req.stream);
     return 0;
 }
 
-int zms_http_session_send_reserve(zms_http_session *hs, size_t need)
+int zcs_http_session_send_reserve(zcs_http_session *hs, size_t need)
 {
     uint8_t *nb;
 
@@ -149,7 +149,7 @@ int zms_http_session_send_reserve(zms_http_session *hs, size_t need)
     if (need <= hs->send_cap) {
         return 0;
     }
-    if (need > ZMS_HTTP_SEND_BUF_MAX) {
+    if (need > ZCS_HTTP_SEND_BUF_MAX) {
         return -1;
     }
     nb = (uint8_t *)realloc(hs->send_buf, need);
@@ -161,67 +161,67 @@ int zms_http_session_send_reserve(zms_http_session *hs, size_t need)
     return 0;
 }
 
-static void on_http_request(const zms_http_request *req, void *user)
+static void on_http_request(const zcs_http_request *req, void *user)
 {
-    zms_http_session *hs = (zms_http_session *)user;
+    zcs_http_session *hs = (zcs_http_session *)user;
 
     if (!hs || !req) {
         return;
     }
     /* 本次请求的查询串（token 等）供鉴权验签。 */
-    zms_auth_split_query(req->path, NULL, 0, hs->params, sizeof(hs->params));
-    if (!zms_http_router_dispatch(hs, req)) {
-        zms_http_response_send_error(hs, 404, "Not Found");
+    zcs_auth_split_query(req->path, NULL, 0, hs->params, sizeof(hs->params));
+    if (!zcs_http_router_dispatch(hs, req)) {
+        zcs_http_response_send_error(hs, 404, "Not Found");
     }
 }
 
 static void on_recv(zn_tcp_session *session, const void *data, size_t len, void *user)
 {
-    zms_http_session *hs = (zms_http_session *)user;
+    zcs_http_session *hs = (zcs_http_session *)user;
     if (!hs) {
         return;
     }
-    if (hs->state == ZMS_HTTP_SESSION_STATE_WS_STREAMING) {
-        (void)zms_ws_framer_consume_client((const uint8_t *)data, len, http_ws_send_raw,
+    if (hs->state == ZCS_HTTP_SESSION_STATE_WS_STREAMING) {
+        (void)zcs_ws_framer_consume_client((const uint8_t *)data, len, http_ws_send_raw,
                                            http_ws_on_close, hs);
-    } else if (hs->state == ZMS_HTTP_SESSION_STATE_IDLE) {
-        zms_http_request_reader_input(hs->splitter, data, len);
+    } else if (hs->state == ZCS_HTTP_SESSION_STATE_IDLE) {
+        zcs_http_request_reader_input(hs->splitter, data, len);
     } else if (http_looks_like_request(data, len)) {
-        zms_http_session_stop_stream(hs);
-        zms_http_request_reader_input(hs->splitter, data, len);
+        zcs_http_session_stop_stream(hs);
+        zcs_http_request_reader_input(hs->splitter, data, len);
     }
-    zms_http_session_flush(hs);
+    zcs_http_session_flush(hs);
 }
 
 static void on_manager(zn_tcp_session *session, void *user)
 {
     (void)session;
-    zms_http_session_flush((zms_http_session *)user);
+    zcs_http_session_flush((zcs_http_session *)user);
 }
 
-static void http_session_free(zms_http_session *hs)
+static void http_session_free(zcs_http_session *hs)
 {
     if (!hs) {
         return;
     }
     if (hs->file_fp) {
-        zms_http_close_file_async(hs->file_fp, hs->poller);
+        zcs_http_close_file_async(hs->file_fp, hs->poller);
         hs->file_fp = NULL;
     }
     free(hs->file_rd_buf);
     hs->file_rd_buf = NULL;
     http_play_teardown(hs);
-    zms_http_request_reader_destroy(hs->splitter);
+    zcs_http_request_reader_destroy(hs->splitter);
     free(hs->send_buf);
     free(hs);
 }
 
-zn_tcp_session *zms_http_session_tcp(zms_http_session *hs)
+zn_tcp_session *zcs_http_session_tcp(zcs_http_session *hs)
 {
     return hs ? hs->tcp : NULL;
 }
 
-zn_poller *zms_http_session_poller(zms_http_session *hs)
+zn_poller *zcs_http_session_poller(zcs_http_session *hs)
 {
     if (!hs) {
         return NULL;
@@ -232,29 +232,29 @@ zn_poller *zms_http_session_poller(zms_http_session *hs)
     return hs->poller;
 }
 
-zn_poller_pool *zms_http_session_poller_pool(zms_http_session *hs)
+zn_poller_pool *zcs_http_session_poller_pool(zcs_http_session *hs)
 {
     return (hs && hs->server) ? hs->server->poller_pool : NULL;
 }
 
-const char *zms_http_session_api_secret(zms_http_session *hs)
+const char *zcs_http_session_api_secret(zcs_http_session *hs)
 {
     return (hs && hs->server) ? hs->server->api_secret : NULL;
 }
 
-const zms_config *zms_http_session_config(zms_http_session *hs)
+const zcs_config *zcs_http_session_config(zcs_http_session *hs)
 {
     return (hs && hs->server) ? hs->server->cfg : NULL;
 }
 
-void zms_http_session_async_hold(zms_http_session *hs)
+void zcs_http_session_async_hold(zcs_http_session *hs)
 {
     if (hs) {
         ++hs->async_refs;
     }
 }
 
-void zms_http_session_async_release(zms_http_session *hs)
+void zcs_http_session_async_release(zcs_http_session *hs)
 {
     if (!hs) {
         return;
@@ -267,7 +267,7 @@ void zms_http_session_async_release(zms_http_session *hs)
     }
 }
 
-int zms_http_session_is_live(const zms_http_session *hs)
+int zcs_http_session_is_live(const zcs_http_session *hs)
 {
     return hs && !hs->closed && hs->tcp != NULL;
 }
@@ -275,7 +275,7 @@ int zms_http_session_is_live(const zms_http_session *hs)
 static void on_error(zn_tcp_session *session, void *user)
 {
     (void)session;
-    zms_http_session *hs = (zms_http_session *)user;
+    zcs_http_session *hs = (zcs_http_session *)user;
     if (!hs) {
         return;
     }
@@ -283,18 +283,18 @@ static void on_error(zn_tcp_session *session, void *user)
     zn_tcp_session_set_user(session, NULL);
     hs->tcp = NULL;
     hs->closed = 1;
-    zms_http_session_async_release(hs);
+    zcs_http_session_async_release(hs);
 }
 
 static void *session_create_user(zn_tcp_server *srv, zn_tcp_session *session)
 {
     (void)srv;
-    zms_http_session *hs = (zms_http_session *)calloc(1, sizeof(*hs));
+    zcs_http_session *hs = (zcs_http_session *)calloc(1, sizeof(*hs));
     if (!hs) {
         return NULL;
     }
     hs->server = g_http_service_instance;
-    hs->send_cap = ZMS_HTTP_SEND_BUF_INIT;
+    hs->send_cap = ZCS_HTTP_SEND_BUF_INIT;
     hs->send_buf = (uint8_t *)malloc(hs->send_cap);
     if (!hs->send_buf) {
         free(hs);
@@ -303,8 +303,8 @@ static void *session_create_user(zn_tcp_server *srv, zn_tcp_session *session)
     hs->tcp = session;
     hs->poller = zn_tcp_session_poller(session);
     {
-        zms_http_request_reader_opts opts = {on_http_request, hs};
-        hs->splitter = zms_http_request_reader_create(&opts);
+        zcs_http_request_reader_opts opts = {on_http_request, hs};
+        hs->splitter = zcs_http_request_reader_create(&opts);
     }
     if (!hs->splitter) {
         free(hs->send_buf);
@@ -314,13 +314,13 @@ static void *session_create_user(zn_tcp_server *srv, zn_tcp_session *session)
     return hs;
 }
 
-zms_http_server *zms_http_server_create(const zms_http_server_opts *opts)
+zcs_http_server *zcs_http_server_create(const zcs_http_server_opts *opts)
 {
     if (!opts || !opts->poller_pool) {
         return NULL;
     }
-    zms_session_dispatch_register_all();
-    zms_http_server *srv = (zms_http_server *)calloc(1, sizeof(*srv));
+    zcs_session_dispatch_register_all();
+    zcs_http_server *srv = (zcs_http_server *)calloc(1, sizeof(*srv));
     if (!srv) {
         return NULL;
     }
@@ -332,11 +332,11 @@ zms_http_server *zms_http_server_create(const zms_http_server_opts *opts)
     srv->cfg = opts->cfg;
     g_http_service_instance = srv;
 
-#if defined(ZMS_ENABLE_WEBRTC) && ZMS_ENABLE_WEBRTC
+#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
     if (opts->cfg && opts->cfg->webrtc.enable) {
         /* 并发上限必须在 server_create 之前落到会话注册表。 */
-        zms_webrtc_session_set_limit(opts->cfg->webrtc.max_sessions);
-        zms_webrtc_server_opts wopts = {
+        zcs_webrtc_session_set_limit(opts->cfg->webrtc.max_sessions);
+        zcs_webrtc_server_opts wopts = {
             .poller = srv->poller,
             .host = opts->host && opts->host[0] ? opts->host : "0.0.0.0",
             .advertise_host =
@@ -361,13 +361,13 @@ zms_http_server *zms_http_server_create(const zms_http_server_opts *opts)
             .whip_client_app = opts->cfg->webrtc.whip_client_app,
             .whip_client_stream = opts->cfg->webrtc.whip_client_stream,
             .whip_client_token = opts->cfg->webrtc.whip_client_token,
-            .client_ssl_ctx = zms_pull_ssl_ctx(opts->cfg),
+            .client_ssl_ctx = zcs_pull_ssl_ctx(opts->cfg),
         };
-        srv->webrtc = zms_webrtc_server_create(&wopts);
+        srv->webrtc = zcs_webrtc_server_create(&wopts);
         if (!srv->webrtc) {
             zn_warn("WebRTC service create failed");
         } else {
-            const char *adv = zms_webrtc_server_advertise_host(srv->webrtc);
+            const char *adv = zcs_webrtc_server_advertise_host(srv->webrtc);
 
             zn_info("WebRTC ICE advertise_host=%s", adv);
             /* 回环地址只对"播放器与服务同机且走 loopback"有效；跨主机/浏览器
@@ -377,7 +377,7 @@ zms_http_server *zms_http_server_create(const zms_http_server_opts *opts)
                 zn_warn("WebRTC ICE advertise_host is loopback (%s); remote viewers will not "
                         "connect. Set [general] externIP to this host's LAN/public IP.",
                         adv && adv[0] ? adv : "127.0.0.1");
-            } else if (!zms_netcheck_host_ip_present(adv)) {
+            } else if (!zcs_netcheck_host_ip_present(adv)) {
                 /* 非回环但不是本机任何网卡：多半是换了网段/搬了机器后没改配置。
                  * 这种配置不会报错，只会让所有远端浏览器连不上。 */
                 zn_warn("WebRTC: [general] externIP=%s is not an address on this host. "
@@ -385,8 +385,8 @@ zms_http_server *zms_http_server_create(const zms_http_server_opts *opts)
                         "fail to connect. Update it to this host's real IP.",
                         adv);
             }
-            zn_info("WebRTC max sessions=%u (hard cap %u)", (unsigned)zms_webrtc_session_limit(),
-                     (unsigned)ZMS_WEBRTC_SESSION_MAX_HARD);
+            zn_info("WebRTC max sessions=%u (hard cap %u)", (unsigned)zcs_webrtc_session_limit(),
+                     (unsigned)ZCS_WEBRTC_SESSION_MAX_HARD);
         }
     }
 #endif
@@ -425,14 +425,14 @@ zms_http_server *zms_http_server_create(const zms_http_server_opts *opts)
     return srv;
 }
 
-void zms_http_server_destroy(zms_http_server *srv)
+void zcs_http_server_destroy(zcs_http_server *srv)
 {
     if (!srv) {
         return;
     }
-#if defined(ZMS_ENABLE_WEBRTC) && ZMS_ENABLE_WEBRTC
+#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
     if (srv->webrtc) {
-        zms_webrtc_server_destroy(srv->webrtc);
+        zcs_webrtc_server_destroy(srv->webrtc);
         srv->webrtc = NULL;
     }
 #endif
@@ -444,7 +444,7 @@ void zms_http_server_destroy(zms_http_server *srv)
     free(srv);
 }
 
-zn_err_t zms_http_server_start(zms_http_server *srv)
+zn_err_t zcs_http_server_start(zcs_http_server *srv)
 {
     zn_err_t err;
 
@@ -464,7 +464,7 @@ zn_err_t zms_http_server_start(zms_http_server *srv)
     return ZN_OK;
 }
 
-void zms_http_server_stop(zms_http_server *srv)
+void zcs_http_server_stop(zcs_http_server *srv)
 {
     if (srv && srv->tcp) {
         zn_tcp_server_stop(srv->tcp);
@@ -474,7 +474,7 @@ void zms_http_server_stop(zms_http_server *srv)
     }
 }
 
-uint16_t zms_http_server_port(const zms_http_server *srv)
+uint16_t zcs_http_server_port(const zcs_http_server *srv)
 {
     if (!srv || !srv->tcp) {
         return 0;

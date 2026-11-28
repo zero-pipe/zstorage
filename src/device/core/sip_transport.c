@@ -3,7 +3,7 @@
  * @brief SIP 传输接口：UDP server / TCP client + Content-Length 分帧。
  */
 #include "device/core/sip_transport.h"
-#include "zms/util/dns_cache.h"
+#include "zcs/util/dns_cache.h"
 
 #include "zn/net/socket.h"
 #include "zn/net/ssl.h"
@@ -23,7 +23,7 @@
 #define SIP_RECONNECT_MS 3000u
 
 typedef struct sip_conn {
-    struct zms_sip_transport *t;
+    struct zcs_sip_transport *t;
     zn_tcp_session *session;
     char ip[64];
     uint16_t port;
@@ -33,7 +33,7 @@ typedef struct sip_conn {
     struct sip_conn *next;
 } sip_conn;
 
-struct zms_sip_transport {
+struct zcs_sip_transport {
     int mode;
     int server_mode;
     zn_poller *poller;
@@ -61,8 +61,8 @@ struct zms_sip_transport {
     uint16_t peer_port;
 
     int connected;
-    zms_sip_message_fn on_message;
-    zms_sip_state_fn on_state;
+    zcs_sip_message_fn on_message;
+    zcs_sip_state_fn on_state;
     void *user;
 
     uint8_t *rx;
@@ -159,7 +159,7 @@ static size_t header_content_length(const uint8_t *b, size_t hdr_len)
     return 0;
 }
 
-static void rx_reset(zms_sip_transport *t)
+static void rx_reset(zcs_sip_transport *t)
 {
     t->rx_len = 0;
 }
@@ -170,7 +170,7 @@ static void rx_reset(zms_sip_transport *t)
  *     增长只会吃内存，且下一次永远等不到完整消息；
  *   - 扩容按翻倍并封顶 SIP_MAX_MESSAGE，realloc 失败时静默丢弃本批（保留已存）。
  */
-static void rx_append(zms_sip_transport *t, const void *data, size_t len)
+static void rx_append(zcs_sip_transport *t, const void *data, size_t len)
 {
     if (t->rx_len + len > SIP_MAX_MESSAGE) {
         zn_warn("sip_transport: peer message exceeds %u bytes, reset", SIP_MAX_MESSAGE);
@@ -202,7 +202,7 @@ static void rx_append(zms_sip_transport *t, const void *data, size_t len)
  * 头未完整、或 body 未到齐时保留在缓冲里等下次；切出一条后把剩余字节前移。
  * 一次可连续切多条（一个 TCP 段里常打包了多个 SIP 消息）。消息边界以
  * total = hdr + sep + clen 为准，绝不按 TCP 包边界切。 */
-static int rx_drain(zms_sip_transport *t)
+static int rx_drain(zcs_sip_transport *t)
 {
     int n = 0;
 
@@ -239,7 +239,7 @@ static uint64_t retry_delay_cb(void *user);
  * 双重去重是为了避免一次抖动触发多个重试定时器堆叠——每个 on_error 都会
  * 调到这里，但 t->retry 非空就跳过；重试回调执行前会把 t->retry 置空。
  */
-static void schedule_retry(zms_sip_transport *t)
+static void schedule_retry(zcs_sip_transport *t)
 {
     if (!t || t->retry || t->connected) {
         return;
@@ -247,7 +247,7 @@ static void schedule_retry(zms_sip_transport *t)
     t->retry = zn_poller_do_delay(t->poller, SIP_RECONNECT_MS, retry_delay_cb, t);
 }
 
-static void cancel_retry(zms_sip_transport *t)
+static void cancel_retry(zcs_sip_transport *t)
 {
     if (t->retry) {
         zn_poller_timer_cancel(t->retry);
@@ -313,7 +313,7 @@ static int conn_rx_drain(sip_conn *c)
     return n;
 }
 
-static sip_conn *conn_find_locked(zms_sip_transport *t, const char *ip, uint16_t port)
+static sip_conn *conn_find_locked(zcs_sip_transport *t, const char *ip, uint16_t port)
 {
     sip_conn *c;
 
@@ -325,12 +325,12 @@ static sip_conn *conn_find_locked(zms_sip_transport *t, const char *ip, uint16_t
     return NULL;
 }
 
-static sip_conn *conn_primary_locked(zms_sip_transport *t)
+static sip_conn *conn_primary_locked(zcs_sip_transport *t)
 {
     return t->conns;
 }
 
-static void conn_unlink_locked(zms_sip_transport *t, sip_conn *c)
+static void conn_unlink_locked(zcs_sip_transport *t, sip_conn *c)
 {
     sip_conn **pp;
 
@@ -348,7 +348,7 @@ static void conn_unlink_locked(zms_sip_transport *t, sip_conn *c)
 static void udp_on_packet(zn_udp_server *srv, const char *peer_ip, uint16_t peer_port,
                           const void *data, size_t len, void *user)
 {
-    zms_sip_transport *t = (zms_sip_transport *)user;
+    zcs_sip_transport *t = (zcs_sip_transport *)user;
 
     (void)srv;
     if (t->on_message) {
@@ -360,7 +360,7 @@ static void udp_on_packet(zn_udp_server *srv, const char *peer_ip, uint16_t peer
 
 /* 从已连接的 TCP socket 上取对端地址（用于给上层回包时填目标）和本地端口
  * （用于 SIP Via/Contact 公告）。二者任一取不到都不致命，只是相应字段留空。 */
-static void tcp_update_peer(zms_sip_transport *t)
+static void tcp_update_peer(zcs_sip_transport *t)
 {
     zn_socket *sock = zn_tcp_client_socket(t->tcp);
     char ip[64];
@@ -380,7 +380,7 @@ static void tcp_update_peer(zms_sip_transport *t)
 
 static void tcp_on_connect(zn_tcp_client *client, void *user)
 {
-    zms_sip_transport *t = (zms_sip_transport *)user;
+    zcs_sip_transport *t = (zcs_sip_transport *)user;
 
     (void)client;
     t->connected = 1;
@@ -396,7 +396,7 @@ static void tcp_on_connect(zn_tcp_client *client, void *user)
 
 static void tcp_on_recv(zn_tcp_client *client, const void *data, size_t len, void *user)
 {
-    zms_sip_transport *t = (zms_sip_transport *)user;
+    zcs_sip_transport *t = (zcs_sip_transport *)user;
 
     (void)client;
     rx_append(t, data, len);
@@ -405,7 +405,7 @@ static void tcp_on_recv(zn_tcp_client *client, const void *data, size_t len, voi
 
 static void tcp_on_error(zn_tcp_client *client, void *user)
 {
-    zms_sip_transport *t = (zms_sip_transport *)user;
+    zcs_sip_transport *t = (zcs_sip_transport *)user;
 
     (void)client;
     if (t->connected) {
@@ -423,7 +423,7 @@ static void tcp_on_error(zn_tcp_client *client, void *user)
  * （poller 里仍有残留注册），不关会泄漏句柄并可能在旧 socket 上收到过期事件。
  * connect 返回非 OK 时不一定真失败（可能仍在异步 connecting），统一排程重试，
  * 由 on_connect/on_error 决定最终状态。 */
-static void tcp_try_connect(zms_sip_transport *t)
+static void tcp_try_connect(zcs_sip_transport *t)
 {
     char ipbuf[64];
 
@@ -431,7 +431,7 @@ static void tcp_try_connect(zms_sip_transport *t)
         return;
     }
     zn_tcp_client_close(t->tcp);
-    if (zn_tcp_client_connect(t->tcp, zms_dns_target(t->remote_host, ipbuf, sizeof(ipbuf)),
+    if (zn_tcp_client_connect(t->tcp, zcs_dns_target(t->remote_host, ipbuf, sizeof(ipbuf)),
                               t->remote_port) != ZN_OK) {
         zn_debug("sip_transport: connect %s:%u pending/failed", t->remote_host, t->remote_port);
         schedule_retry(t);
@@ -441,7 +441,7 @@ static void tcp_try_connect(zms_sip_transport *t)
 /* ── TCP/TLS 服务端（平台连入） ─────────────────────────────────────────── */
 
 /* 进程内同一时刻只允许一个 SIP 服务端（GB 设备端单实例）。 */
-static zms_sip_transport *g_srv_transport;
+static zcs_sip_transport *g_srv_transport;
 
 /*
  * 服务端每来一条 TCP/TLS 连接就建一个 sip_conn，挂到 t->conns 链表头。
@@ -451,7 +451,7 @@ static zms_sip_transport *g_srv_transport;
  */
 static void *srv_session_create(zn_tcp_server *srv, zn_tcp_session *session)
 {
-    zms_sip_transport *t = g_srv_transport;
+    zcs_sip_transport *t = g_srv_transport;
     zn_debug("sip_transport: server session create");
     sip_conn *c = (sip_conn *)calloc(1, sizeof(*c));
     char ip[64];
@@ -476,7 +476,7 @@ static void *srv_session_create(zn_tcp_server *srv, zn_tcp_session *session)
     }
     zb_mutex_unlock(t->mtx);
     zn_info("sip_transport: %s peer connected %s:%u",
-             t->mode == ZMS_SIP_TRANSPORT_TLS ? "TLS" : "TCP", c->ip, c->port);
+             t->mode == ZCS_SIP_TRANSPORT_TLS ? "TLS" : "TCP", c->ip, c->port);
     if (t->on_state) {
         t->on_state(t->user, 1);
     }
@@ -500,7 +500,7 @@ static void srv_session_recv(zn_tcp_session *session, const void *data, size_t l
 static void srv_session_error(zn_tcp_session *session, void *user)
 {
     sip_conn *c = (sip_conn *)user;
-    zms_sip_transport *t;
+    zcs_sip_transport *t;
     int empty;
 
     if (!c) {
@@ -529,7 +529,7 @@ static void srv_session_error(zn_tcp_session *session, void *user)
  * backlog=8 对 GB 信令足够，manager_interval_sec=-1 关闭空闲连接管理（GB 连接
  * 一般长连，不该被自动踢）。
  */
-static int start_server(zms_sip_transport *t)
+static int start_server(zcs_sip_transport *t)
 {
     zn_tcp_server_opts_t sopts;
     zn_tcp_session_ops_t sops;
@@ -538,7 +538,7 @@ static int start_server(zms_sip_transport *t)
         zn_error("sip_transport: TCP/TLS server needs poller_pool");
         return -1;
     }
-    if (t->mode == ZMS_SIP_TRANSPORT_TLS) {
+    if (t->mode == ZCS_SIP_TRANSPORT_TLS) {
         zn_ssl_config_t scfg;
         if (!t->tls_cert[0] || !t->tls_key[0]) {
             zn_error("sip_transport: TLS server needs tls_cert/tls_key");
@@ -571,18 +571,18 @@ static int start_server(zms_sip_transport *t)
     t->tcp_srv = zn_tcp_server_create(&sopts);
     if (!t->tcp_srv || zn_tcp_server_start(t->tcp_srv) != ZN_OK) {
         zn_error("sip_transport: %s server listen %u failed",
-                  t->mode == ZMS_SIP_TRANSPORT_TLS ? "TLS" : "TCP", t->local_port);
+                  t->mode == ZCS_SIP_TRANSPORT_TLS ? "TLS" : "TCP", t->local_port);
         return -1;
     }
     t->local_port = zn_tcp_server_port(t->tcp_srv);
     zn_info("sip_transport: %s server listening %s:%u",
-             t->mode == ZMS_SIP_TRANSPORT_TLS ? "TLS" : "TCP", t->bind_host, t->local_port);
+             t->mode == ZCS_SIP_TRANSPORT_TLS ? "TLS" : "TCP", t->bind_host, t->local_port);
     return 0;
 }
 
 /* ── TLS ── *//* ── TLS ── */
 
-static void tls_update_peer(zms_sip_transport *t)
+static void tls_update_peer(zcs_sip_transport *t)
 {
     zn_socket *sock = zn_tls_client_socket(t->tls);
     char ip[64];
@@ -602,7 +602,7 @@ static void tls_update_peer(zms_sip_transport *t)
 
 static void tls_on_connect(zn_tls_client *client, void *user)
 {
-    zms_sip_transport *t = (zms_sip_transport *)user;
+    zcs_sip_transport *t = (zcs_sip_transport *)user;
 
     (void)client;
     t->connected = 1;
@@ -618,7 +618,7 @@ static void tls_on_connect(zn_tls_client *client, void *user)
 
 static void tls_on_recv(zn_tls_client *client, const void *data, size_t len, void *user)
 {
-    zms_sip_transport *t = (zms_sip_transport *)user;
+    zcs_sip_transport *t = (zcs_sip_transport *)user;
 
     (void)client;
     rx_append(t, data, len);
@@ -627,7 +627,7 @@ static void tls_on_recv(zn_tls_client *client, const void *data, size_t len, voi
 
 static void tls_on_error(zn_tls_client *client, void *user)
 {
-    zms_sip_transport *t = (zms_sip_transport *)user;
+    zcs_sip_transport *t = (zcs_sip_transport *)user;
 
     (void)client;
     if (t->connected) {
@@ -648,7 +648,7 @@ static const zn_tls_client_ops_t k_tls_ops = {
     tls_on_error,
 };
 
-static void tls_try_connect(zms_sip_transport *t)
+static void tls_try_connect(zcs_sip_transport *t)
 {
     char ipbuf2[64];
     zn_err_t err;
@@ -661,7 +661,7 @@ static void tls_try_connect(zms_sip_transport *t)
         zn_tls_client_close(t->tls);
     }
     t->tls_attempted = 1;
-    err = zn_tls_client_connect(t->tls, zms_dns_target(t->remote_host, ipbuf2, sizeof(ipbuf2)),
+    err = zn_tls_client_connect(t->tls, zcs_dns_target(t->remote_host, ipbuf2, sizeof(ipbuf2)),
                                 t->remote_port);
     if (err != ZN_OK) {
         zn_debug("sip_transport: TLS connect failed err=%d (%s:%u)", (int)err, t->remote_host,
@@ -672,10 +672,10 @@ static void tls_try_connect(zms_sip_transport *t)
 
 static uint64_t retry_delay_cb(void *user)
 {
-    zms_sip_transport *t = (zms_sip_transport *)user;
+    zcs_sip_transport *t = (zcs_sip_transport *)user;
 
     t->retry = NULL;
-    if (t->mode == ZMS_SIP_TRANSPORT_TLS) {
+    if (t->mode == ZCS_SIP_TRANSPORT_TLS) {
         tls_try_connect(t);
     } else {
         tcp_try_connect(t);
@@ -685,14 +685,14 @@ static uint64_t retry_delay_cb(void *user)
 
 /* ── 生命周期 ───────────────────────────────────────────────────────────── */
 
-zms_sip_transport *zms_sip_transport_create(const zms_sip_transport_opts *opts)
+zcs_sip_transport *zcs_sip_transport_create(const zcs_sip_transport_opts *opts)
 {
-    zms_sip_transport *t;
+    zcs_sip_transport *t;
 
     if (!opts || !opts->poller) {
         return NULL;
     }
-    t = (zms_sip_transport *)calloc(1, sizeof(*t));
+    t = (zcs_sip_transport *)calloc(1, sizeof(*t));
     if (!t) {
         return NULL;
     }
@@ -724,12 +724,12 @@ zms_sip_transport *zms_sip_transport_create(const zms_sip_transport_opts *opts)
     return t;
 }
 
-int zms_sip_transport_start(zms_sip_transport *t)
+int zcs_sip_transport_start(zcs_sip_transport *t)
 {
     if (!t) {
         return -1;
     }
-    if (t->mode == ZMS_SIP_TRANSPORT_UDP) {
+    if (t->mode == ZCS_SIP_TRANSPORT_UDP) {
         zn_udp_server_opts_t uopts;
         zn_udp_server_ops_t uops;
 
@@ -754,13 +754,13 @@ int zms_sip_transport_start(zms_sip_transport *t)
         }
         return 0;
     }
-    if (t->mode == ZMS_SIP_TRANSPORT_TCP && t->server_mode) {
+    if (t->mode == ZCS_SIP_TRANSPORT_TCP && t->server_mode) {
         return start_server(t);
     }
-    if (t->mode == ZMS_SIP_TRANSPORT_TLS && t->server_mode) {
+    if (t->mode == ZCS_SIP_TRANSPORT_TLS && t->server_mode) {
         return start_server(t);
     }
-    if (t->mode == ZMS_SIP_TRANSPORT_TCP) {
+    if (t->mode == ZCS_SIP_TRANSPORT_TCP) {
         zn_tcp_client_opts_t copts;
         zn_tcp_client_ops_t cops;
 
@@ -783,7 +783,7 @@ int zms_sip_transport_start(zms_sip_transport *t)
         tcp_try_connect(t);
         return 0;
     }
-    if (t->mode == ZMS_SIP_TRANSPORT_TLS) {
+    if (t->mode == ZCS_SIP_TRANSPORT_TLS) {
         zn_tls_client_opts_t copts;
         zn_ssl_config_t scfg;
 
@@ -819,7 +819,7 @@ int zms_sip_transport_start(zms_sip_transport *t)
     return -1;
 }
 
-void zms_sip_transport_stop(zms_sip_transport *t)
+void zcs_sip_transport_stop(zcs_sip_transport *t)
 {
     if (!t) {
         return;
@@ -866,12 +866,12 @@ void zms_sip_transport_stop(zms_sip_transport *t)
     t->connected = 0;
 }
 
-void zms_sip_transport_destroy(zms_sip_transport *t)
+void zcs_sip_transport_destroy(zcs_sip_transport *t)
 {
     if (!t) {
         return;
     }
-    zms_sip_transport_stop(t);
+    zcs_sip_transport_stop(t);
     if (t->mtx) {
         zb_mutex_destroy(t->mtx);
         t->mtx = NULL;
@@ -887,7 +887,7 @@ void zms_sip_transport_destroy(zms_sip_transport *t)
  *   - UDP：始终返回绑定端口。
  * 调用方（GB 平台拼 Via/Contact）据此决定是否能把端口写进 SIP 头。
  */
-uint16_t zms_sip_transport_local_port(const zms_sip_transport *t)
+uint16_t zcs_sip_transport_local_port(const zcs_sip_transport *t)
 {
     if (!t) {
         return 0;
@@ -895,13 +895,13 @@ uint16_t zms_sip_transport_local_port(const zms_sip_transport *t)
     if (t->server_mode) {
         return t->local_port;
     }
-    if (t->mode == ZMS_SIP_TRANSPORT_TCP || t->mode == ZMS_SIP_TRANSPORT_TLS) {
+    if (t->mode == ZCS_SIP_TRANSPORT_TCP || t->mode == ZCS_SIP_TRANSPORT_TLS) {
         return t->connected ? t->local_port : 0;
     }
     return t->local_port;
 }
 
-int zms_sip_transport_is_connected(const zms_sip_transport *t)
+int zcs_sip_transport_is_connected(const zcs_sip_transport *t)
 {
     return t && t->connected;
 }
@@ -913,19 +913,19 @@ int zms_sip_transport_is_connected(const zms_sip_transport *t)
  *   - TCP/TLS 客户端：走各自的 connected 通道。
  * 服务端模式拿锁查表后调用 send_async，出锁前完成，避免表项在发送期间被释放。
  */
-int zms_sip_transport_send(zms_sip_transport *t, const char *peer_ip, uint16_t peer_port,
+int zcs_sip_transport_send(zcs_sip_transport *t, const char *peer_ip, uint16_t peer_port,
                            const void *data, size_t len)
 {
     if (!t || !data || len == 0) {
         return -1;
     }
-    if (t->mode == ZMS_SIP_TRANSPORT_UDP) {
+    if (t->mode == ZCS_SIP_TRANSPORT_UDP) {
         if (!t->udp || !peer_ip || !peer_ip[0] || !peer_port) {
             return -1;
         }
         return zn_udp_server_sendto(t->udp, peer_ip, peer_port, data, len) == ZN_OK ? 0 : -1;
     }
-    if (t->server_mode && (t->mode == ZMS_SIP_TRANSPORT_TCP || t->mode == ZMS_SIP_TRANSPORT_TLS)) {
+    if (t->server_mode && (t->mode == ZCS_SIP_TRANSPORT_TCP || t->mode == ZCS_SIP_TRANSPORT_TLS)) {
         sip_conn *c = NULL;
         int rc;
 
@@ -949,13 +949,13 @@ int zms_sip_transport_send(zms_sip_transport *t, const char *peer_ip, uint16_t p
         zb_mutex_unlock(t->mtx);
         return rc;
     }
-    if (t->mode == ZMS_SIP_TRANSPORT_TCP) {
+    if (t->mode == ZCS_SIP_TRANSPORT_TCP) {
         if (!t->tcp || !t->connected) {
             return -1;
         }
         return zn_tcp_client_send(t->tcp, data, len) == ZN_OK ? 0 : -1;
     }
-    if (t->mode == ZMS_SIP_TRANSPORT_TLS) {
+    if (t->mode == ZCS_SIP_TRANSPORT_TLS) {
         if (!t->tls || !t->connected) {
             return -1;
         }

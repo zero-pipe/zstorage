@@ -2,7 +2,7 @@
  * @file base64.c
  * @brief Base64 编解码（RFC 4648 标准字母表）。
  */
-#include "zms/util/base64.h"
+#include "zcs/util/base64.h"
 
 static const char k_b64_tbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -27,17 +27,17 @@ static int b64_val(char c)
     return -1;
 }
 
-size_t zms_base64_encoded_max(size_t in_len)
+size_t zcs_base64_encoded_max(size_t in_len)
 {
     return (in_len + 2u) / 3u * 4u;
 }
 
-size_t zms_base64_decoded_max(size_t in_len)
+size_t zcs_base64_decoded_max(size_t in_len)
 {
     return in_len / 4u * 3u + 3u;
 }
 
-zn_err_t zms_base64_encode(const uint8_t *in, size_t in_len, char *out, size_t cap, size_t *out_len)
+zn_err_t zcs_base64_encode(const uint8_t *in, size_t in_len, char *out, size_t cap, size_t *out_len)
 {
     size_t i = 0;
     size_t o = 0;
@@ -80,7 +80,7 @@ zn_err_t zms_base64_encode(const uint8_t *in, size_t in_len, char *out, size_t c
     return ZN_OK;
 }
 
-zn_err_t zms_base64_decode(const char *in, uint8_t *out, size_t cap, size_t *out_len)
+zn_err_t zcs_base64_decode(const char *in, uint8_t *out, size_t cap, size_t *out_len)
 {
     size_t o = 0;
     int val[4];

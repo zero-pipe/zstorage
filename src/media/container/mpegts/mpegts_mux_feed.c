@@ -5,17 +5,17 @@
  *
  * Copyright (c) zero-media-server
  */
-#include "zms/media/container/mpegts/mpegts_mux_feed.h"
-#include "zms/media/codec/param_sets.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/codec/aac/aac_over_rtp.h"
-#include "zms/media/codec/aac/aac_config.h"
+#include "zcs/media/container/mpegts/mpegts_mux_feed.h"
+#include "zcs/media/codec/param_sets.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/aac/aac_over_rtp.h"
+#include "zcs/media/codec/aac/aac_config.h"
 #include "zm/format/mpeg.h"
 #include "zm/codec/bitstream.h"
 #include <string.h>
 
-int zms_mpegts_hevc_esinfo(const uint8_t *hvcc, size_t hvcc_len, uint8_t *out, size_t cap)
+int zcs_mpegts_hevc_esinfo(const uint8_t *hvcc, size_t hvcc_len, uint8_t *out, size_t cap)
 {
     struct mpeg4_hevc_t hevc;
     uint64_t v;
@@ -59,7 +59,7 @@ int zms_mpegts_hevc_esinfo(const uint8_t *hvcc, size_t hvcc_len, uint8_t *out, s
     return (int)(p + 8 - out);
 }
 
-void zms_mpegts_feed_h264(const zms_mpegts_mux_feed_view *f, const uint8_t *annexb, size_t len,
+void zcs_mpegts_feed_h264(const zcs_mpegts_mux_feed_view *f, const uint8_t *annexb, size_t len,
                           uint32_t dts_ms, int keyframe)
 {
     const uint8_t *mux_ptr = annexb;
@@ -74,11 +74,11 @@ void zms_mpegts_feed_h264(const zms_mpegts_mux_feed_view *f, const uint8_t *anne
             return;
         }
         *f->video_armed = 1;
-        zms_mux_av_timeline_lock_origin(f->mux_av, dts_ms);
+        zcs_mux_av_timeline_lock_origin(f->mux_av, dts_ms);
     }
     if (keyframe && f->params && f->params->sps && f->params->pps && f->mux_buf) {
         size_t full = 0;
-        if (zms_h264_annexb_prepend_sps_pps(f->params->sps, f->params->sps_len, f->params->pps,
+        if (zcs_h264_annexb_prepend_sps_pps(f->params->sps, f->params->sps_len, f->params->pps,
                                             f->params->pps_len, annexb, len, f->mux_buf,
                                             f->mux_buf_cap, &full) == ZN_OK &&
             full) {
@@ -86,12 +86,12 @@ void zms_mpegts_feed_h264(const zms_mpegts_mux_feed_view *f, const uint8_t *anne
             mux_len = full;
         }
     }
-    rel = zms_mux_av_timeline_pts(f->mux_av, ZMS_TRACK_VIDEO, dts_ms);
+    rel = zcs_mux_av_timeline_pts(f->mux_av, ZCS_TRACK_VIDEO, dts_ms);
     (void)f->sink(f->sink_user, PSI_STREAM_H264, mux_ptr, mux_len, (int64_t)rel, (int64_t)rel,
-                  keyframe ? ZMS_CONTAINER_MUX_FLAG_KEYFRAME : 0);
+                  keyframe ? ZCS_CONTAINER_MUX_FLAG_KEYFRAME : 0);
 }
 
-void zms_mpegts_feed_h265(const zms_mpegts_mux_feed_view *f, const uint8_t *annexb, size_t len,
+void zcs_mpegts_feed_h265(const zcs_mpegts_mux_feed_view *f, const uint8_t *annexb, size_t len,
                           uint32_t dts_ms, int keyframe)
 {
     const uint8_t *mux_ptr = annexb;
@@ -102,17 +102,17 @@ void zms_mpegts_feed_h265(const zms_mpegts_mux_feed_view *f, const uint8_t *anne
     if (!f || !f->sink || !f->mux_av || !f->video_armed || !annexb || len < 4) {
         return;
     }
-    sync = keyframe || zms_h265_annexb_is_sync_key(annexb, len);
+    sync = keyframe || zcs_h265_annexb_is_sync_key(annexb, len);
     if (!*f->video_armed) {
         if (!sync) {
             return;
         }
         *f->video_armed = 1;
-        zms_mux_av_timeline_lock_origin(f->mux_av, dts_ms);
+        zcs_mux_av_timeline_lock_origin(f->mux_av, dts_ms);
     }
     if (sync && f->params && f->params->sps_len > 0 && f->params->pps_len > 0 && f->mux_buf) {
         size_t full = 0;
-        if (zms_h265_annexb_build_rtp_au(f->params->vps_len ? f->params->vps : NULL,
+        if (zcs_h265_annexb_build_rtp_au(f->params->vps_len ? f->params->vps : NULL,
                                          f->params->vps_len, f->params->sps, f->params->sps_len,
                                          f->params->pps, f->params->pps_len, annexb, len, 1,
                                          f->mux_buf, f->mux_buf_cap, &full) == ZN_OK &&
@@ -122,19 +122,19 @@ void zms_mpegts_feed_h265(const zms_mpegts_mux_feed_view *f, const uint8_t *anne
         }
     } else if (f->mux_buf) {
         size_t vcl = 0;
-        if (zms_h265_annexb_copy_vcl(annexb, len, f->mux_buf, f->mux_buf_cap, &vcl) == ZN_OK &&
+        if (zcs_h265_annexb_copy_vcl(annexb, len, f->mux_buf, f->mux_buf_cap, &vcl) == ZN_OK &&
             vcl > 0) {
             mux_ptr = f->mux_buf;
             mux_len = vcl;
         }
     }
-    rel = zms_mux_av_timeline_pts(f->mux_av, ZMS_TRACK_VIDEO, dts_ms);
+    rel = zcs_mux_av_timeline_pts(f->mux_av, ZCS_TRACK_VIDEO, dts_ms);
     (void)f->sink(f->sink_user, PSI_STREAM_H265, mux_ptr, mux_len, (int64_t)rel, (int64_t)rel,
-                  sync ? ZMS_CONTAINER_MUX_FLAG_KEYFRAME : 0);
+                  sync ? ZCS_CONTAINER_MUX_FLAG_KEYFRAME : 0);
 }
 
 typedef struct {
-    const zms_mpegts_mux_feed_view *f;
+    const zcs_mpegts_mux_feed_view *f;
     int stream_type;
     uint32_t base_dts_ms;
     unsigned idx;
@@ -143,7 +143,7 @@ typedef struct {
 static int mpegts_feed_aac_frame(const uint8_t *au, size_t len, void *user)
 {
     mpegts_aac_ctx *c = (mpegts_aac_ctx *)user;
-    const zms_mpegts_mux_feed_view *f;
+    const zcs_mpegts_mux_feed_view *f;
     uint32_t rel;
     int hdr;
 
@@ -154,20 +154,20 @@ static int mpegts_feed_aac_frame(const uint8_t *au, size_t len, void *user)
     if (!f->aac || !f->adts) {
         return -1;
     }
-    hdr = zms_aac_config_adts_header((const zms_aac_config *)f->aac, (uint16_t)len, f->adts,
+    hdr = zcs_aac_config_adts_header((const zcs_aac_config *)f->aac, (uint16_t)len, f->adts,
                                      f->adts_cap);
     if (hdr < 7 || (size_t)hdr + len > f->adts_cap) {
         return -1;
     }
     memcpy(f->adts + hdr, au, len);
-    rel = zms_mux_av_timeline_pts(f->mux_av, ZMS_TRACK_AUDIO, c->base_dts_ms + c->idx * 23u);
+    rel = zcs_mux_av_timeline_pts(f->mux_av, ZCS_TRACK_AUDIO, c->base_dts_ms + c->idx * 23u);
     (void)f->sink(f->sink_user, c->stream_type, f->adts, (size_t)hdr + len, (int64_t)rel,
                   (int64_t)rel, 0);
     c->idx++;
     return 0;
 }
 
-void zms_mpegts_feed_aac(const zms_mpegts_mux_feed_view *f, int stream_type, const uint8_t *es,
+void zcs_mpegts_feed_aac(const zcs_mpegts_mux_feed_view *f, int stream_type, const uint8_t *es,
                          size_t es_len, uint32_t dts_ms)
 {
     mpegts_aac_ctx c;
@@ -179,5 +179,5 @@ void zms_mpegts_feed_aac(const zms_mpegts_mux_feed_view *f, int stream_type, con
     c.stream_type = stream_type;
     c.base_dts_ms = dts_ms;
     c.idx = 0;
-    (void)zms_aac_es_foreach_frame(es, es_len, mpegts_feed_aac_frame, &c);
+    (void)zcs_aac_es_foreach_frame(es, es_len, mpegts_feed_aac_frame, &c);
 }

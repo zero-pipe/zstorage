@@ -2,8 +2,8 @@
  * @file streamid.c
  * @brief SRT streamid 解析（app/stream）。
  */
-#include "zms/protocol/srt/streamid.h"
-#include "zms/core/stream/hub.h"
+#include "zcs/protocol/srt/streamid.h"
+#include "zcs/core/stream/hub.h"
 #include <string.h>
 
 static const char *streamid_key_value(const char *streamid, const char *key, char *out,
@@ -30,7 +30,7 @@ static const char *streamid_key_value(const char *streamid, const char *key, cha
     return NULL;
 }
 
-int zms_srt_streamid_vhost(const char *streamid, char *out, size_t cap)
+int zcs_srt_streamid_vhost(const char *streamid, char *out, size_t cap)
 {
     const char *p;
     size_t n = 0;
@@ -52,9 +52,9 @@ int zms_srt_streamid_vhost(const char *streamid, char *out, size_t cap)
     return n > 0;
 }
 
-int zms_srt_streamid_parse(const char *streamid, char *app, char *stream, zms_srt_stream_mode *mode)
+int zcs_srt_streamid_parse(const char *streamid, char *app, char *stream, zcs_srt_stream_mode *mode)
 {
-    char resource[ZMS_STREAM_MAX + ZMS_APP_MAX];
+    char resource[ZCS_STREAM_MAX + ZCS_APP_MAX];
     char mode_buf[32];
     const char *m;
 
@@ -64,7 +64,7 @@ int zms_srt_streamid_parse(const char *streamid, char *app, char *stream, zms_sr
     app[0] = streamid[0] ? '\0' : '\0';
     stream[0] = '\0';
     if (mode) {
-        *mode = ZMS_SRT_MODE_PUBLISH;
+        *mode = ZCS_SRT_MODE_PUBLISH;
     }
 
     if (!streamid[0]) {
@@ -74,13 +74,13 @@ int zms_srt_streamid_parse(const char *streamid, char *app, char *stream, zms_sr
     if (!streamid_key_value(streamid, "r=", resource, sizeof(resource)) &&
         !streamid_key_value(streamid, "h=", resource, sizeof(resource))) {
         if (strchr(streamid, '/')) {
-            zms_media_split_path(streamid, app, stream);
+            zcs_media_split_path(streamid, app, stream);
             return (app[0] && stream[0]) ? 0 : -1;
         }
         return -1;
     }
 
-    zms_media_split_path(resource, app, stream);
+    zcs_media_split_path(resource, app, stream);
     if (!app[0] || !stream[0]) {
         return -1;
     }
@@ -88,14 +88,14 @@ int zms_srt_streamid_parse(const char *streamid, char *app, char *stream, zms_sr
     m = streamid_key_value(streamid, "m=", mode_buf, sizeof(mode_buf));
     if (m && mode) {
         if (strncmp(mode_buf, "publish", 7) == 0) {
-            *mode = ZMS_SRT_MODE_PUBLISH;
+            *mode = ZCS_SRT_MODE_PUBLISH;
         } else if (strncmp(mode_buf, "request", 7) == 0 || strncmp(mode_buf, "play", 4) == 0) {
-            *mode = ZMS_SRT_MODE_PLAY;
+            *mode = ZCS_SRT_MODE_PLAY;
         } else {
-            *mode = ZMS_SRT_MODE_INVALID;
+            *mode = ZCS_SRT_MODE_INVALID;
         }
     }
-    if (mode && *mode == ZMS_SRT_MODE_INVALID) {
+    if (mode && *mode == ZCS_SRT_MODE_INVALID) {
         return -1;
     }
     return 0;

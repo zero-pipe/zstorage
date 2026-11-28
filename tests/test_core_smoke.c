@@ -4,9 +4,9 @@
  *
  * Intentionally free of sockets and files so it can run anywhere.
  */
-#include "zms/core/frame.h"
-#include "zms/core/stream/url.h"
-#include "zms/media/codec/codec_id.h"
+#include "zcs/core/frame.h"
+#include "zcs/core/stream/url.h"
+#include "zcs/media/codec/codec_id.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -24,62 +24,62 @@ static int g_failures;
 static void test_frame_lifecycle(void)
 {
     static const uint8_t k_src[4] = {0x00, 0x00, 0x00, 0x01};
-    zms_frame f;
+    zcs_frame f;
 
-    zms_frame_init(&f);
+    zcs_frame_init(&f);
     CHECK(f.data == NULL);
     CHECK(f.size == 0);
     CHECK(f.capacity == 0);
     CHECK(f.owned == 0);
 
-    CHECK(zms_frame_reserve(&f, 16) == ZN_OK);
+    CHECK(zcs_frame_reserve(&f, 16) == ZN_OK);
     CHECK(f.data != NULL);
     CHECK(f.capacity >= 16);
     CHECK(f.owned == 1);
 
-    CHECK(zms_frame_assign(&f, k_src, sizeof(k_src), 1) == ZN_OK);
+    CHECK(zcs_frame_assign(&f, k_src, sizeof(k_src), 1) == ZN_OK);
     CHECK(f.size == sizeof(k_src));
     CHECK(f.data != NULL);
     CHECK(memcmp(f.data, k_src, sizeof(k_src)) == 0);
     CHECK(f.owned == 1);
 
-    zms_frame_clear(&f);
+    zcs_frame_clear(&f);
     CHECK(f.data == NULL);
     CHECK(f.size == 0);
     CHECK(f.capacity == 0);
     CHECK(f.owned == 0);
 
     /* Borrowed payload must not be freed by clear(). */
-    CHECK(zms_frame_assign(&f, k_src, sizeof(k_src), 0) == ZN_OK);
+    CHECK(zcs_frame_assign(&f, k_src, sizeof(k_src), 0) == ZN_OK);
     CHECK(f.data == k_src);
     CHECK(f.owned == 0);
-    zms_frame_clear(&f);
+    zcs_frame_clear(&f);
     CHECK(f.data == NULL);
     CHECK(f.owned == 0);
 }
 
 static void test_codec_registry(void)
 {
-    const zms_codec_meta *m;
+    const zcs_codec_meta *m;
 
-    m = zms_codec_meta_get(ZMS_CODEC_H264);
+    m = zcs_codec_meta_get(ZCS_CODEC_H264);
     CHECK(m != NULL);
     if (m) {
         CHECK(strcmp(m->name, "H264") == 0);
-        CHECK(m->track == ZMS_TRACK_VIDEO);
+        CHECK(m->track == ZCS_TRACK_VIDEO);
     }
 
-    CHECK(zms_codec_track_type(ZMS_CODEC_AAC) == ZMS_TRACK_AUDIO);
-    CHECK(zms_codec_id_from_name("H265") == ZMS_CODEC_H265);
-    CHECK(zms_codec_id_from_name("mpeg4-generic") == ZMS_CODEC_AAC);
-    CHECK(zms_codec_id_from_name("not-a-codec") == ZMS_CODEC_INVALID);
+    CHECK(zcs_codec_track_type(ZCS_CODEC_AAC) == ZCS_TRACK_AUDIO);
+    CHECK(zcs_codec_id_from_name("H265") == ZCS_CODEC_H265);
+    CHECK(zcs_codec_id_from_name("mpeg4-generic") == ZCS_CODEC_AAC);
+    CHECK(zcs_codec_id_from_name("not-a-codec") == ZCS_CODEC_INVALID);
 
-    CHECK(zms_codec_mpeg_psi(ZMS_CODEC_H264) == 0x1b);
-    CHECK(zms_codec_from_mpeg_psi(0x24) == ZMS_CODEC_H265);
-    CHECK(zms_codec_from_mpeg_psi(0x25) == ZMS_CODEC_H265);
-    CHECK(zms_codec_from_mpeg_psi(0x1c) == ZMS_CODEC_AAC);
-    CHECK(zms_codec_from_mpeg_psi(0x7f) == ZMS_CODEC_INVALID);
-    CHECK(zms_codec_count() == 10);
+    CHECK(zcs_codec_mpeg_psi(ZCS_CODEC_H264) == 0x1b);
+    CHECK(zcs_codec_from_mpeg_psi(0x24) == ZCS_CODEC_H265);
+    CHECK(zcs_codec_from_mpeg_psi(0x25) == ZCS_CODEC_H265);
+    CHECK(zcs_codec_from_mpeg_psi(0x1c) == ZCS_CODEC_AAC);
+    CHECK(zcs_codec_from_mpeg_psi(0x7f) == ZCS_CODEC_INVALID);
+    CHECK(zcs_codec_count() == 10);
 }
 
 static void check_strip(const char *in, const char *want)
@@ -87,7 +87,7 @@ static void check_strip(const char *in, const char *want)
     char buf[128];
 
     snprintf(buf, sizeof(buf), "%s", in);
-    zms_media_path_strip_play_suffix(buf);
+    zcs_media_path_strip_play_suffix(buf);
     if (strcmp(buf, want) != 0) {
         fprintf(stderr, "FAIL strip(\"%s\") = \"%s\", want \"%s\"\n", in, buf, want);
         g_failures++;

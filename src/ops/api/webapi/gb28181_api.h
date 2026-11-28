@@ -2,8 +2,8 @@
  * @file gb28181_api.h
  * @brief /index/api/gb28181/* 处理入口（仅供 webapi 内部使用）。
  */
-#ifndef ZMS_SRC_OPS_API_WEBAPI_GB28181_API_H
-#define ZMS_SRC_OPS_API_WEBAPI_GB28181_API_H
+#ifndef ZCS_SRC_OPS_API_WEBAPI_GB28181_API_H
+#define ZCS_SRC_OPS_API_WEBAPI_GB28181_API_H
 
 #include <stddef.h>
 
@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-typedef struct zms_gb28181_api_req {
+typedef struct zcs_gb28181_api_req {
     /** status / channels / alarm */
     const char *endpoint;
     const char *channel;
@@ -30,16 +30,16 @@ typedef struct zms_gb28181_api_req {
     int priority;
     int method;
     const char *description;
-} zms_gb28181_api_req;
+} zcs_gb28181_api_req;
 
 /**
  * @return >0 已写 body；-1 未识别 endpoint。
  */
-int zms_webapi_gb28181_handle(const zms_gb28181_api_req *req, int *http_status, char *body,
+int zcs_webapi_gb28181_handle(const zcs_gb28181_api_req *req, int *http_status, char *body,
                               size_t body_cap);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* ZMS_SRC_OPS_API_WEBAPI_GB28181_API_H */
+#endif /* ZCS_SRC_OPS_API_WEBAPI_GB28181_API_H */

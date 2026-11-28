@@ -1,35 +1,35 @@
 /**
  * @file file_reader.c
- * @brief 文件 VOD demuxer：经 zms_container 解出 MP4/MOV/MKV/FLV 写入 vod_buffer，由 poller 驱动泵送。
+ * @brief 文件 VOD demuxer：经 zcs_container 解出 MP4/MOV/MKV/FLV 写入 vod_buffer，由 poller 驱动泵送。
  *
  * Copyright (c) zero-media-server
  */
-#include "zms/vod/io/file_reader.h"
-#include "zms/media/container/container_registry.h"
-#include "zms/media/clock.h"
-#include "zms/media/media_limits.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
-#include "zms/media/codec/bitstream/annexb.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/core/event.h"
-#include "zms/core/media_track.h"
-#include "zms/media/codec/aac/aac_config.h"
-#include "zms/media/codec/h264/h264_config.h"
-#include "zms/media/codec/h265/h265_config.h"
-#include "zms/media/container/flv/flv_index.h"
-#include "zms/vod/io/flv_metadata.h"
-#include "zms/util/buf_pool.h"
+#include "zcs/vod/io/file_reader.h"
+#include "zcs/media/container/container_registry.h"
+#include "zcs/media/clock.h"
+#include "zcs/media/media_limits.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/bitstream/annexb.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/core/event.h"
+#include "zcs/core/media_track.h"
+#include "zcs/media/codec/aac/aac_config.h"
+#include "zcs/media/codec/h264/h264_config.h"
+#include "zcs/media/codec/h265/h265_config.h"
+#include "zcs/media/container/flv/flv_index.h"
+#include "zcs/vod/io/flv_metadata.h"
+#include "zcs/util/buf_pool.h"
 #include "zn/util/log.h"
 #include "zn/util/timer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #if defined(_WIN32)
-#define zms_file_stricmp _stricmp
+#define zcs_file_stricmp _stricmp
 #else
-#define zms_file_stricmp strcasecmp
+#define zcs_file_stricmp strcasecmp
 #endif
 
 /* MP4_TICK_MS=5：定时泵的粒度，5ms 足够细使 vod_buffer 不干涸，又不至于让
@@ -45,7 +45,7 @@
 #define MP4_SEEK_PREFILL_MAX 96
 #define MP4_ANNEXB_MIN (128 * 1024)
 
-struct zms_vod_file_pending_slot {
+struct zcs_vod_file_pending_slot {
     int used;
     uint32_t track;
     int64_t dts_ms;
@@ -56,22 +56,22 @@ struct zms_vod_file_pending_slot {
     size_t len;
 };
 
-struct zms_vod_file_reader {
+struct zcs_vod_file_reader {
     char path[512];
-    zms_container_id container_id;
-    const zms_container_demuxer_ops *mp4_ops;
+    zcs_container_id container_id;
+    const zcs_container_demuxer_ops *mp4_ops;
     void *mp4_demux;
-    zms_vod_buffer *fifo;
-    zms_media_source *src;
+    zcs_vod_buffer *fifo;
+    zcs_media_source *src;
     void *owner_ctx;
     zn_poller *poller;
     zn_timer *timer;
 
-    zms_avc_config avc;
-    zms_hevc_config hevc;
-    zms_aac_config aac;
-    zms_codec_id video_codec;
-    zms_codec_id audio_codec;
+    zcs_avc_config avc;
+    zcs_hevc_config hevc;
+    zcs_aac_config aac;
+    zcs_codec_id video_codec;
+    zcs_codec_id audio_codec;
     uint32_t video_track;
     uint32_t audio_track;
 
@@ -80,7 +80,7 @@ struct zms_vod_file_reader {
     uint8_t *annexb_buf;
     size_t annexb_cap;
 
-    struct zms_vod_file_pending_slot pending;
+    struct zcs_vod_file_pending_slot pending;
 
     int64_t clock0_wall;
     int64_t dts0;
@@ -95,7 +95,7 @@ struct zms_vod_file_reader {
     int have_audio_cfg;
     int drop_until_sync;
     int pump_hold;
-    zms_vod_flv_index *flv_index;
+    zcs_vod_flv_index *flv_index;
 };
 
 /*
@@ -104,7 +104,7 @@ struct zms_vod_file_reader {
  * 发布者本身就是本 reader、或发布者 ctx 为空、或是本 reader 的 owner_ctx
  * 时才允许写。其余情况下 reader 只填充本地 fifo，不碰共享源元数据。
  */
-static int mp4_owns_source_meta(const zms_vod_file_reader *r)
+static int mp4_owns_source_meta(const zcs_vod_file_reader *r)
 {
     if (!r || !r->src) {
         return 0;
@@ -180,7 +180,7 @@ static int blob_is_annexb(const uint8_t *p, size_t len)
 /* 当前实现里 pacing_ready 恒为真，即 demux 一拿到样本就写进 fifo，不做输出
  * 侧限速——真正的节奏由 RTSP/RTMP 播放路径控制，vod_buffer 只负责尽快填。
  * 保留这个判断点是给将来“需要在此处限速”的情形留接口。 */
-static int pacing_ready(zms_vod_file_reader *r, int64_t dts_ms)
+static int pacing_ready(zcs_vod_file_reader *r, int64_t dts_ms)
 {
     (void)dts_ms;
     /* VOD demux 尽快填满 vod_buffer；RTSP/RTMP 播放路径负责输出 pacing。 */
@@ -190,13 +190,13 @@ static int pacing_ready(zms_vod_file_reader *r, int64_t dts_ms)
     return 1;
 }
 
-static void pending_clear(struct zms_vod_file_pending_slot *p)
+static void pending_clear(struct zcs_vod_file_pending_slot *p)
 {
     if (!p) {
         return;
     }
     if (p->data) {
-        zms_buf_pool_release(p->data, p->cap);
+        zcs_buf_pool_release(p->data, p->cap);
     }
     p->data = NULL;
     p->cap = 0;
@@ -207,14 +207,14 @@ static void pending_clear(struct zms_vod_file_pending_slot *p)
 /* pending 槽：pacing_ready 为假时暂存“下一个待写样本”。只有一个槽（而非队列）
  * 是因为 demux 是单线程顺序产出的，某一步不能写时挡住后续即可；用一个样本
  * 的暂存避免在未就绪时丢帧，同时不需要无界缓冲。 */
-static int pending_set(struct zms_vod_file_pending_slot *p, uint32_t track, int64_t dts_ms,
+static int pending_set(struct zcs_vod_file_pending_slot *p, uint32_t track, int64_t dts_ms,
                        int64_t pts_ms, int key, const void *data, size_t len)
 {
     if (!p || !data || len == 0) {
         return -1;
     }
     pending_clear(p);
-    p->data = (uint8_t *)zms_buf_pool_acquire(len, &p->cap);
+    p->data = (uint8_t *)zcs_buf_pool_acquire(len, &p->cap);
     if (!p->data) {
         return -1;
     }
@@ -278,7 +278,7 @@ static int h265_annexb_has_vcl(const uint8_t *annexb, size_t len)
 
     while (p < end) {
         size_t nlen = 0;
-        const uint8_t *nal = zms_annexb_find_nal(p, end, &nlen);
+        const uint8_t *nal = zcs_annexb_find_nal(p, end, &nlen);
         int t;
 
         if (!nal || nlen == 0) {
@@ -293,19 +293,19 @@ static int h265_annexb_has_vcl(const uint8_t *annexb, size_t len)
     return 0;
 }
 
-static zn_err_t mp4_set_h265_video_config(zms_vod_file_reader *r, const uint8_t *hvcc, size_t hvcc_len,
+static zn_err_t mp4_set_h265_video_config(zcs_vod_file_reader *r, const uint8_t *hvcc, size_t hvcc_len,
                                            int width, int height)
 {
     if (!r || !hvcc || hvcc_len == 0 || !r->fifo) {
         return ZN_ERR_INVALID;
     }
-    if (zms_vod_buffer_set_video_config(r->fifo, hvcc, hvcc_len) != ZN_OK) {
+    if (zcs_vod_buffer_set_video_config(r->fifo, hvcc, hvcc_len) != ZN_OK) {
         return ZN_ERR_NOMEM;
     }
     r->have_video_cfg = 1;
     if (mp4_owns_source_meta(r)) {
         r->src->has_video = 1;
-        r->src->video.codec = ZMS_CODEC_H265;
+        r->src->video.codec = ZCS_CODEC_H265;
         r->src->video.ready = 1;
         if (width > 0 && height > 0) {
             r->src->video.width = (uint32_t)width;
@@ -315,18 +315,18 @@ static zn_err_t mp4_set_h265_video_config(zms_vod_file_reader *r, const uint8_t 
     return ZN_OK;
 }
 
-static uint8_t *mp4_scratch(zms_vod_file_reader *r)
+static uint8_t *mp4_scratch(zcs_vod_file_reader *r)
 {
     if (!r) {
         return NULL;
     }
-    if (!zms_buf_pool_slot_resize(&r->scratch, &r->scratch_cap, ZMS_MEDIA_IO_BUF_SIZE)) {
+    if (!zcs_buf_pool_slot_resize(&r->scratch, &r->scratch_cap, ZCS_MEDIA_IO_BUF_SIZE)) {
         return NULL;
     }
     return r->scratch;
 }
 
-static zn_err_t mp4_try_set_h264_config(zms_vod_file_reader *r, const uint8_t *annexb, size_t len)
+static zn_err_t mp4_try_set_h264_config(zcs_vod_file_reader *r, const uint8_t *annexb, size_t len)
 {
     const uint8_t *sps = NULL;
     const uint8_t *pps = NULL;
@@ -338,26 +338,26 @@ static zn_err_t mp4_try_set_h264_config(zms_vod_file_reader *r, const uint8_t *a
     if (!r || r->have_video_cfg || !r->fifo) {
         return ZN_OK;
     }
-    if (!zms_h264_annexb_extract_sps_pps(annexb, len, &sps, &sps_len, &pps, &pps_len)) {
+    if (!zcs_h264_annexb_extract_sps_pps(annexb, len, &sps, &sps_len, &pps, &pps_len)) {
         return ZN_OK;
     }
     scratch = mp4_scratch(r);
     if (!scratch) {
         return ZN_ERR_NOMEM;
     }
-    if (zms_rtmp_avc_seq_header(sps, sps_len, pps, pps_len, scratch, r->scratch_cap, &cfg_len) !=
+    if (zcs_rtmp_avc_seq_header(sps, sps_len, pps, pps_len, scratch, r->scratch_cap, &cfg_len) !=
         ZN_OK) {
         return ZN_ERR_INVALID;
     }
-    if (zms_vod_buffer_set_video_config(r->fifo, scratch, cfg_len) != ZN_OK) {
+    if (zcs_vod_buffer_set_video_config(r->fifo, scratch, cfg_len) != ZN_OK) {
         return ZN_ERR_NOMEM;
     }
     r->have_video_cfg = 1;
     if (mp4_owns_source_meta(r)) {
         r->src->has_video = 1;
-        r->src->video.codec = ZMS_CODEC_H264;
+        r->src->video.codec = ZCS_CODEC_H264;
         r->src->video.ready = 1;
-        (void)zms_video_track_from_avc(&r->src->video, scratch, cfg_len);
+        (void)zcs_video_track_from_avc(&r->src->video, scratch, cfg_len);
     }
     return ZN_OK;
 }
@@ -373,10 +373,10 @@ static zn_err_t mp4_try_set_h264_config(zms_vod_file_reader *r, const uint8_t *a
  * 之后的常规过滤：H.264/H.265 只把含 slice/VCL 的 AU 写进 fifo，纯参数集
  * 的 sample 丢弃（参数集已通过 config 通道单独设置）。
  */
-static zn_err_t mp4_write_annexb_video(zms_vod_file_reader *r, const uint8_t *annexb, size_t len,
+static zn_err_t mp4_write_annexb_video(zcs_vod_file_reader *r, const uint8_t *annexb, size_t len,
                                         uint32_t dts_ms, uint32_t pts_ms, int key)
 {
-    zms_frame frame;
+    zcs_frame frame;
     size_t cap = 0;
     uint8_t *buf;
 
@@ -385,16 +385,16 @@ static zn_err_t mp4_write_annexb_video(zms_vod_file_reader *r, const uint8_t *an
     }
 
     if (r->drop_until_sync) {
-        if (r->video_codec == ZMS_CODEC_H264) {
-            if (!key && !zms_h264_annexb_is_sync_key(annexb, len)) {
+        if (r->video_codec == ZCS_CODEC_H264) {
+            if (!key && !zcs_h264_annexb_is_sync_key(annexb, len)) {
                 return ZN_OK;
             }
             r->drop_until_sync = 0;
             if (!h264_annexb_has_slice(annexb, len)) {
                 return ZN_OK;
             }
-        } else if (r->video_codec == ZMS_CODEC_H265) {
-            if (!key && !zms_h265_annexb_is_sync_key(annexb, len)) {
+        } else if (r->video_codec == ZCS_CODEC_H265) {
+            if (!key && !zcs_h265_annexb_is_sync_key(annexb, len)) {
                 return ZN_OK;
             }
             r->drop_until_sync = 0;
@@ -404,51 +404,51 @@ static zn_err_t mp4_write_annexb_video(zms_vod_file_reader *r, const uint8_t *an
         }
     }
 
-    if (!h264_annexb_has_slice(annexb, len) && r->video_codec == ZMS_CODEC_H264) {
+    if (!h264_annexb_has_slice(annexb, len) && r->video_codec == ZCS_CODEC_H264) {
         return ZN_OK;
     }
-    if (!h265_annexb_has_vcl(annexb, len) && r->video_codec == ZMS_CODEC_H265) {
+    if (!h265_annexb_has_vcl(annexb, len) && r->video_codec == ZCS_CODEC_H265) {
         return ZN_OK;
     }
 
-    if (r->video_codec == ZMS_CODEC_H264) {
+    if (r->video_codec == ZCS_CODEC_H264) {
         (void)mp4_try_set_h264_config(r, annexb, len);
     }
 
-    if (r->video_codec == ZMS_CODEC_H264 && !h264_annexb_has_slice(annexb, len)) {
+    if (r->video_codec == ZCS_CODEC_H264 && !h264_annexb_has_slice(annexb, len)) {
         return ZN_OK;
     }
 
-    buf = (uint8_t *)zms_buf_pool_acquire(len, &cap);
+    buf = (uint8_t *)zcs_buf_pool_acquire(len, &cap);
     if (!buf) {
         return ZN_ERR_NOMEM;
     }
     memcpy(buf, annexb, len);
 
-    zms_frame_init(&frame);
+    zcs_frame_init(&frame);
     frame.data = buf;
     frame.size = len;
     frame.capacity = cap;
     frame.owned = 1;
     frame.codec = r->video_codec;
-    frame.track = ZMS_TRACK_VIDEO;
+    frame.track = ZCS_TRACK_VIDEO;
     frame.dts_ms = dts_ms;
     frame.pts_ms = pts_ms ? pts_ms : dts_ms;
-    if (r->video_codec == ZMS_CODEC_H264) {
-        frame.keyframe = key || zms_h264_annexb_is_sync_key(annexb, len);
-    } else if (r->video_codec == ZMS_CODEC_H265) {
-        frame.keyframe = key || zms_h265_annexb_is_sync_key(annexb, len);
+    if (r->video_codec == ZCS_CODEC_H264) {
+        frame.keyframe = key || zcs_h264_annexb_is_sync_key(annexb, len);
+    } else if (r->video_codec == ZCS_CODEC_H265) {
+        frame.keyframe = key || zcs_h265_annexb_is_sync_key(annexb, len);
     } else {
         frame.keyframe = key;
     }
-    if (zms_vod_buffer_write(r->fifo, &frame) != ZN_OK) {
-        zms_buf_pool_release(buf, cap);
+    if (zcs_vod_buffer_write(r->fifo, &frame) != ZN_OK) {
+        zcs_buf_pool_release(buf, cap);
         return ZN_ERR_NOMEM;
     }
     return ZN_OK;
 }
 
-static zn_err_t mp4_ensure_annexb(zms_vod_file_reader *r, size_t mp4_len)
+static zn_err_t mp4_ensure_annexb(zcs_vod_file_reader *r, size_t mp4_len)
 {
     size_t need = mp4_len + 65536u;
 
@@ -478,7 +478,7 @@ static zn_err_t mp4_ensure_annexb(zms_vod_file_reader *r, size_t mp4_len)
  * （或 avcC 缺失/损坏），逐档试探能让这类文件仍可播放。全部失败时退化到
  * nalu=0（按原样拷贝），保证至少不丢帧，交由下游容错。
  */
-static int mp4_h264_mp4_to_annexb(zms_vod_file_reader *r, const uint8_t *mp4, size_t mp4_len,
+static int mp4_h264_mp4_to_annexb(zcs_vod_file_reader *r, const uint8_t *mp4, size_t mp4_len,
                                   uint8_t *out, size_t cap)
 {
     int n;
@@ -489,9 +489,9 @@ static int mp4_h264_mp4_to_annexb(zms_vod_file_reader *r, const uint8_t *mp4, si
         return -1;
     }
 
-    cur = zms_avc_config_nalu_length(&r->avc);
+    cur = zcs_avc_config_nalu_length(&r->avc);
     if (cur > 0 && mp4_avcc_sample_valid(mp4, mp4_len, cur)) {
-        n = zms_avc_config_mp4_to_annexb(&r->avc, mp4, mp4_len, out, cap);
+        n = zcs_avc_config_mp4_to_annexb(&r->avc, mp4, mp4_len, out, cap);
         if (n > 0) {
             return n;
         }
@@ -503,17 +503,17 @@ static int mp4_h264_mp4_to_annexb(zms_vod_file_reader *r, const uint8_t *mp4, si
         if (!mp4_avcc_sample_valid(mp4, mp4_len, nalu)) {
             continue;
         }
-        n = zms_avc_nalu_to_annexb(nalu, mp4, mp4_len, out, cap);
+        n = zcs_avc_nalu_to_annexb(nalu, mp4, mp4_len, out, cap);
         if (n > 0) {
             return n;
         }
     }
-    return zms_avc_nalu_to_annexb(0, mp4, mp4_len, out, cap);
+    return zcs_avc_nalu_to_annexb(0, mp4, mp4_len, out, cap);
 }
 
 /* H.265 版本的长度前缀→Annex-B 转换。与 H.264 同构，只是从 hvcC 取
  * lengthSizeMinusOne+1（1..4 字节）做逐档试探，全失败退化到 1 字节。 */
-static int mp4_h265_mp4_to_annexb(zms_vod_file_reader *r, const uint8_t *mp4, size_t mp4_len,
+static int mp4_h265_mp4_to_annexb(zcs_vod_file_reader *r, const uint8_t *mp4, size_t mp4_len,
                                   uint8_t *out, size_t cap)
 {
     int n;
@@ -524,9 +524,9 @@ static int mp4_h265_mp4_to_annexb(zms_vod_file_reader *r, const uint8_t *mp4, si
         return -1;
     }
 
-    cur = zms_hevc_config_length_size(&r->hevc);
+    cur = zcs_hevc_config_length_size(&r->hevc);
     if (mp4_avcc_sample_valid(mp4, mp4_len, cur)) {
-        n = zms_hevc_config_mp4_to_annexb(&r->hevc, mp4, mp4_len, out, cap);
+        n = zcs_hevc_config_mp4_to_annexb(&r->hevc, mp4, mp4_len, out, cap);
         if (n > 0) {
             return n;
         }
@@ -538,22 +538,22 @@ static int mp4_h265_mp4_to_annexb(zms_vod_file_reader *r, const uint8_t *mp4, si
         if (!mp4_avcc_sample_valid(mp4, mp4_len, lsm1 + 1)) {
             continue;
         }
-        n = zms_hevc_nalu_to_annexb(lsm1 + 1, mp4, mp4_len, out, cap);
+        n = zcs_hevc_nalu_to_annexb(lsm1 + 1, mp4, mp4_len, out, cap);
         if (n > 0) {
             return n;
         }
     }
-    return zms_hevc_nalu_to_annexb(1, mp4, mp4_len, out, cap);
+    return zcs_hevc_nalu_to_annexb(1, mp4, mp4_len, out, cap);
 }
 
 /* feed_h264：样本可能是 Annex-B，也可能是 length-prefixed（MP4 常态）。
  * 先用 is_annexb 判定（带歧义消解），是 Annex-B 直接写；否则转成 Annex-B 再写。
  * avcc_nalu 取自 avcC，为空时按 4 字节猜测——很多文件 avcC 不可靠。 */
-static zn_err_t feed_h264(zms_vod_file_reader *r, const uint8_t *mp4, size_t mp4_len, int64_t dts_ms,
+static zn_err_t feed_h264(zcs_vod_file_reader *r, const uint8_t *mp4, size_t mp4_len, int64_t dts_ms,
                            int64_t pts_ms, int key)
 {
     int n;
-    int avcc_nalu = r ? zms_avc_config_nalu_length(&r->avc) : 4;
+    int avcc_nalu = r ? zcs_avc_config_nalu_length(&r->avc) : 4;
 
     if (avcc_nalu <= 0) {
         avcc_nalu = 4;
@@ -572,11 +572,11 @@ static zn_err_t feed_h264(zms_vod_file_reader *r, const uint8_t *mp4, size_t mp4
                                   key);
 }
 
-static zn_err_t feed_h265(zms_vod_file_reader *r, const uint8_t *mp4, size_t mp4_len, int64_t dts_ms,
+static zn_err_t feed_h265(zcs_vod_file_reader *r, const uint8_t *mp4, size_t mp4_len, int64_t dts_ms,
                            int64_t pts_ms, int key)
 {
     int n;
-    int avcc_nalu = r ? zms_hevc_config_length_size(&r->hevc) : 4;
+    int avcc_nalu = r ? zcs_hevc_config_length_size(&r->hevc) : 4;
 
     if (avcc_nalu <= 0) {
         avcc_nalu = 4;
@@ -596,10 +596,10 @@ static zn_err_t feed_h265(zms_vod_file_reader *r, const uint8_t *mp4, size_t mp4
 }
 
 /* AAC 帧写入：拷贝到池化 buf 后写 fifo，pts 缺省用 dts。 */
-static zn_err_t feed_aac(zms_vod_file_reader *r, const uint8_t *aac, size_t len, int64_t dts_ms,
+static zn_err_t feed_aac(zcs_vod_file_reader *r, const uint8_t *aac, size_t len, int64_t dts_ms,
                           int64_t pts_ms)
 {
-    zms_frame frame;
+    zcs_frame frame;
     size_t cap = 0;
     uint8_t *buf;
 
@@ -607,29 +607,29 @@ static zn_err_t feed_aac(zms_vod_file_reader *r, const uint8_t *aac, size_t len,
         return ZN_ERR_INVALID;
     }
 
-    buf = (uint8_t *)zms_buf_pool_acquire(len, &cap);
+    buf = (uint8_t *)zcs_buf_pool_acquire(len, &cap);
     if (!buf) {
         return ZN_ERR_NOMEM;
     }
     memcpy(buf, aac, len);
 
-    zms_frame_init(&frame);
+    zcs_frame_init(&frame);
     frame.data = buf;
     frame.size = len;
     frame.capacity = cap;
     frame.owned = 1;
-    frame.codec = ZMS_CODEC_AAC;
-    frame.track = ZMS_TRACK_AUDIO;
+    frame.codec = ZCS_CODEC_AAC;
+    frame.track = ZCS_TRACK_AUDIO;
     frame.dts_ms = (uint32_t)dts_ms;
     frame.pts_ms = (uint32_t)(pts_ms ? pts_ms : dts_ms);
-    if (zms_vod_buffer_write(r->fifo, &frame) != ZN_OK) {
-        zms_buf_pool_release(buf, cap);
+    if (zcs_vod_buffer_write(r->fifo, &frame) != ZN_OK) {
+        zcs_buf_pool_release(buf, cap);
         return ZN_ERR_NOMEM;
     }
     return ZN_OK;
 }
 
-static zn_err_t feed_sample(zms_vod_file_reader *r, uint32_t track, const void *buf, size_t bytes,
+static zn_err_t feed_sample(zcs_vod_file_reader *r, uint32_t track, const void *buf, size_t bytes,
                              int64_t dts_ms, int64_t pts_ms, int key)
 {
     if (!r || !r->fifo || !buf || bytes == 0) {
@@ -648,15 +648,15 @@ static zn_err_t feed_sample(zms_vod_file_reader *r, uint32_t track, const void *
     }
 
     if (track == r->video_track) {
-        if (r->video_codec == ZMS_CODEC_H264) {
+        if (r->video_codec == ZCS_CODEC_H264) {
             return feed_h264(r, (const uint8_t *)buf, bytes, dts_ms, pts_ms, key);
         }
-        if (r->video_codec == ZMS_CODEC_H265) {
+        if (r->video_codec == ZCS_CODEC_H265) {
             return feed_h265(r, (const uint8_t *)buf, bytes, dts_ms, pts_ms, key);
         }
         return ZN_ERR_NOT_IMPL;
     }
-    if (track == r->audio_track && r->audio_codec == ZMS_CODEC_AAC) {
+    if (track == r->audio_track && r->audio_codec == ZCS_CODEC_AAC) {
         return feed_aac(r, (const uint8_t *)buf, bytes, dts_ms, pts_ms);
     }
     return ZN_ERR_NOT_IMPL;
@@ -666,7 +666,7 @@ static zn_err_t feed_sample(zms_vod_file_reader *r, uint32_t track, const void *
  * 两条分支都要做三件事——①加载到本地 config（供后续样本转换）；②把 FLV 风格
  * 的配置写进 fifo（供下游播放）；③在“本 reader 拥有源元数据”时更新 src 的
  * 编码/宽高等。宽高优先用容器给的，缺省时才回落到 src 已有的。 */
-static void mp4_apply_video_config(zms_vod_file_reader *r, const zms_container_packet *pkt)
+static void mp4_apply_video_config(zcs_vod_file_reader *r, const zcs_container_packet *pkt)
 {
     const uint8_t *extra;
     size_t bytes;
@@ -686,24 +686,24 @@ static void mp4_apply_video_config(zms_vod_file_reader *r, const zms_container_p
         r->src->has_video = 1;
         r->src->video.codec = r->video_codec;
     }
-    if (r->video_codec == ZMS_CODEC_H264 && extra && bytes > 0) {
+    if (r->video_codec == ZCS_CODEC_H264 && extra && bytes > 0) {
         uint8_t flv_cfg[512];
 
         if (blob_is_annexb(extra, bytes)) {
-            (void)zms_avc_config_load_annexb(&r->avc, extra, bytes);
+            (void)zcs_avc_config_load_annexb(&r->avc, extra, bytes);
             (void)mp4_try_set_h264_config(r, extra, bytes);
         } else {
-            (void)zms_avc_config_load_record(&r->avc, extra, bytes);
+            (void)zcs_avc_config_load_record(&r->avc, extra, bytes);
             if (r->fifo && bytes + 5 <= sizeof(flv_cfg)) {
                 flv_cfg[0] = 0x17;
                 flv_cfg[1] = 0x00;
                 flv_cfg[2] = flv_cfg[3] = flv_cfg[4] = 0;
                 memcpy(flv_cfg + 5, extra, bytes);
-                if (zms_vod_buffer_set_video_config(r->fifo, flv_cfg, bytes + 5) == ZN_OK) {
+                if (zcs_vod_buffer_set_video_config(r->fifo, flv_cfg, bytes + 5) == ZN_OK) {
                     r->have_video_cfg = 1;
                     if (mp4_owns_source_meta(r)) {
                         r->src->video.ready = 1;
-                        (void)zms_video_track_from_avc(&r->src->video, flv_cfg, bytes + 5);
+                        (void)zcs_video_track_from_avc(&r->src->video, flv_cfg, bytes + 5);
                         if (width > 0 && height > 0) {
                             r->src->video.width = (uint32_t)width;
                             r->src->video.height = (uint32_t)height;
@@ -712,23 +712,23 @@ static void mp4_apply_video_config(zms_vod_file_reader *r, const zms_container_p
                 }
             }
         }
-    } else if (r->video_codec == ZMS_CODEC_H265 && extra && bytes > 0) {
+    } else if (r->video_codec == ZCS_CODEC_H265 && extra && bytes > 0) {
         if (blob_is_annexb(extra, bytes)) {
             uint8_t hvcc[1024];
             size_t hvcc_len = 0;
 
-            if (zms_h265_hvcc_from_annexb(extra, bytes, hvcc, sizeof(hvcc), &hvcc_len) == ZN_OK &&
+            if (zcs_h265_hvcc_from_annexb(extra, bytes, hvcc, sizeof(hvcc), &hvcc_len) == ZN_OK &&
                 hvcc_len > 0) {
-                (void)zms_hevc_config_load_record(&r->hevc, hvcc, hvcc_len);
+                (void)zcs_hevc_config_load_record(&r->hevc, hvcc, hvcc_len);
                 (void)mp4_set_h265_video_config(r, hvcc, hvcc_len, width, height);
             }
         } else {
-            (void)zms_hevc_config_load_record(&r->hevc, extra, bytes);
+            (void)zcs_hevc_config_load_record(&r->hevc, extra, bytes);
             (void)mp4_set_h265_video_config(r, extra, bytes, width, height);
         }
     }
     zn_info("mp4_reader: video track=%u codec=%s %dx%d", (unsigned)pkt->track_id,
-             zms_codec_name(r->video_codec),
+             zcs_codec_name(r->video_codec),
              width > 0 ? width : (r->src ? (int)r->src->video.width : 0),
              height > 0 ? height : (r->src ? (int)r->src->video.height : 0));
 }
@@ -736,7 +736,7 @@ static void mp4_apply_video_config(zms_vod_file_reader *r, const zms_container_p
 /* 处理音频 config：主要处理 AAC——把 ASC 解析进本地 config，再包成 FLV 风格
  * （0xAF 0x00 + ASC）写进 fifo。采样率 <8000 视为不可信回落 44100。非 AAC 音轨
  * 目前不建模（只更新 src 元数据），由上层决定是否可播。 */
-static void mp4_apply_audio_config(zms_vod_file_reader *r, const zms_container_packet *pkt)
+static void mp4_apply_audio_config(zcs_vod_file_reader *r, const zcs_container_packet *pkt)
 {
     const uint8_t *extra;
     size_t bytes;
@@ -765,39 +765,39 @@ static void mp4_apply_audio_config(zms_vod_file_reader *r, const zms_container_p
         r->src->audio.channels = channel_count > 0 ? (uint8_t)channel_count : 2;
         r->src->audio.ready = 1;
     }
-    if (r->audio_codec == ZMS_CODEC_AAC && r->fifo) {
+    if (r->audio_codec == ZCS_CODEC_AAC && r->fifo) {
         if (extra && bytes > 0) {
-            (void)zms_aac_config_load_asc(&r->aac, extra, bytes);
+            (void)zcs_aac_config_load_asc(&r->aac, extra, bytes);
         } else {
-            zms_aac_config_set_defaults(&r->aac, sample_rate, channel_count);
+            zcs_aac_config_set_defaults(&r->aac, sample_rate, channel_count);
         }
-        asc_len = zms_aac_config_save_asc(&r->aac, asc, sizeof(asc));
+        asc_len = zcs_aac_config_save_asc(&r->aac, asc, sizeof(asc));
         if (asc_len > 0 && asc_len + 2 <= sizeof(flv_cfg)) {
             flv_cfg[0] = 0xaf;
             flv_cfg[1] = 0x00;
             memcpy(flv_cfg + 2, asc, asc_len);
-            if (zms_vod_buffer_set_audio_config(r->fifo, flv_cfg, asc_len + 2) == ZN_OK) {
+            if (zcs_vod_buffer_set_audio_config(r->fifo, flv_cfg, asc_len + 2) == ZN_OK) {
                 r->have_audio_cfg = 1;
             }
         }
     }
     zn_info("mp4_reader: audio track=%u codec=%s %uHz", (unsigned)pkt->track_id,
-             zms_codec_name(r->audio_codec), sample_rate > 0 ? (unsigned)sample_rate : 0);
+             zcs_codec_name(r->audio_codec), sample_rate > 0 ? (unsigned)sample_rate : 0);
 }
 
 /* 容器解包回调。config 包与普通 sample 分开处理：config 只更新轨道参数/编码
  * 信息并单发配置通道；普通 sample 走 feed_sample（含 pacing/同步帧逻辑）。 */
-static void mp4_container_cb(const zms_container_packet *pkt, void *user)
+static void mp4_container_cb(const zcs_container_packet *pkt, void *user)
 {
-    zms_vod_file_reader *r = (zms_vod_file_reader *)user;
+    zcs_vod_file_reader *r = (zcs_vod_file_reader *)user;
 
-    if (!r || !pkt || pkt->kind != ZMS_CONTAINER_PKT_MP4_SAMPLE) {
+    if (!r || !pkt || pkt->kind != ZCS_CONTAINER_PKT_MP4_SAMPLE) {
         return;
     }
     if (pkt->config) {
-        if (pkt->codec == ZMS_CODEC_H264 || pkt->codec == ZMS_CODEC_H265) {
+        if (pkt->codec == ZCS_CODEC_H264 || pkt->codec == ZCS_CODEC_H265) {
             mp4_apply_video_config(r, pkt);
-        } else if (pkt->codec == ZMS_CODEC_AAC) {
+        } else if (pkt->codec == ZCS_CODEC_AAC) {
             mp4_apply_audio_config(r, pkt);
         }
         return;
@@ -816,9 +816,9 @@ static void mp4_container_cb(const zms_container_packet *pkt, void *user)
 
 /* 冲刷暂存样本：就绪后真正写入。返回 1=已冲刷、0=尚未就绪、-1=写失败。
  * 每次 pump 循环开头都调用它，保证上一步挡下的样本尽早补上。 */
-static int mp4_flush_pending(zms_vod_file_reader *r)
+static int mp4_flush_pending(zcs_vod_file_reader *r)
 {
-    struct zms_vod_file_pending_slot *p;
+    struct zcs_vod_file_pending_slot *p;
     zn_err_t err;
 
     if (!r || !r->pending.used) {
@@ -833,7 +833,7 @@ static int mp4_flush_pending(zms_vod_file_reader *r)
     return err == ZN_OK ? 1 : -1;
 }
 
-static int mp4_demux_pump(zms_vod_file_reader *r)
+static int mp4_demux_pump(zcs_vod_file_reader *r)
 {
     if (!r || !r->mp4_ops || !r->mp4_demux || !r->mp4_ops->pump || r->eof) {
         return 0;
@@ -846,7 +846,7 @@ static int mp4_demux_pump(zms_vod_file_reader *r)
  * mp4_pump：持续泵到 fifo 达高水位或 demux 结束，用于定时器/tick 的批量填充。
  * 两者共享同一套 eof/loop 处理：demux 返回 0 即到片尾，若开启 loop 则 seek
  * 回 0 继续（无限循环播放），否则标记 eof。 */
-static int mp4_pump_once(zms_vod_file_reader *r)
+static int mp4_pump_once(zcs_vod_file_reader *r)
 {
     int pushed = 0;
     int n;
@@ -860,7 +860,7 @@ static int mp4_pump_once(zms_vod_file_reader *r)
     }
 
     if (r->fifo && !r->drop_until_sync && r->fifo_high_water > 0 &&
-        zms_vod_buffer_pending(r->fifo) >= r->fifo_high_water) {
+        zcs_vod_buffer_pending(r->fifo) >= r->fifo_high_water) {
         return pushed;
     }
 
@@ -884,7 +884,7 @@ static int mp4_pump_once(zms_vod_file_reader *r)
     return pushed > 0 ? pushed : -1;
 }
 
-static int mp4_pump(zms_vod_file_reader *r)
+static int mp4_pump(zcs_vod_file_reader *r)
 {
     int pushed = 0;
     int n;
@@ -898,7 +898,7 @@ static int mp4_pump(zms_vod_file_reader *r)
     }
 
     while (r->fifo && !r->drop_until_sync && r->fifo_high_water > 0 &&
-           zms_vod_buffer_pending(r->fifo) >= r->fifo_high_water) {
+           zcs_vod_buffer_pending(r->fifo) >= r->fifo_high_water) {
         return pushed;
     }
 
@@ -907,7 +907,7 @@ static int mp4_pump(zms_vod_file_reader *r)
         if (n > 0) {
             ++pushed;
             if (r->fifo && !r->drop_until_sync && r->fifo_high_water > 0 &&
-                zms_vod_buffer_pending(r->fifo) >= r->fifo_high_water) {
+                zcs_vod_buffer_pending(r->fifo) >= r->fifo_high_water) {
                 return pushed;
             }
             continue;
@@ -931,50 +931,50 @@ static int mp4_pump(zms_vod_file_reader *r)
 
 static void mp4_tick(void *user)
 {
-    zms_vod_file_reader *r = (zms_vod_file_reader *)user;
+    zcs_vod_file_reader *r = (zcs_vod_file_reader *)user;
     if (!r || r->pump_hold) {
         return;
     }
     (void)mp4_pump(r);
 }
 
-static zms_container_id file_container_id(const char *path)
+static zcs_container_id file_container_id(const char *path)
 {
     size_t n;
 
     if (!path) {
-        return ZMS_CONTAINER_MP4;
+        return ZCS_CONTAINER_MP4;
     }
     n = strlen(path);
     if (n >= 4) {
         const char *ext = path + n - 4;
-        if (zms_file_stricmp(ext, ".flv") == 0) {
-            return ZMS_CONTAINER_FLV_FILE;
+        if (zcs_file_stricmp(ext, ".flv") == 0) {
+            return ZCS_CONTAINER_FLV_FILE;
         }
-        if (zms_file_stricmp(ext, ".mkv") == 0 || zms_file_stricmp(ext, ".mka") == 0) {
-            return ZMS_CONTAINER_MKV;
+        if (zcs_file_stricmp(ext, ".mkv") == 0 || zcs_file_stricmp(ext, ".mka") == 0) {
+            return ZCS_CONTAINER_MKV;
         }
-        if (zms_file_stricmp(ext, ".mov") == 0 || zms_file_stricmp(ext, ".m4v") == 0) {
-            return ZMS_CONTAINER_MP4;
+        if (zcs_file_stricmp(ext, ".mov") == 0 || zcs_file_stricmp(ext, ".m4v") == 0) {
+            return ZCS_CONTAINER_MP4;
         }
     }
-    if (n >= 6 && zms_file_stricmp(path + n - 6, ".zslot") == 0) {
-        return ZMS_CONTAINER_ZSLOT;
+    if (n >= 6 && zcs_file_stricmp(path + n - 6, ".zslot") == 0) {
+        return ZCS_CONTAINER_ZSLOT;
     }
-    return ZMS_CONTAINER_MP4;
+    return ZCS_CONTAINER_MP4;
 }
 
-zms_vod_file_reader *zms_vod_file_reader_open(const zms_vod_file_reader_opts *opts)
+zcs_vod_file_reader *zcs_vod_file_reader_open(const zcs_vod_file_reader_opts *opts)
 {
-    zms_vod_file_reader *r;
-    zms_container_demux_opts cfg;
-    zms_container_id cid;
+    zcs_vod_file_reader *r;
+    zcs_container_demux_opts cfg;
+    zcs_container_id cid;
 
     if (!opts || !opts->file_path || !opts->fifo) {
         return NULL;
     }
 
-    r = (zms_vod_file_reader *)calloc(1, sizeof(*r));
+    r = (zcs_vod_file_reader *)calloc(1, sizeof(*r));
     if (!r) {
         return NULL;
     }
@@ -989,7 +989,7 @@ zms_vod_file_reader *zms_vod_file_reader_open(const zms_vod_file_reader_opts *op
 
     cid = file_container_id(r->path);
     r->container_id = cid;
-    r->mp4_ops = zms_container_demuxer_find(cid);
+    r->mp4_ops = zcs_container_demuxer_find(cid);
     if (!r->mp4_ops || !r->mp4_ops->create || !r->mp4_ops->open_file) {
         free(r);
         return NULL;
@@ -1012,20 +1012,20 @@ zms_vod_file_reader *zms_vod_file_reader_open(const zms_vod_file_reader_opts *op
         return NULL;
     }
 
-    if (cid == ZMS_CONTAINER_MKV) {
-        zms_container_demux_mkv_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
-    } else if (cid == ZMS_CONTAINER_FLV_FILE) {
-        zms_container_demux_flv_file_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
-    } else if (cid == ZMS_CONTAINER_ZSLOT) {
-        zms_container_demux_zslot_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
+    if (cid == ZCS_CONTAINER_MKV) {
+        zcs_container_demux_mkv_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
+    } else if (cid == ZCS_CONTAINER_FLV_FILE) {
+        zcs_container_demux_flv_file_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
+    } else if (cid == ZCS_CONTAINER_ZSLOT) {
+        zcs_container_demux_zslot_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
     } else {
-        zms_container_demux_mp4_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
+        zcs_container_demux_mp4_codecs(r->mp4_demux, &r->video_codec, &r->audio_codec);
     }
 
     /* 只支持 H.264/H.265 视频：其余视频编码在文件 VOD 路径（需要 Annex-B 转换
      * 与参数集提取）尚未实现，早失败比运行中出怪画面更好。 */
-    if (r->video_codec != ZMS_CODEC_H264 && r->video_codec != ZMS_CODEC_H265) {
-        zn_warn("file_reader: unsupported video codec %s (%s)", zms_codec_name(r->video_codec),
+    if (r->video_codec != ZCS_CODEC_H264 && r->video_codec != ZCS_CODEC_H265) {
+        zn_warn("file_reader: unsupported video codec %s (%s)", zcs_codec_name(r->video_codec),
                  r->path);
         r->mp4_ops->destroy(r->mp4_demux);
         free(r);
@@ -1034,34 +1034,34 @@ zms_vod_file_reader *zms_vod_file_reader_open(const zms_vod_file_reader_opts *op
 
     r->duration_ms = r->mp4_ops->duration_ms ? r->mp4_ops->duration_ms(r->mp4_demux) : 0;
 
-    zn_info("file_reader: open %s container=%s duration=%llu ms", r->path, zms_container_name(cid),
+    zn_info("file_reader: open %s container=%s duration=%llu ms", r->path, zcs_container_name(cid),
              (unsigned long long)r->duration_ms);
 
     /* FLV 索引经 container/mp4 遍历 MP4 sample table；仅 MP4 ctx 适用。 */
-    if (r->src && r->src->vod_buffer && r->src->publish_origin == ZMS_ORIGIN_MP4_VOD &&
-        r->container_id == ZMS_CONTAINER_MP4 && mp4_owns_source_meta(r)) {
+    if (r->src && r->src->vod_buffer && r->src->publish_origin == ZCS_ORIGIN_MP4_VOD &&
+        r->container_id == ZCS_CONTAINER_MP4 && mp4_owns_source_meta(r)) {
         size_t vlen = 0;
         size_t alen = 0;
         size_t meta = 384;
-        zms_vod_flv_index *idx = NULL;
+        zcs_vod_flv_index *idx = NULL;
         int round;
 
-        (void)zms_vod_buffer_video_config(r->fifo, &vlen);
-        (void)zms_vod_buffer_audio_config(r->fifo, &alen);
+        (void)zcs_vod_buffer_video_config(r->fifo, &vlen);
+        (void)zcs_vod_buffer_audio_config(r->fifo, &alen);
         /* FLV 索引里要内嵌一段 metadata（宽高等），而 metadata 的 body 大小
          * 又依赖索引本身——这是个不动点问题。这里迭代几轮：用上轮索引算出
          * metadata 大小，再用新大小重建索引，直到大小稳定（或达轮数上限）。
          * meta 初值 384 是一个合理起点。 */
         for (round = 0; round < 4; ++round) {
             if (idx) {
-                zms_vod_flv_index_free(idx);
+                zcs_vod_flv_index_free(idx);
             }
-            idx = zms_vod_flv_index_build(r->mp4_demux, vlen, alen, meta);
+            idx = zcs_vod_flv_index_build(r->mp4_demux, vlen, alen, meta);
             if (!idx) {
                 break;
             }
             {
-                size_t meta2 = zms_vod_flv_metadata_body_size(r->src, r->duration_ms / 1000.0, idx);
+                size_t meta2 = zcs_vod_flv_metadata_body_size(r->src, r->duration_ms / 1000.0, idx);
                 if (meta2 == 0 || meta2 == meta) {
                     break;
                 }
@@ -1073,7 +1073,7 @@ zms_vod_file_reader *zms_vod_file_reader_open(const zms_vod_file_reader_opts *op
     return r;
 }
 
-static void mp4_prefill_limited(zms_vod_file_reader *r, int max_loops)
+static void mp4_prefill_limited(zcs_vod_file_reader *r, int max_loops)
 {
     int i;
 
@@ -1081,7 +1081,7 @@ static void mp4_prefill_limited(zms_vod_file_reader *r, int max_loops)
         return;
     }
     for (i = 0; i < max_loops; ++i) {
-        if (r->fifo_high_water > 0 && zms_vod_buffer_pending(r->fifo) >= r->fifo_high_water) {
+        if (r->fifo_high_water > 0 && zcs_vod_buffer_pending(r->fifo) >= r->fifo_high_water) {
             break;
         }
         if (mp4_pump(r) <= 0) {
@@ -1090,12 +1090,12 @@ static void mp4_prefill_limited(zms_vod_file_reader *r, int max_loops)
     }
 }
 
-static void mp4_prefill(zms_vod_file_reader *r)
+static void mp4_prefill(zcs_vod_file_reader *r)
 {
     mp4_prefill_limited(r, 4096);
 }
 
-void zms_vod_file_reader_prefill(zms_vod_file_reader *r)
+void zcs_vod_file_reader_prefill(zcs_vod_file_reader *r)
 {
     mp4_prefill(r);
 }
@@ -1110,7 +1110,7 @@ void zms_vod_file_reader_prefill(zms_vod_file_reader *r)
  *   6. 最后做有限预填，让播放端一起播就有数据。
  * 返回实际定位到的毫秒（会被 duration 钳制；失败回退为 0）。
  */
-uint64_t zms_vod_file_reader_seek_ms(zms_vod_file_reader *r, uint64_t ms)
+uint64_t zcs_vod_file_reader_seek_ms(zcs_vod_file_reader *r, uint64_t ms)
 {
     int i;
     int64_t ts;
@@ -1126,13 +1126,13 @@ uint64_t zms_vod_file_reader_seek_ms(zms_vod_file_reader *r, uint64_t ms)
         zn_timer_stop(r->timer);
         timer_was = 1;
     }
-    zms_vod_buffer_reset(r->fifo);
+    zcs_vod_buffer_reset(r->fifo);
     r->eof = 0;
     r->clock_armed = 0;
     r->clock0_wall = 0;
     r->dts0 = 0;
     r->drop_until_sync =
-        (r->video_codec == ZMS_CODEC_H264 || r->video_codec == ZMS_CODEC_H265) ? 1 : 0;
+        (r->video_codec == ZCS_CODEC_H264 || r->video_codec == ZCS_CODEC_H265) ? 1 : 0;
     pending_clear(&r->pending);
     ts = (int64_t)ms;
     if (!r->mp4_demux || !r->mp4_ops || !r->mp4_ops->seek ||
@@ -1168,15 +1168,15 @@ uint64_t zms_vod_file_reader_seek_ms(zms_vod_file_reader *r, uint64_t ms)
     return ms;
 }
 
-void zms_vod_file_reader_prepare_play(zms_vod_file_reader *r)
+void zcs_vod_file_reader_prepare_play(zcs_vod_file_reader *r)
 {
-    (void)zms_vod_file_reader_seek_ms(r, 0);
+    (void)zcs_vod_file_reader_seek_ms(r, 0);
 }
 
 /* 把 reader 绑定到某 poller 并起定时泵。max_prefill_loops<=0 表示完整预填
  * （普通播放），否则只做有限预填（如 lite 模式，避免一次性读太多、降低启动
  * 尾延迟）。绑定时总是先停旧定时器，防止重复起泵。 */
-static void mp4_bind_poller(zms_vod_file_reader *r, zn_poller *poller, int max_prefill_loops)
+static void mp4_bind_poller(zcs_vod_file_reader *r, zn_poller *poller, int max_prefill_loops)
 {
     if (!r) {
         return;
@@ -1196,17 +1196,17 @@ static void mp4_bind_poller(zms_vod_file_reader *r, zn_poller *poller, int max_p
     }
 }
 
-void zms_vod_file_reader_bind_poller(zms_vod_file_reader *r, zn_poller *poller)
+void zcs_vod_file_reader_bind_poller(zcs_vod_file_reader *r, zn_poller *poller)
 {
     mp4_bind_poller(r, poller, 0);
 }
 
-void zms_vod_file_reader_bind_poller_lite(zms_vod_file_reader *r, zn_poller *poller)
+void zcs_vod_file_reader_bind_poller_lite(zcs_vod_file_reader *r, zn_poller *poller)
 {
     mp4_bind_poller(r, poller, MP4_SEEK_PREFILL_MAX);
 }
 
-void zms_vod_file_reader_close(zms_vod_file_reader *r)
+void zcs_vod_file_reader_close(zcs_vod_file_reader *r)
 {
     if (!r) {
         return;
@@ -1218,12 +1218,12 @@ void zms_vod_file_reader_close(zms_vod_file_reader *r)
         r->timer = NULL;
     }
     pending_clear(&r->pending);
-    zms_buf_pool_slot_clear(&r->scratch, &r->scratch_cap);
+    zcs_buf_pool_slot_clear(&r->scratch, &r->scratch_cap);
     free(r->annexb_buf);
     r->annexb_buf = NULL;
     r->annexb_cap = 0;
     if (r->flv_index && (!r->src || mp4_owns_source_meta(r))) {
-        zms_vod_flv_index_free(r->flv_index);
+        zcs_vod_flv_index_free(r->flv_index);
     }
     r->flv_index = NULL;
     if (r->mp4_ops && r->mp4_demux) {
@@ -1232,22 +1232,22 @@ void zms_vod_file_reader_close(zms_vod_file_reader *r)
     free(r);
 }
 
-zms_media_source *zms_vod_file_reader_source(zms_vod_file_reader *r)
+zcs_media_source *zcs_vod_file_reader_source(zcs_vod_file_reader *r)
 {
     return r ? r->src : NULL;
 }
 
-const char *zms_vod_file_reader_file_path(const zms_vod_file_reader *r)
+const char *zcs_vod_file_reader_file_path(const zcs_vod_file_reader *r)
 {
     return (r && r->path[0]) ? r->path : NULL;
 }
 
-uint64_t zms_vod_file_reader_duration_ms(const zms_vod_file_reader *r)
+uint64_t zcs_vod_file_reader_duration_ms(const zcs_vod_file_reader *r)
 {
     return r ? r->duration_ms : 0;
 }
 
-const zms_vod_flv_index *zms_vod_file_reader_flv_index(zms_vod_file_reader *r)
+const zcs_vod_flv_index *zcs_vod_file_reader_flv_index(zcs_vod_file_reader *r)
 {
     if (!r) {
         return NULL;
@@ -1259,7 +1259,7 @@ const zms_vod_flv_index *zms_vod_file_reader_flv_index(zms_vod_file_reader *r)
     return r->flv_index;
 }
 
-void zms_vod_file_reader_set_pump_hold(zms_vod_file_reader *r, int hold)
+void zcs_vod_file_reader_set_pump_hold(zcs_vod_file_reader *r, int hold)
 {
     if (!r) {
         return;
@@ -1267,7 +1267,7 @@ void zms_vod_file_reader_set_pump_hold(zms_vod_file_reader *r, int hold)
     r->pump_hold = hold ? 1 : 0;
 }
 
-int zms_vod_file_reader_pump(zms_vod_file_reader *r)
+int zcs_vod_file_reader_pump(zcs_vod_file_reader *r)
 {
     if (!r || !r->mp4_demux || r->eof) {
         return 0;

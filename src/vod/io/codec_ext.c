@@ -2,16 +2,16 @@
  * @file codec_ext.c
  * @brief VOD 容器扩展 codec 注册。
  */
-#include "zms/vod/io/codec_ext.h"
+#include "zcs/vod/io/codec_ext.h"
 #include <string.h>
 
-#define ZMS_VOD_CODEC_OPS_MAX 8
+#define ZCS_VOD_CODEC_OPS_MAX 8
 
-static const zms_vod_codec_ops *g_codec_ops[ZMS_VOD_CODEC_OPS_MAX];
+static const zcs_vod_codec_ops *g_codec_ops[ZCS_VOD_CODEC_OPS_MAX];
 static int g_codec_ops_count;
 static int g_vod_codec_ext_builtins_registered;
 
-void zms_vod_codec_ext_register(const zms_vod_codec_ops *ops)
+void zcs_vod_codec_ext_register(const zcs_vod_codec_ops *ops)
 {
     int i;
 
@@ -24,7 +24,7 @@ void zms_vod_codec_ext_register(const zms_vod_codec_ops *ops)
             return;
         }
     }
-    if (g_codec_ops_count >= ZMS_VOD_CODEC_OPS_MAX) {
+    if (g_codec_ops_count >= ZCS_VOD_CODEC_OPS_MAX) {
         return;
     }
     g_codec_ops[g_codec_ops_count++] = ops;
@@ -36,18 +36,18 @@ static int hevc_probe_mp4_stub(const char *file_path)
     return 0;
 }
 
-static const zms_vod_codec_ops k_hevc_ops = {
-    .name = ZMS_VOD_CODEC_HEVC,
+static const zcs_vod_codec_ops k_hevc_ops = {
+    .name = ZCS_VOD_CODEC_HEVC,
     .probe_mp4 = hevc_probe_mp4_stub,
     .lane_prepare = NULL,
     .lane_destroy = NULL,
 };
 
-void zms_vod_codec_ext_register_all(void)
+void zcs_vod_codec_ext_register_all(void)
 {
     if (g_vod_codec_ext_builtins_registered) {
         return;
     }
     g_vod_codec_ext_builtins_registered = 1;
-    zms_vod_codec_ext_register(&k_hevc_ops);
+    zcs_vod_codec_ext_register(&k_hevc_ops);
 }

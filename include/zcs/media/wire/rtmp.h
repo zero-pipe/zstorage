@@ -1,0 +1,31 @@
+/**
+ * @file rtmp.h
+ * @brief RTMP 消息类型与常量。
+ */
+#ifndef ZCS_MEDIA_WIRE_RTMP_H
+#define ZCS_MEDIA_WIRE_RTMP_H
+
+#include <stdint.h>
+
+#define ZCS_RTMP_DEFAULT_CHUNK 128
+#define ZCS_RTMP_HANDSHAKE_RANDOM 1528
+
+#define ZCS_RTMP_MSG_SET_CHUNK 1
+#define ZCS_RTMP_MSG_ACK 3
+#define ZCS_RTMP_MSG_USER_CONTROL 4
+#define ZCS_RTMP_MSG_WIN_SIZE 5
+#define ZCS_RTMP_MSG_SET_PEER_BW 6
+#define ZCS_RTMP_MSG_AUDIO 8
+#define ZCS_RTMP_MSG_VIDEO 9
+
+/** FLV/RTMP SoundFormat（首字节高 4 bit） */
+#define ZCS_RTMP_SOUND_FMT_G711A 7
+#define ZCS_RTMP_SOUND_FMT_G711U 8
+#define ZCS_RTMP_SOUND_FMT_AAC 10
+#define ZCS_RTMP_MSG_DATA 18
+#define ZCS_RTMP_MSG_CMD 20
+
+#define ZCS_RTMP_CHUNK_SYSTEM 3
+#define ZCS_RTMP_CHUNK_MEDIA 8
+
+#endif /* ZCS_MEDIA_WIRE_RTMP_H */

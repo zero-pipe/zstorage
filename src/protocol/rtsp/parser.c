@@ -2,7 +2,7 @@
  * @file parser.c
  * @brief RTSP 消息解析与构造（请求行/状态行/头/CSeq）。
  */
-#include "zms/protocol/rtsp/parser.h"
+#include "zcs/protocol/rtsp/parser.h"
 #include "util/strtok_r.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -18,26 +18,26 @@ static const char *method_names[] = {
     "TEARDOWN", "GET_PARAMETER", "SET_PARAMETER", "ANNOUNCE", "RECORD",
 };
 
-static zms_rtsp_method parse_method(const char *s)
+static zcs_rtsp_method parse_method(const char *s)
 {
     for (size_t i = 0; i < sizeof(method_names) / sizeof(method_names[0]); ++i) {
         if (strcasecmp(s, method_names[i]) == 0) {
-            return (zms_rtsp_method)i;
+            return (zcs_rtsp_method)i;
         }
     }
-    return ZMS_RTSP_UNKNOWN;
+    return ZCS_RTSP_UNKNOWN;
 }
 
-void zms_rtsp_message_clear(zms_rtsp_message *msg)
+void zcs_rtsp_message_clear(zcs_rtsp_message *msg)
 {
     if (!msg) {
         return;
     }
-    zms_msg_fini(&msg->msg);
+    zcs_msg_fini(&msg->msg);
     memset(msg, 0, sizeof(*msg));
 }
 
-static zn_err_t add_header(zms_rtsp_message *msg, const char *line)
+static zn_err_t add_header(zcs_rtsp_message *msg, const char *line)
 {
     const char *p = strchr(line, ':');
     const char *vstart;
@@ -53,7 +53,7 @@ static zn_err_t add_header(zms_rtsp_message *msg, const char *line)
     while (klen > 0 && isspace((unsigned char)line[klen - 1])) {
         --klen;
     }
-    if (klen == 0 || klen >= ZMS_RTSP_KEY_MAX) {
+    if (klen == 0 || klen >= ZCS_RTSP_KEY_MAX) {
         return ZN_ERR_INVALID;
     }
 
@@ -66,17 +66,17 @@ static zn_err_t add_header(zms_rtsp_message *msg, const char *line)
                         vstart[vlen - 1] == ' ' || vstart[vlen - 1] == '\t')) {
         --vlen;
     }
-    if (vlen >= ZMS_RTSP_VAL_MAX) {
+    if (vlen >= ZCS_RTSP_VAL_MAX) {
         return ZN_ERR_BUFFER_TOO_SMALL;
     }
 
     /* 报文缓冲是临时的：键与值都登记为消息自有副本。 */
-    key = zms_msg_own_copy(&msg->msg, line, klen);
-    val = zms_msg_own_copy(&msg->msg, vstart, vlen);
+    key = zcs_msg_own_copy(&msg->msg, line, klen);
+    val = zcs_msg_own_copy(&msg->msg, vstart, vlen);
     if (!key || !val) {
         return ZN_ERR_NOMEM;
     }
-    if (zms_msg_add_hdr(&msg->msg, key, klen, val, vlen) != 0) {
+    if (zcs_msg_add_hdr(&msg->msg, key, klen, val, vlen) != 0) {
         return ZN_ERR_BUFFER_TOO_SMALL;
     }
     return ZN_OK;
@@ -95,10 +95,10 @@ static const char *find_header_end(const char *data, size_t len, size_t *header_
     return NULL;
 }
 
-static zn_err_t parse_header_block(char *block, zms_rtsp_message *msg)
+static zn_err_t parse_header_block(char *block, zcs_rtsp_message *msg)
 {
     char *save = NULL;
-    char *line = zms_strtok_r(block, "\r\n", &save);
+    char *line = zcs_strtok_r(block, "\r\n", &save);
     if (!line) {
         return ZN_ERR_INVALID;
     }
@@ -113,11 +113,11 @@ static zn_err_t parse_header_block(char *block, zms_rtsp_message *msg)
             return ZN_ERR_INVALID;
         }
         strncpy(msg->version, ver, sizeof(msg->version) - 1);
-        owned = zms_msg_own_copy(&msg->msg, reason, strlen(reason));
+        owned = zcs_msg_own_copy(&msg->msg, reason, strlen(reason));
         if (!owned) {
             return ZN_ERR_NOMEM;
         }
-        msg->msg.kind = ZMS_MSG_KIND_RESPONSE;
+        msg->msg.kind = ZCS_MSG_KIND_RESPONSE;
         msg->msg.reason = owned;
         msg->msg.reason_len = strlen(reason);
     } else {
@@ -131,16 +131,16 @@ static zn_err_t parse_header_block(char *block, zms_rtsp_message *msg)
         }
         msg->method = parse_method(method);
         strncpy(msg->version, ver, sizeof(msg->version) - 1);
-        owned = zms_msg_own_copy(&msg->msg, url, strlen(url));
+        owned = zcs_msg_own_copy(&msg->msg, url, strlen(url));
         if (!owned) {
             return ZN_ERR_NOMEM;
         }
-        msg->msg.kind = ZMS_MSG_KIND_REQUEST;
-        (void)zms_msg_set_method(&msg->msg, owned, strlen(url));
-        (void)zms_msg_set_url(&msg->msg, owned, strlen(url));
+        msg->msg.kind = ZCS_MSG_KIND_REQUEST;
+        (void)zcs_msg_set_method(&msg->msg, owned, strlen(url));
+        (void)zcs_msg_set_url(&msg->msg, owned, strlen(url));
     }
 
-    while ((line = zms_strtok_r(NULL, "\r\n", &save)) != NULL) {
+    while ((line = zcs_strtok_r(NULL, "\r\n", &save)) != NULL) {
         if (line[0] == '\0') {
             break;
         }
@@ -152,19 +152,19 @@ static zn_err_t parse_header_block(char *block, zms_rtsp_message *msg)
     return ZN_OK;
 }
 
-zn_err_t zms_rtsp_message_parse_header(const char *data, size_t len, zms_rtsp_message *msg)
+zn_err_t zcs_rtsp_message_parse_header(const char *data, size_t len, zcs_rtsp_message *msg)
 {
     if (!data || !msg || len == 0) {
         return ZN_ERR_INVALID;
     }
 
-    zms_rtsp_message_clear(msg);
+    zcs_rtsp_message_clear(msg);
     size_t hdr_len = 0;
     if (!find_header_end(data, len, &hdr_len)) {
         return ZN_ERR_AGAIN;
     }
 
-    char block[ZMS_RTSP_LINE_MAX];
+    char block[ZCS_RTSP_LINE_MAX];
     if (hdr_len >= sizeof(block)) {
         return ZN_ERR_BUFFER_TOO_SMALL;
     }
@@ -173,14 +173,14 @@ zn_err_t zms_rtsp_message_parse_header(const char *data, size_t len, zms_rtsp_me
     return parse_header_block(block, msg);
 }
 
-zn_err_t zms_rtsp_message_parse(const char *data, size_t len, zms_rtsp_message *msg,
+zn_err_t zcs_rtsp_message_parse(const char *data, size_t len, zcs_rtsp_message *msg,
                                  size_t *consumed)
 {
     if (!data || !msg || len == 0) {
         return ZN_ERR_INVALID;
     }
 
-    zn_err_t err = zms_rtsp_message_parse_header(data, len, msg);
+    zn_err_t err = zcs_rtsp_message_parse_header(data, len, msg);
     if (err != ZN_OK) {
         return err;
     }
@@ -188,14 +188,14 @@ zn_err_t zms_rtsp_message_parse(const char *data, size_t len, zms_rtsp_message *
     size_t hdr_len = 0;
     find_header_end(data, len, &hdr_len);
 
-    int content_len = zms_rtsp_message_content_length(msg);
+    int content_len = zcs_rtsp_message_content_length(msg);
     size_t total = hdr_len + (content_len > 0 ? (size_t)content_len : 0);
     if (len < total) {
         return ZN_ERR_AGAIN;
     }
 
     if (content_len > 0) {
-        (void)zms_msg_set_body(&msg->msg, data + hdr_len, (size_t)content_len);
+        (void)zcs_msg_set_body(&msg->msg, data + hdr_len, (size_t)content_len);
     }
 
     if (consumed) {
@@ -204,32 +204,32 @@ zn_err_t zms_rtsp_message_parse(const char *data, size_t len, zms_rtsp_message *
     return ZN_OK;
 }
 
-const char *zms_rtsp_message_get(const zms_rtsp_message *msg, const char *key)
+const char *zcs_rtsp_message_get(const zcs_rtsp_message *msg, const char *key)
 {
-    const zms_kv *kv;
+    const zcs_kv *kv;
 
     if (!msg || !key) {
         return NULL;
     }
-    kv = zms_msg_find(&msg->msg, key);
+    kv = zcs_msg_find(&msg->msg, key);
     return kv ? kv->value : NULL;
 }
 
-int zms_rtsp_message_content_length(const zms_rtsp_message *msg)
+int zcs_rtsp_message_content_length(const zcs_rtsp_message *msg)
 {
-    const char *v = zms_rtsp_message_get(msg, "Content-Length");
+    const char *v = zcs_rtsp_message_get(msg, "Content-Length");
     if (!v || !v[0]) {
         return 0;
     }
     return atoi(v);
 }
 
-zn_err_t zms_rtsp_message_build_request(char *out, size_t cap, zms_rtsp_method method,
+zn_err_t zcs_rtsp_message_build_request(char *out, size_t cap, zcs_rtsp_method method,
                                          const char *url, unsigned cseq, const char *session,
                                          const char *extra_headers, const char *body,
                                          size_t body_len, size_t *out_len)
 {
-    if (!out || !url || method < 0 || method >= ZMS_RTSP_UNKNOWN) {
+    if (!out || !url || method < 0 || method >= ZCS_RTSP_UNKNOWN) {
         return ZN_ERR_INVALID;
     }
 
@@ -280,7 +280,7 @@ zn_err_t zms_rtsp_message_build_request(char *out, size_t cap, zms_rtsp_method m
     return ZN_OK;
 }
 
-zn_err_t zms_rtsp_message_build_response(char *out, size_t cap, int status, const char *reason,
+zn_err_t zcs_rtsp_message_build_response(char *out, size_t cap, int status, const char *reason,
                                           unsigned cseq, const char *session,
                                           const char *extra_headers, const char *body,
                                           size_t body_len, size_t *out_len)
@@ -292,7 +292,7 @@ zn_err_t zms_rtsp_message_build_response(char *out, size_t cap, int status, cons
     int n = snprintf(out, cap,
                      "RTSP/1.0 %d %s\r\n"
                      "CSeq: %u\r\n"
-                     "Server: ZMS-RTSP/1.0\r\n",
+                     "Server: ZCS-RTSP/1.0\r\n",
                      status, reason, cseq);
     if (n < 0 || (size_t)n >= cap) {
         return ZN_ERR_BUFFER_TOO_SMALL;

@@ -1,5 +1,5 @@
-#ifndef ZMS_ZICE_FORCED_H
-#define ZMS_ZICE_FORCED_H
+#ifndef ZCS_ZICE_FORCED_H
+#define ZCS_ZICE_FORCED_H
 
 #include <assert.h>
 
@@ -11,4 +11,4 @@
 #include <ws2tcpip.h>
 #endif
 
-#endif /* ZMS_ZICE_FORCED_H */
+#endif /* ZCS_ZICE_FORCED_H */

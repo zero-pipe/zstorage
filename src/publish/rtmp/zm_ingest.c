@@ -4,7 +4,7 @@
  */
 #include "publish/rtmp/zm_ingest.h"
 
-#include "bridge/zm_zms_bridge.h"
+#include "bridge/zm_zcs_bridge.h"
 #include "zm/format/flv.h"
 
 #include "mpeg4-avc.h"
@@ -13,12 +13,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct zms_rtmp_zm_ingest {
-    zms_live_ingest *ingest;
+struct zcs_rtmp_zm_ingest {
+    zcs_live_ingest *ingest;
     zm_reader *reader;
 };
 
-static void rtmp_zm_apply_aac_config(zms_rtmp_zm_ingest *z, const uint8_t *asc, size_t len)
+static void rtmp_zm_apply_aac_config(zcs_rtmp_zm_ingest *z, const uint8_t *asc, size_t len)
 {
     char hex[2 * 64 + 1];
     static const char digits[] = "0123456789abcdef";
@@ -32,11 +32,11 @@ static void rtmp_zm_apply_aac_config(zms_rtmp_zm_ingest *z, const uint8_t *asc, 
         hex[i * 2 + 1] = digits[asc[i] & 0x0f];
     }
     hex[len * 2] = '\0';
-    (void)zms_live_ingest_set_aac_config_hex(z->ingest, hex);
-    zms_live_ingest_mark_real_audio(z->ingest);
+    (void)zcs_live_ingest_set_aac_config_hex(z->ingest, hex);
+    zcs_live_ingest_mark_real_audio(z->ingest);
 }
 
-static void rtmp_zm_apply_h264_config(zms_rtmp_zm_ingest *z, const uint8_t *avcc, size_t len)
+static void rtmp_zm_apply_h264_config(zcs_rtmp_zm_ingest *z, const uint8_t *avcc, size_t len)
 {
     struct mpeg4_avc_t avc;
 
@@ -45,11 +45,11 @@ static void rtmp_zm_apply_h264_config(zms_rtmp_zm_ingest *z, const uint8_t *avcc
         avc.nb_pps == 0) {
         return;
     }
-    (void)zms_live_ingest_set_h264_sps_pps(z->ingest, avc.sps[0].data, avc.sps[0].bytes,
+    (void)zcs_live_ingest_set_h264_sps_pps(z->ingest, avc.sps[0].data, avc.sps[0].bytes,
                                            avc.pps[0].data, avc.pps[0].bytes);
 }
 
-static void rtmp_zm_apply_h265_config(zms_rtmp_zm_ingest *z, const uint8_t *hvcc, size_t len)
+static void rtmp_zm_apply_h265_config(zcs_rtmp_zm_ingest *z, const uint8_t *hvcc, size_t len)
 {
     struct mpeg4_hevc_t hevc;
     const uint8_t *vps = NULL;
@@ -77,12 +77,12 @@ static void rtmp_zm_apply_h265_config(zms_rtmp_zm_ingest *z, const uint8_t *hvcc
         }
     }
     if (sps && pps) {
-        (void)zms_live_ingest_set_h265_vps_sps_pps(z->ingest, vps, vps_len, sps, sps_len, pps,
+        (void)zcs_live_ingest_set_h265_vps_sps_pps(z->ingest, vps, vps_len, sps, sps_len, pps,
                                                    pps_len);
     }
 }
 
-static void rtmp_zm_apply_config(zms_rtmp_zm_ingest *z, const zm_packet *pkt)
+static void rtmp_zm_apply_config(zcs_rtmp_zm_ingest *z, const zm_packet *pkt)
 {
     if (!z || !pkt || !pkt->mem.data) {
         return;
@@ -98,7 +98,7 @@ static void rtmp_zm_apply_config(zms_rtmp_zm_ingest *z, const zm_packet *pkt)
         rtmp_zm_apply_aac_config(z, pkt->mem.data, pkt->mem.len);
         break;
     case ZM_CODEC_OPUS:
-        zms_live_ingest_set_audio_codec(z->ingest, ZMS_CODEC_OPUS, 48000);
+        zcs_live_ingest_set_audio_codec(z->ingest, ZCS_CODEC_OPUS, 48000);
         break;
     default:
         /* AV1/G711 等：媒体帧自身携带/推导配置，无需显式 config。 */
@@ -106,25 +106,25 @@ static void rtmp_zm_apply_config(zms_rtmp_zm_ingest *z, const zm_packet *pkt)
     }
 }
 
-static void rtmp_zm_feed_media(zms_rtmp_zm_ingest *z, const zm_packet *pkt)
+static void rtmp_zm_feed_media(zcs_rtmp_zm_ingest *z, const zm_packet *pkt)
 {
-    zms_frame frame;
+    zcs_frame frame;
 
-    if (zms_zm_frame_from_packet(pkt, &frame) != ZM_OK) {
+    if (zcs_zm_frame_from_packet(pkt, &frame) != ZM_OK) {
         return;
     }
-    (void)zms_live_ingest_input_frame(z->ingest, &frame);
+    (void)zcs_live_ingest_input_frame(z->ingest, &frame);
 }
 
-zms_rtmp_zm_ingest *zms_rtmp_zm_ingest_create(zms_live_ingest *ingest)
+zcs_rtmp_zm_ingest *zcs_rtmp_zm_ingest_create(zcs_live_ingest *ingest)
 {
-    zms_rtmp_zm_ingest *z;
+    zcs_rtmp_zm_ingest *z;
     zm_reader_cfg cfg;
 
     if (!ingest) {
         return NULL;
     }
-    z = (zms_rtmp_zm_ingest *)calloc(1, sizeof(*z));
+    z = (zcs_rtmp_zm_ingest *)calloc(1, sizeof(*z));
     if (!z) {
         return NULL;
     }
@@ -141,7 +141,7 @@ zms_rtmp_zm_ingest *zms_rtmp_zm_ingest_create(zms_live_ingest *ingest)
     return z;
 }
 
-void zms_rtmp_zm_ingest_destroy(zms_rtmp_zm_ingest *z)
+void zcs_rtmp_zm_ingest_destroy(zcs_rtmp_zm_ingest *z)
 {
     if (!z) {
         return;
@@ -152,7 +152,7 @@ void zms_rtmp_zm_ingest_destroy(zms_rtmp_zm_ingest *z)
     free(z);
 }
 
-zn_err_t zms_rtmp_zm_ingest_input_tag(zms_rtmp_zm_ingest *z, int type, const void *body,
+zn_err_t zcs_rtmp_zm_ingest_input_tag(zcs_rtmp_zm_ingest *z, int type, const void *body,
                                         size_t len, uint32_t dts_ms)
 {
     zm_packet pkt;

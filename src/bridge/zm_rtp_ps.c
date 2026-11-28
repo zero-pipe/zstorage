@@ -10,35 +10,35 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ZMS_RTP_PS_MTU_DEFAULT 1400u
+#define ZCS_RTP_PS_MTU_DEFAULT 1400u
 
-struct zms_zm_rtp_ps {
+struct zcs_zm_rtp_ps {
     uint8_t payload_type;
     uint32_t ssrc;
     uint16_t seq;
     size_t mtu;
-    zms_zm_rtp_ps_write_fn write;
+    zcs_zm_rtp_ps_write_fn write;
     void *user;
     uint8_t *packet;
 };
 
-zms_zm_rtp_ps *zms_zm_rtp_ps_create(const zms_zm_rtp_ps_opts *opts)
+zcs_zm_rtp_ps *zcs_zm_rtp_ps_create(const zcs_zm_rtp_ps_opts *opts)
 {
-    zms_zm_rtp_ps *s;
+    zcs_zm_rtp_ps *s;
 
     if (!opts || !opts->write) {
         return NULL;
     }
-    s = (zms_zm_rtp_ps *)calloc(1, sizeof(*s));
+    s = (zcs_zm_rtp_ps *)calloc(1, sizeof(*s));
     if (!s) {
         return NULL;
     }
     s->payload_type = opts->payload_type;
     s->ssrc = opts->ssrc;
     s->seq = opts->seq;
-    s->mtu = opts->mtu ? opts->mtu : ZMS_RTP_PS_MTU_DEFAULT;
+    s->mtu = opts->mtu ? opts->mtu : ZCS_RTP_PS_MTU_DEFAULT;
     if (s->mtu <= RTP_FIXED_HEADER + 16) {
-        s->mtu = ZMS_RTP_PS_MTU_DEFAULT;
+        s->mtu = ZCS_RTP_PS_MTU_DEFAULT;
     }
     s->write = opts->write;
     s->user = opts->user;
@@ -50,7 +50,7 @@ zms_zm_rtp_ps *zms_zm_rtp_ps_create(const zms_zm_rtp_ps_opts *opts)
     return s;
 }
 
-void zms_zm_rtp_ps_destroy(zms_zm_rtp_ps *s)
+void zcs_zm_rtp_ps_destroy(zcs_zm_rtp_ps *s)
 {
     if (!s) {
         return;
@@ -59,12 +59,12 @@ void zms_zm_rtp_ps_destroy(zms_zm_rtp_ps *s)
     free(s);
 }
 
-uint16_t zms_zm_rtp_ps_last_seq(const zms_zm_rtp_ps *s)
+uint16_t zcs_zm_rtp_ps_last_seq(const zcs_zm_rtp_ps *s)
 {
     return s ? s->seq : 0;
 }
 
-int zms_zm_rtp_ps_input(zms_zm_rtp_ps *s, const uint8_t *ps, size_t len, uint32_t timestamp)
+int zcs_zm_rtp_ps_input(zcs_zm_rtp_ps *s, const uint8_t *ps, size_t len, uint32_t timestamp)
 {
     size_t off = 0;
     size_t chunk_max;

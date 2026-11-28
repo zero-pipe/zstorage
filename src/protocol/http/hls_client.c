@@ -13,15 +13,15 @@
  * 结构体字段无需加锁。stopping 标志是“已请求停止但回调可能还在途”的闸门，每个
  * 回调入口先检查它，防止 stop 之后仍产生副作用。
  */
-#include "zms/protocol/http/hls_client.h"
-#include "zms/util/dns_cache.h"
-#include "zms/ops/config/zms_have_tls.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/media/clock.h"
+#include "zcs/protocol/http/hls_client.h"
+#include "zcs/util/dns_cache.h"
+#include "zcs/ops/config/zcs_have_tls.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/media/clock.h"
 #include "mpeg-ts.h"
 #include "mpeg-types.h"
-#include "zms/protocol/http/parser.h"
-#include "zms/protocol/http/message_framer.h"
+#include "zcs/protocol/http/parser.h"
+#include "zcs/protocol/http/message_framer.h"
 #include "zn/net/tcp_client.h"
 #include "zn/net/tls_client.h"
 #include "zn/util/log.h"
@@ -38,22 +38,22 @@
 #define HLS_BODY_MAX (32U * 1024U * 1024U)
 #define HLS_URL_MAX 2048
 
-typedef struct zms_http_hls_url {
+typedef struct zcs_http_hls_url {
     char host[256];
     uint16_t port;
-    char path[ZMS_HTTP_URL_MAX];
+    char path[ZCS_HTTP_URL_MAX];
     int use_tls;
-} zms_http_hls_url;
+} zcs_http_hls_url;
 
 /**
  * 播放列表里的一个分片。
  * uri 在堆上（按实际长度分配）：128 × 2048 的定长数组会让每路 HLS 拉流
  * 白占 256KB，而真实 URI 只有几十字节。
  */
-typedef struct zms_http_hls_segment {
+typedef struct zcs_http_hls_segment {
     char *uri;
     double duration;
-} zms_http_hls_segment;
+} zcs_http_hls_segment;
 
 typedef enum {
     HLS_REQ_M3U8 = 0,
@@ -66,29 +66,29 @@ typedef enum {
     BODY_UNTIL_CLOSE,
 } http_body_mode;
 
-typedef struct zms_http_hls_chunk_dec {
+typedef struct zcs_http_hls_chunk_dec {
     int in_chunk;
     size_t chunk_left;
     char line[32];
     size_t line_len;
-} zms_http_hls_chunk_dec;
+} zcs_http_hls_chunk_dec;
 
-struct zms_http_hls_client {
-    zms_http_hls_client_opts opts;
-    zms_http_hls_url base_url;
+struct zcs_http_hls_client {
+    zcs_http_hls_client_opts opts;
+    zcs_http_hls_url base_url;
     char playlist_url[HLS_URL_MAX];
     char fetch_url[HLS_URL_MAX];
     hls_req_kind req_kind;
     zn_tcp_client *tcp;
     zn_tls_client *tls;
-    zms_http_message_framer *http;
-    zms_http_parser http_hdr;
+    zcs_http_message_framer *http;
+    zcs_http_parser http_hdr;
     http_body_mode body_mode;
-    zms_http_hls_chunk_dec chunk;
+    zcs_http_hls_chunk_dec chunk;
     uint8_t *body;
     size_t body_len;
     size_t body_cap;
-    zms_http_hls_segment segs[HLS_SEG_MAX];
+    zcs_http_hls_segment segs[HLS_SEG_MAX];
     size_t seg_count;
     size_t seg_pos;
     int live;
@@ -106,18 +106,18 @@ struct zms_http_hls_client {
     char req_buf[4096];
 };
 
-static void on_http_done(zms_http_hls_client *c, zn_err_t err);
-static void start_next_segment(zms_http_hls_client *c);
+static void on_http_done(zcs_http_hls_client *c, zn_err_t err);
+static void start_next_segment(zcs_http_hls_client *c);
 static uint64_t refresh_task(void *user);
-static void hls_soft_retry(zms_http_hls_client *c, uint64_t delay_ms);
-static void client_close_http(zms_http_hls_client *c);
+static void hls_soft_retry(zcs_http_hls_client *c, uint64_t delay_ms);
+static void client_close_http(zcs_http_hls_client *c);
 
-static zms_codec_id codecid_to_ZMS(int codecid)
+static zcs_codec_id codecid_to_ZCS(int codecid)
 {
-    return zms_codec_from_mpeg_psi(codecid);
+    return zcs_codec_from_mpeg_psi(codecid);
 }
 
-static void client_fail(zms_http_hls_client *c, zn_err_t err)
+static void client_fail(zcs_http_hls_client *c, zn_err_t err)
 {
     if (!c || c->stopping) {
         return;
@@ -130,7 +130,7 @@ static void client_fail(zms_http_hls_client *c, zn_err_t err)
     }
 }
 
-static void cancel_refresh(zms_http_hls_client *c)
+static void cancel_refresh(zcs_http_hls_client *c)
 {
     if (c && c->refresh_timer) {
         zn_poller_timer_cancel(c->refresh_timer);
@@ -138,13 +138,13 @@ static void cancel_refresh(zms_http_hls_client *c)
     }
 }
 
-static void client_close_http(zms_http_hls_client *c)
+static void client_close_http(zcs_http_hls_client *c)
 {
     if (!c) {
         return;
     }
     c->http_active = 0;
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
     if (c->tls) {
         zn_tls_client_close(c->tls);
         return;
@@ -154,11 +154,11 @@ static void client_close_http(zms_http_hls_client *c)
         zn_tcp_client_close(c->tcp);
     }
     if (c->http) {
-        zms_http_message_framer_reset(c->http);
+        zcs_http_message_framer_reset(c->http);
     }
 }
 
-static void body_reset(zms_http_hls_client *c)
+static void body_reset(zcs_http_hls_client *c)
 {
     c->body_len = 0;
     memset(&c->chunk, 0, sizeof(c->chunk));
@@ -166,7 +166,7 @@ static void body_reset(zms_http_hls_client *c)
 
 /* 追加 body 数据。容量翻倍扩容（起点 64KB）：分片通常几百 KB~数 MB，翻倍
  * 摊销拷贝成本。tosmall 返回而非静默截断，让上层把“超限”当 IO 错误处理。 */
-static zn_err_t body_append(zms_http_hls_client *c, const void *data, size_t len)
+static zn_err_t body_append(zcs_http_hls_client *c, const void *data, size_t len)
 {
     if (!c || !data || len == 0) {
         return ZN_OK;
@@ -191,7 +191,7 @@ static zn_err_t body_append(zms_http_hls_client *c, const void *data, size_t len
     return ZN_OK;
 }
 
-static zn_err_t parse_http_url(const char *url, zms_http_hls_url *out)
+static zn_err_t parse_http_url(const char *url, zcs_http_hls_url *out)
 {
     if (!url || !out) {
         return ZN_ERR_INVALID;
@@ -287,7 +287,7 @@ static void resolve_hls_url(const char *base, const char *rel, char *out, size_t
             host[hl] = '\0';
         }
     }
-    char dir[ZMS_HTTP_URL_MAX];
+    char dir[ZCS_HTTP_URL_MAX];
     if (slash) {
         strncpy(dir, slash, sizeof(dir) - 1);
     } else {
@@ -311,7 +311,7 @@ static void resolve_hls_url(const char *base, const char *rel, char *out, size_t
             }
             snprintf(out, cap, "%s://%s:%u%.*s", scheme, host, (unsigned)port, (int)rel_len, rel);
         } else {
-            char path[ZMS_HTTP_URL_MAX];
+            char path[ZCS_HTTP_URL_MAX];
             size_t path_len;
 
             snprintf(path, sizeof(path), "%s%s", dir, rel);
@@ -357,7 +357,7 @@ static int uri_is_ts(const char *uri)
     return 1;
 }
 
-static void hls_segs_clear(zms_http_hls_client *c)
+static void hls_segs_clear(zcs_http_hls_client *c)
 {
     size_t i;
 
@@ -392,7 +392,7 @@ static char *hls_strdup(const char *s)
  * 一旦看到 STREAM-INF 后的第一个非注释行就提前返回（只跟随一路码率，选码率不是本
  * 客户端职责）。
  */
-static zn_err_t parse_m3u8(zms_http_hls_client *c, const char *text, size_t len)
+static zn_err_t parse_m3u8(zcs_http_hls_client *c, const char *text, size_t len)
 {
     if (!c || !text) {
         return ZN_ERR_INVALID;
@@ -430,7 +430,7 @@ static zn_err_t parse_m3u8(zms_http_hls_client *c, const char *text, size_t len)
             }
             if (wait_uri && c->seg_count < HLS_SEG_MAX && uri_is_ts(line)) {
                 char resolved[HLS_URL_MAX];
-                zms_http_hls_segment *seg;
+                zcs_http_hls_segment *seg;
 
                 resolve_hls_url(c->playlist_url, line, resolved, sizeof(resolved));
                 seg = &c->segs[c->seg_count];
@@ -471,13 +471,13 @@ static int on_ts_packet(void *param, int program, int stream, int codecid, int f
 {
     (void)program;
     (void)stream;
-    zms_http_hls_client *c = (zms_http_hls_client *)param;
+    zcs_http_hls_client *c = (zcs_http_hls_client *)param;
     if (!c || c->stopping || !data || bytes == 0) {
         return 0;
     }
 
-    zms_codec_id codec = codecid_to_ZMS(codecid);
-    if (codec == ZMS_CODEC_INVALID) {
+    zcs_codec_id codec = codecid_to_ZCS(codecid);
+    if (codec == ZCS_CODEC_INVALID) {
         return 0;
     }
 
@@ -490,15 +490,15 @@ static int on_ts_packet(void *param, int program, int stream, int codecid, int f
         return 0;
     }
 
-    zms_frame frame;
-    zms_frame_init(&frame);
+    zcs_frame frame;
+    zcs_frame_init(&frame);
     frame.codec = codec;
     frame.track =
-        (codec == ZMS_CODEC_AAC || codec == ZMS_CODEC_OPUS) ? ZMS_TRACK_AUDIO : ZMS_TRACK_VIDEO;
+        (codec == ZCS_CODEC_AAC || codec == ZCS_CODEC_OPUS) ? ZCS_TRACK_AUDIO : ZCS_TRACK_VIDEO;
     frame.data = (uint8_t *)data;
     frame.size = bytes;
-    frame.dts_ms = zms_mpegts_90k_to_ms(dts_90k);
-    frame.pts_ms = zms_mpegts_90k_to_ms(pts_90k);
+    frame.dts_ms = zcs_mpegts_90k_to_ms(dts_90k);
+    frame.pts_ms = zcs_mpegts_90k_to_ms(pts_90k);
     frame.keyframe = (flags & MPEG_FLAG_IDR_FRAME) ? 1 : 0;
     frame.owned = 0;
     c->opts.on_frame(&frame, c->opts.user);
@@ -508,7 +508,7 @@ static int on_ts_packet(void *param, int program, int stream, int codecid, int f
 /* 逐 188 字节扫 TS 包。在任意偏移上找 0x47 同步字节后送入 demuxer（不假设 188
  * 对齐起点）：分片起点通常对齐，但 HTTP 拼接/前导垃圾可能让首个包偏移，扫一下
  * 更稳。末尾不足 188 的残包丢弃。 */
-static zn_err_t demux_ts_segment(zms_http_hls_client *c)
+static zn_err_t demux_ts_segment(zcs_http_hls_client *c)
 {
     if (!c->ts_demuxer || !c->body) {
         return ZN_ERR_INVALID;
@@ -529,7 +529,7 @@ static zn_err_t demux_ts_segment(zms_http_hls_client *c)
 
 static uint64_t refresh_task(void *user)
 {
-    zms_http_hls_client *c = (zms_http_hls_client *)user;
+    zcs_http_hls_client *c = (zcs_http_hls_client *)user;
     c->refresh_timer = NULL;
     if (!c || c->stopping || !c->live) {
         return 0;
@@ -543,7 +543,7 @@ static uint64_t refresh_task(void *user)
     return 0;
 }
 
-static void hls_soft_retry(zms_http_hls_client *c, uint64_t delay_ms)
+static void hls_soft_retry(zcs_http_hls_client *c, uint64_t delay_ms)
 {
     if (!c || c->stopping) {
         return;
@@ -566,7 +566,7 @@ static void hls_soft_retry(zms_http_hls_client *c, uint64_t delay_ms)
  * 半个目标时长能比上游切片快一步拿到新分片，避免边缘丢片；下限 1s 防过频请求，
  * 上限 10s 防 target 过大时刷新太懒导致延迟堆积。
  */
-static void schedule_refresh(zms_http_hls_client *c)
+static void schedule_refresh(zcs_http_hls_client *c)
 {
     if (!c || !c->live || c->stopping) {
         return;
@@ -591,7 +591,7 @@ static void schedule_refresh(zms_http_hls_client *c)
  *     又贴近直播边缘。
  *   - 每片播完把 fetch_url 记进 last_seg_uri，供 start_next_segment 去重。
  */
-static void on_http_done(zms_http_hls_client *c, zn_err_t err)
+static void on_http_done(zcs_http_hls_client *c, zn_err_t err)
 {
     client_close_http(c);
     c->http_active = 0;
@@ -654,12 +654,12 @@ static void on_http_done(zms_http_hls_client *c, zn_err_t err)
     start_next_segment(c);
 }
 
-static void hls_begin_http_fetch(zms_http_hls_client *c, const zms_http_hls_url *u)
+static void hls_begin_http_fetch(zcs_http_hls_client *c, const zcs_http_hls_url *u)
 {
     char ipbuf[64];
-    const char *target = zms_dns_target(u->host, ipbuf, sizeof(ipbuf));
+    const char *target = zcs_dns_target(u->host, ipbuf, sizeof(ipbuf));
 
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
     if (c->tls) {
         zn_err_t err = zn_tls_client_connect(c->tls, target, u->port);
         if (err != ZN_OK) {
@@ -688,7 +688,7 @@ static void hls_begin_http_fetch(zms_http_hls_client *c, const zms_http_hls_url 
  * 不去重会导致同一片被重复喂给解码器（画面卡顿/时间戳回退）。到列表末尾时 live
  * 触发定时刷新，VOD 直接停在这里。
  */
-static void start_next_segment(zms_http_hls_client *c)
+static void start_next_segment(zcs_http_hls_client *c)
 {
     if (!c || c->stopping) {
         return;
@@ -708,7 +708,7 @@ static void start_next_segment(zms_http_hls_client *c)
     }
 
     {
-        const zms_http_hls_segment *seg = &c->segs[c->seg_pos];
+        const zcs_http_hls_segment *seg = &c->segs[c->seg_pos];
         if (strcmp(seg->uri, c->last_seg_uri) == 0) {
             ++c->seg_pos;
             if (c->seg_pos >= c->seg_count) {
@@ -724,7 +724,7 @@ static void start_next_segment(zms_http_hls_client *c)
     }
 
 do_fetch: {
-    zms_http_hls_url u;
+    zcs_http_hls_url u;
     if (parse_http_url(c->fetch_url, &u) != ZN_OK) {
         client_fail(c, ZN_ERR_INVALID);
         return;
@@ -735,7 +735,7 @@ do_fetch: {
 }
 }
 
-static void send_http_get(zms_http_hls_client *c, const zms_http_hls_url *u)
+static void send_http_get(zcs_http_hls_client *c, const zcs_http_hls_url *u)
 {
     char host_line[320];
     if ((!u->use_tls && u->port != 80) || (u->use_tls && u->port != 443)) {
@@ -748,12 +748,12 @@ static void send_http_get(zms_http_hls_client *c, const zms_http_hls_url *u)
                      "GET %s HTTP/1.1\r\n"
                      "Host: %s\r\n"
                      "Connection: close\r\n"
-                     "User-Agent: ZMS-HlsPull/1.0\r\n"
+                     "User-Agent: ZCS-HlsPull/1.0\r\n"
                      "Accept: */*\r\n"
                      "\r\n",
                      u->path[0] ? u->path : "/", host_line);
     if (n > 0 && (size_t)n < sizeof(c->req_buf)) {
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
         if (c->tls) {
             zn_tls_client_send(c->tls, c->req_buf, (size_t)n);
             return;
@@ -784,7 +784,7 @@ static int str_icontains(const char *hay, const char *needle)
     return 0;
 }
 
-static int chunk_line_complete(zms_http_hls_chunk_dec *d, size_t *out_size)
+static int chunk_line_complete(zcs_http_hls_chunk_dec *d, size_t *out_size)
 {
     for (size_t i = 0; i < d->line_len; ++i) {
         if (d->line[i] == '\r' || d->line[i] == '\n') {
@@ -805,13 +805,13 @@ static int chunk_line_complete(zms_http_hls_chunk_dec *d, size_t *out_size)
  */
 static intptr_t on_http_header(const char *header, size_t header_len, void *user)
 {
-    zms_http_hls_client *c = (zms_http_hls_client *)user;
+    zcs_http_hls_client *c = (zcs_http_hls_client *)user;
     if (!c) {
         return 0;
     }
 
-    zms_http_parser_clear(&c->http_hdr);
-    if (zms_http_parser_parse_header(&c->http_hdr, header, header_len) != ZN_OK) {
+    zcs_http_parser_clear(&c->http_hdr);
+    if (zcs_http_parser_parse_header(&c->http_hdr, header, header_len) != ZN_OK) {
         return 0;
     }
     if (!c->http_hdr.is_response) {
@@ -833,8 +833,8 @@ static intptr_t on_http_header(const char *header, size_t header_len, void *user
         }
     }
 
-    const char *te = zms_http_parser_header(&c->http_hdr, "Transfer-Encoding");
-    const char *cl = zms_http_parser_header(&c->http_hdr, "Content-Length");
+    const char *te = zcs_http_parser_header(&c->http_hdr, "Transfer-Encoding");
+    const char *cl = zcs_http_parser_header(&c->http_hdr, "Content-Length");
     memset(&c->chunk, 0, sizeof(c->chunk));
     c->expect_body = 0;
 
@@ -868,7 +868,7 @@ static intptr_t on_http_header(const char *header, size_t header_len, void *user
  */
 static void on_http_content(const char *data, size_t len, void *user)
 {
-    zms_http_hls_client *c = (zms_http_hls_client *)user;
+    zcs_http_hls_client *c = (zcs_http_hls_client *)user;
     if (!c || c->stopping) {
         return;
     }
@@ -922,28 +922,28 @@ static void on_http_content(const char *data, size_t len, void *user)
     }
 }
 
-static void on_transport_data(zms_http_hls_client *c, const void *data, size_t len)
+static void on_transport_data(zcs_http_hls_client *c, const void *data, size_t len)
 {
     if (!c->http || !c->http_active) {
         return;
     }
-    zn_err_t err = zms_http_message_framer_input(c->http, data, len);
+    zn_err_t err = zcs_http_message_framer_input(c->http, data, len);
     if (err != ZN_OK) {
         zn_warn("hls_pull http split err=%d url=%s", (int)err, c->fetch_url);
         hls_soft_retry(c, 1000);
     }
 }
 
-static void on_io_connected(zms_http_hls_client *c)
+static void on_io_connected(zcs_http_hls_client *c)
 {
-    zms_http_hls_url u;
+    zcs_http_hls_url u;
     if (parse_http_url(c->fetch_url, &u) != ZN_OK) {
         client_fail(c, ZN_ERR_INVALID);
         return;
     }
     c->http_active = 1;
     c->connect_retries = 0;
-    zms_http_message_framer_reset(c->http);
+    zcs_http_message_framer_reset(c->http);
     body_reset(c);
     zn_info("hls_pull connected, GET %s", c->fetch_url);
     send_http_get(c, &u);
@@ -951,7 +951,7 @@ static void on_io_connected(zms_http_hls_client *c)
 
 /* 连接被上游关闭。若声明了 Content-Length 却没收够（body 短），标记软重试——
  * 一个被截断的 TS 分片直接 demux 会丢尾部若干帧，重拉更稳。 */
-static void on_io_closed(zms_http_hls_client *c)
+static void on_io_closed(zcs_http_hls_client *c)
 {
     if (!c->http_active) {
         return;
@@ -968,13 +968,13 @@ static void on_io_closed(zms_http_hls_client *c)
 static void on_tcp_connect(zn_tcp_client *tcp, void *user)
 {
     (void)tcp;
-    on_io_connected((zms_http_hls_client *)user);
+    on_io_connected((zcs_http_hls_client *)user);
 }
 
 static void on_tcp_recv(zn_tcp_client *tcp, const void *data, size_t len, void *user)
 {
     (void)tcp;
-    on_transport_data((zms_http_hls_client *)user, data, len);
+    on_transport_data((zcs_http_hls_client *)user, data, len);
 }
 
 /*
@@ -986,7 +986,7 @@ static void on_tcp_recv(zn_tcp_client *tcp, const void *data, size_t len, void *
 static void on_tcp_error(zn_tcp_client *tcp, void *user)
 {
     (void)tcp;
-    zms_http_hls_client *c = (zms_http_hls_client *)user;
+    zcs_http_hls_client *c = (zcs_http_hls_client *)user;
     if (!c || c->stopping) {
         return;
     }
@@ -1006,13 +1006,13 @@ static void on_tcp_error(zn_tcp_client *tcp, void *user)
 static void on_tls_connect(zn_tls_client *tls, void *user)
 {
     (void)tls;
-    on_io_connected((zms_http_hls_client *)user);
+    on_io_connected((zcs_http_hls_client *)user);
 }
 
 static void on_tls_recv(zn_tls_client *tls, const void *data, size_t len, void *user)
 {
     (void)tls;
-    on_transport_data((zms_http_hls_client *)user, data, len);
+    on_transport_data((zcs_http_hls_client *)user, data, len);
 }
 
 static void on_tls_error(zn_tls_client *tls, void *user)
@@ -1021,13 +1021,13 @@ static void on_tls_error(zn_tls_client *tls, void *user)
     on_tcp_error(NULL, user);
 }
 
-zms_http_hls_client *zms_http_hls_client_create(const zms_http_hls_client_opts *opts)
+zcs_http_hls_client *zcs_http_hls_client_create(const zcs_http_hls_client_opts *opts)
 {
     if (!opts || !opts->poller || !opts->url || !opts->on_frame) {
         return NULL;
     }
 
-    zms_http_hls_client *c = (zms_http_hls_client *)calloc(1, sizeof(*c));
+    zcs_http_hls_client *c = (zcs_http_hls_client *)calloc(1, sizeof(*c));
     if (!c) {
         return NULL;
     }
@@ -1044,9 +1044,9 @@ zms_http_hls_client *zms_http_hls_client_create(const zms_http_hls_client_opts *
         return NULL;
     }
 
-    zms_http_message_framer_opts sopts = {on_http_header, on_http_content, c, 16U * 1024U * 1024U,
+    zcs_http_message_framer_opts sopts = {on_http_header, on_http_content, c, 16U * 1024U * 1024U,
                                           NULL};
-    c->http = zms_http_message_framer_create(&sopts);
+    c->http = zcs_http_message_framer_create(&sopts);
     if (!c->http) {
         ts_demuxer_destroy(c->ts_demuxer);
         free(c);
@@ -1055,18 +1055,18 @@ zms_http_hls_client *zms_http_hls_client_create(const zms_http_hls_client_opts *
 
     if (c->base_url.use_tls) {
 #if !defined(ZN_HAVE_OPENSSL) || !ZN_HAVE_OPENSSL
-        zms_http_hls_client_destroy(c);
+        zcs_http_hls_client_destroy(c);
         return NULL;
 #else
         if (!opts->ssl_ctx) {
-            zms_http_hls_client_destroy(c);
+            zcs_http_hls_client_destroy(c);
             return NULL;
         }
         zn_tls_client_ops_t tops = {on_tls_connect, on_tls_recv, on_tls_error};
         zn_tls_client_opts_t topts = {opts->poller, opts->ssl_ctx, &tops, c, c->base_url.host};
         c->tls = zn_tls_client_create(&topts);
         if (!c->tls) {
-            zms_http_hls_client_destroy(c);
+            zcs_http_hls_client_destroy(c);
             return NULL;
         }
 #endif
@@ -1075,32 +1075,32 @@ zms_http_hls_client *zms_http_hls_client_create(const zms_http_hls_client_opts *
         zn_tcp_client_opts_t topts = {opts->poller, &tops, c};
         c->tcp = zn_tcp_client_create(&topts);
         if (!c->tcp) {
-            zms_http_hls_client_destroy(c);
+            zcs_http_hls_client_destroy(c);
             return NULL;
         }
     }
     return c;
 }
 
-void zms_http_hls_client_destroy(zms_http_hls_client *c)
+void zcs_http_hls_client_destroy(zcs_http_hls_client *c)
 {
     if (!c) {
         return;
     }
-    zms_http_hls_client_stop(c);
+    zcs_http_hls_client_stop(c);
     zn_tcp_client_destroy(c->tcp);
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
     zn_tls_client_destroy(c->tls);
 #endif
-    zms_http_message_framer_destroy(c->http);
+    zcs_http_message_framer_destroy(c->http);
     ts_demuxer_destroy(c->ts_demuxer);
     free(c->body);
-    zms_http_parser_clear(&c->http_hdr);
+    zcs_http_parser_clear(&c->http_hdr);
     hls_segs_clear(c);
     free(c);
 }
 
-zn_err_t zms_http_hls_client_play(zms_http_hls_client *c)
+zn_err_t zcs_http_hls_client_play(zcs_http_hls_client *c)
 {
     if (!c) {
         return ZN_ERR_INVALID;
@@ -1122,7 +1122,7 @@ zn_err_t zms_http_hls_client_play(zms_http_hls_client *c)
     return ZN_OK;
 }
 
-void zms_http_hls_client_stop(zms_http_hls_client *c)
+void zcs_http_hls_client_stop(zcs_http_hls_client *c)
 {
     if (!c) {
         return;

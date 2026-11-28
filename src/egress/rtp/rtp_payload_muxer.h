@@ -2,8 +2,8 @@
  * @file rtp_payload_muxer.h
  * @brief RTP payload 打包器（zm_rtp_writer 之上）。
  */
-#ifndef ZMS_SRC_EGRESS_RTP_RTP_PAYLOAD_MUXER_H
-#define ZMS_SRC_EGRESS_RTP_RTP_PAYLOAD_MUXER_H
+#ifndef ZCS_SRC_EGRESS_RTP_RTP_PAYLOAD_MUXER_H
+#define ZCS_SRC_EGRESS_RTP_RTP_PAYLOAD_MUXER_H
 
 #include <stdint.h>
 
@@ -39,10 +39,10 @@ int rtp_payload_muxer_getinfo(struct rtp_payload_muxer_t* muxer, int pid, uint16
 /// @return 0-ok, <0-error
 int rtp_payload_muxer_input(struct rtp_payload_muxer_t* muxer, int mid, int64_t pts, int64_t dts, const void* data, int bytes, int flags);
 
-/** Seed payload RTP timeline before rtp_payload_muxer_input (ZMS play_clock absolute ts). */
+/** Seed payload RTP timeline before rtp_payload_muxer_input (ZCS play_clock absolute ts). */
 int rtp_payload_muxer_sync_timeline(struct rtp_payload_muxer_t* muxer, int pid, int64_t dts_ms, uint32_t rtp_ts);
 
 #if defined(__cplusplus)
 }
 #endif
-#endif /* !ZMS_SRC_EGRESS_RTP_RTP_PAYLOAD_MUXER_H */
+#endif /* !ZCS_SRC_EGRESS_RTP_RTP_PAYLOAD_MUXER_H */

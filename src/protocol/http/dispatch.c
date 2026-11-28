@@ -2,53 +2,53 @@
  * @file dispatch.c
  * @brief HTTP-FLV 直播/点播挂接：打开 egress_source 输出 FLV。
  */
-#include "zms/play/dispatch.h"
+#include "zcs/play/dispatch.h"
 
 /**
  * HTTP-FLV 桩：play 挂接打开 egress_source；直播/点播 FLV muxer 负责协议规范。
  */
-static zn_err_t http_protocol_on_play_live(void *session, zms_media_source *src,
-                                            const zms_session_play_opts *opts)
+static zn_err_t http_protocol_on_play_live(void *session, zcs_media_source *src,
+                                            const zcs_session_play_opts *opts)
 {
-    zms_egress_source *play = (zms_egress_source *)session;
+    zcs_egress_source *play = (zcs_egress_source *)session;
     (void)opts;
     if (!play || !src) {
         return ZN_ERR_INVALID;
     }
-    return zms_session_play_open_live(play, src, ZMS_SESSION_LIVE_GOP);
+    return zcs_session_play_open_live(play, src, ZCS_SESSION_LIVE_GOP);
 }
 
-static zn_err_t http_protocol_on_play_vod(void *session, zms_media_source *src,
-                                           const zms_session_play_opts *opts)
+static zn_err_t http_protocol_on_play_vod(void *session, zcs_media_source *src,
+                                           const zcs_session_play_opts *opts)
 {
-    zms_egress_source *play = (zms_egress_source *)session;
+    zcs_egress_source *play = (zcs_egress_source *)session;
     uint64_t seek_ms = opts ? opts->seek_ms : 0;
     if (!play || !src) {
         return ZN_ERR_INVALID;
     }
-    return zms_session_play_open_vod(play, src, seek_ms);
+    return zcs_session_play_open_vod(play, src, seek_ms);
 }
 
 static void http_protocol_on_teardown(void *session)
 {
-    zms_egress_source *play = (zms_egress_source *)session;
-    zms_session_play_close(play);
+    zcs_egress_source *play = (zcs_egress_source *)session;
+    zcs_session_play_close(play);
 }
 
-static const zms_session_dispatch_ops k_http_dispatch = {
-    .name = ZMS_SESSION_HTTP_FLV,
+static const zcs_session_dispatch_ops k_http_dispatch = {
+    .name = ZCS_SESSION_HTTP_FLV,
     .on_play_live = http_protocol_on_play_live,
     .on_play_vod = http_protocol_on_play_vod,
     .on_publish = NULL,
     .on_teardown = http_protocol_on_teardown,
 };
 
-void zms_http_register(void)
+void zcs_http_register(void)
 {
     static int registered; /* 启动阶段，单线程 */
     if (registered) {
         return;
     }
     registered = 1;
-    zms_session_dispatch_register(&k_http_dispatch);
+    zcs_session_dispatch_register(&k_http_dispatch);
 }

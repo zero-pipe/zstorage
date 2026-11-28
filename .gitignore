@@ -50,6 +50,7 @@ Testing/
 /test_zstorage_pool/
 
 # Runtime logs
+zcs_media_server.log
 zms_media_server.log
 
 # Local config overrides

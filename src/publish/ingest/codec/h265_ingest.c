@@ -2,21 +2,21 @@
  * @file h265_ingest.c
  * @brief H.265 入站：VPS/SPS/PPS、Annex-B AU 与刷新。
  */
-#include "zms/publish/ingest/common/stream_ingest.h"
-#include "zms/publish/ingest/common/ingest_codec.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/codec/h265/h265_sps.h"
-#include "zms/core/stream_track.h"
-#include "zms/media/codec/bitstream/annexb.h"
-#include "zms/util/buf_pool.h"
+#include "zcs/publish/ingest/common/stream_ingest.h"
+#include "zcs/publish/ingest/common/ingest_codec.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/h265/h265_sps.h"
+#include "zcs/core/stream_track.h"
+#include "zcs/media/codec/bitstream/annexb.h"
+#include "zcs/util/buf_pool.h"
 #include "publish/ingest/common/ingest_internal.h"
 #include "zn/util/buf.h"
 #include "zn/util/log.h"
 #include <string.h>
 
-static zn_err_t hevc_au_flush(zms_live_ingest *ch)
+static zn_err_t hevc_au_flush(zcs_live_ingest *ch)
 {
-    zms_frame frame;
+    zcs_frame frame;
     zn_buf *buf;
     void *dst;
 
@@ -33,13 +33,13 @@ static zn_err_t hevc_au_flush(zms_live_ingest *ch)
     memcpy(dst, ch->hevc_au.buf, ch->hevc_au.len);
     zn_buf_set_len(buf, ch->hevc_au.len);
 
-    zms_frame_init(&frame);
+    zcs_frame_init(&frame);
     frame.data = (uint8_t *)dst;
     frame.size = ch->hevc_au.len;
     frame.dts_ms = ch->hevc_au.dts_ms;
     frame.pts_ms = ch->hevc_au.pts_ms ? ch->hevc_au.pts_ms : ch->hevc_au.dts_ms;
-    frame.codec = ZMS_CODEC_H265;
-    frame.track = ZMS_TRACK_VIDEO;
+    frame.codec = ZCS_CODEC_H265;
+    frame.track = ZCS_TRACK_VIDEO;
     frame.config_frame = 0;
     frame.keyframe = ch->hevc_au.key;
 
@@ -50,7 +50,7 @@ static zn_err_t hevc_au_flush(zms_live_ingest *ch)
     return live_ingest_write_frame_buf(ch, buf, &frame);
 }
 
-static zn_err_t hevc_au_begin(zms_live_ingest *ch, uint32_t raw_tag_dts_ms, uint32_t dts_ms,
+static zn_err_t hevc_au_begin(zcs_live_ingest *ch, uint32_t raw_tag_dts_ms, uint32_t dts_ms,
                                uint32_t pts_ms)
 {
     if (!ch) {
@@ -76,7 +76,7 @@ static zn_err_t hevc_au_begin(zms_live_ingest *ch, uint32_t raw_tag_dts_ms, uint
     return ZN_OK;
 }
 
-static zn_err_t hevc_au_append_nal(zms_live_ingest *ch, const uint8_t *nal, size_t nlen, int idr)
+static zn_err_t hevc_au_append_nal(zcs_live_ingest *ch, const uint8_t *nal, size_t nlen, int idr)
 {
     size_t need;
 
@@ -99,12 +99,12 @@ static zn_err_t hevc_au_append_nal(zms_live_ingest *ch, const uint8_t *nal, size
     return ZN_OK;
 }
 
-zn_err_t zms_live_ingest_h265_hevc_au_flush(zms_live_ingest *ch)
+zn_err_t zcs_live_ingest_h265_hevc_au_flush(zcs_live_ingest *ch)
 {
     return hevc_au_flush(ch);
 }
 
-void zms_live_ingest_h265_hevc_au_reset(zms_live_ingest *in)
+void zcs_live_ingest_h265_hevc_au_reset(zcs_live_ingest *in)
 {
     if (!in) {
         return;
@@ -116,7 +116,7 @@ void zms_live_ingest_h265_hevc_au_reset(zms_live_ingest *in)
     in->hevc_au.key = 0;
 }
 
-zn_err_t zms_live_ingest_set_h265_vps_sps_pps(zms_live_ingest *ch, const uint8_t *vps,
+zn_err_t zcs_live_ingest_set_h265_vps_sps_pps(zcs_live_ingest *ch, const uint8_t *vps,
                                                size_t vps_len, const uint8_t *sps, size_t sps_len,
                                                const uint8_t *pps, size_t pps_len)
 {
@@ -129,18 +129,18 @@ zn_err_t zms_live_ingest_set_h265_vps_sps_pps(zms_live_ingest *ch, const uint8_t
     }
 
     buf = live_ingest_work_buf(ch);
-    err = zms_h265_hvcc_from_param_sets(vps, vps_len, sps, sps_len, pps, pps_len, buf,
-                                        ZMS_LIVE_INGEST_WORK_BUF, &cfg_len);
+    err = zcs_h265_hvcc_from_param_sets(vps, vps_len, sps, sps_len, pps, pps_len, buf,
+                                        ZCS_LIVE_INGEST_WORK_BUF, &cfg_len);
     if (err == ZN_OK) {
         live_ingest_set_video_config(ch, buf, cfg_len);
         ch->have_video_cfg = 1;
         ch->source->has_video = 1;
-        ch->source->video.codec = ZMS_CODEC_H265;
+        ch->source->video.codec = ZCS_CODEC_H265;
         ch->source->video.ready = 1;
         {
-            zms_h265_sps_info sps_info;
-            if (zms_h265_sps_parse(sps, sps_len, &sps_info) &&
-                zms_video_size_should_replace(ch->source->video.width,
+            zcs_h265_sps_info sps_info;
+            if (zcs_h265_sps_parse(sps, sps_len, &sps_info) &&
+                zcs_video_size_should_replace(ch->source->video.width,
                                               ch->source->video.height,
                                               (uint32_t)sps_info.width,
                                               (uint32_t)sps_info.height)) {
@@ -152,7 +152,7 @@ zn_err_t zms_live_ingest_set_h265_vps_sps_pps(zms_live_ingest *ch, const uint8_t
     return err;
 }
 
-zn_err_t zms_live_ingest_input_h265_annexb(zms_live_ingest *ch, const uint8_t *annexb, size_t len,
+zn_err_t zcs_live_ingest_input_h265_annexb(zcs_live_ingest *ch, const uint8_t *annexb, size_t len,
                                             uint32_t dts_ms, uint32_t pts_ms, int keyframe)
 {
     const uint8_t *cur;
@@ -165,7 +165,7 @@ zn_err_t zms_live_ingest_input_h265_annexb(zms_live_ingest *ch, const uint8_t *a
     }
 
     {
-        int sync = keyframe || zms_h265_annexb_is_sync_key(annexb, len);
+        int sync = keyframe || zcs_h265_annexb_is_sync_key(annexb, len);
 
         if (sync && ch->tl.linear_ms && !ch->av_origin_set) {
             ch->av_origin_ms = dts_ms;
@@ -181,12 +181,12 @@ zn_err_t zms_live_ingest_input_h265_annexb(zms_live_ingest *ch, const uint8_t *a
         size_t cfg_len = 0;
         uint8_t *buf = live_ingest_work_buf(ch);
 
-        if (buf && zms_h265_hvcc_from_annexb(annexb, len, buf, ZMS_LIVE_INGEST_WORK_BUF,
+        if (buf && zcs_h265_hvcc_from_annexb(annexb, len, buf, ZCS_LIVE_INGEST_WORK_BUF,
                                              &cfg_len) == ZN_OK) {
             live_ingest_set_video_config(ch, buf, cfg_len);
             ch->have_video_cfg = 1;
             ch->source->has_video = 1;
-            ch->source->video.codec = ZMS_CODEC_H265;
+            ch->source->video.codec = ZCS_CODEC_H265;
             ch->source->video.ready = 1;
             zn_info("track video: H265 (cfg len=%u)", (unsigned)cfg_len);
         }
@@ -216,7 +216,7 @@ zn_err_t zms_live_ingest_input_h265_annexb(zms_live_ingest *ch, const uint8_t *a
     end = annexb + len;
     while (cur < end) {
         size_t nlen = 0;
-        const uint8_t *nal = zms_annexb_find_nal(cur, end, &nlen);
+        const uint8_t *nal = zcs_annexb_find_nal(cur, end, &nlen);
         int t;
 
         if (!nal || nlen == 0) {

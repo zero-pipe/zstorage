@@ -9,47 +9,47 @@
  *   /index/api/zstorage/record/query   [channel=<key>] start=<ms> end=<ms>
  */
 #include "ops/api/webapi/webapi_internal.h"
-#include "zms/egress/recorder/zs_record_task.h"
+#include "zcs/egress/recorder/zs_record_task.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-size_t webapi_handle_zs_record_start(const zms_webapi_query_map *q, char *body, size_t body_cap,
+size_t webapi_handle_zs_record_start(const zcs_webapi_query_map *q, char *body, size_t body_cap,
                                      int *http_status)
 {
     zn_err_t rc;
 
     *http_status = 200;
     if (!q->channel[0]) {
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "missing channel", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_INVALID_ARGS, "missing channel", NULL, body, body_cap);
     }
-    rc = zms_zs_record_start(q->channel, q->url[0] ? q->url : NULL);
+    rc = zcs_zs_record_start(q->channel, q->url[0] ? q->url : NULL);
     if (rc == ZN_ERR_INVALID) {
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "invalid channel/url", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_INVALID_ARGS, "invalid channel/url", NULL, body, body_cap);
     }
     if (rc == ZN_ERR_STATE) {
-        return webapi_respond_json(ZMS_API_OTHER_FAILED, "storage disabled or pull not ready", NULL,
+        return webapi_respond_json(ZCS_API_OTHER_FAILED, "storage disabled or pull not ready", NULL,
                                    body, body_cap);
     }
     if (rc != ZN_OK) {
-        return webapi_respond_json(ZMS_API_OTHER_FAILED, "start failed", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_OTHER_FAILED, "start failed", NULL, body, body_cap);
     }
-    return webapi_respond_json(ZMS_API_SUCCESS, "success", NULL, body, body_cap);
+    return webapi_respond_json(ZCS_API_SUCCESS, "success", NULL, body, body_cap);
 }
 
-size_t webapi_handle_zs_record_stop(const zms_webapi_query_map *q, char *body, size_t body_cap,
+size_t webapi_handle_zs_record_stop(const zcs_webapi_query_map *q, char *body, size_t body_cap,
                                     int *http_status)
 {
     *http_status = 200;
     if (!q->channel[0]) {
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "missing channel", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_INVALID_ARGS, "missing channel", NULL, body, body_cap);
     }
-    zms_zs_record_stop(q->channel);
-    return webapi_respond_json(ZMS_API_SUCCESS, "success", NULL, body, body_cap);
+    zcs_zs_record_stop(q->channel);
+    return webapi_respond_json(ZCS_API_SUCCESS, "success", NULL, body, body_cap);
 }
 
-size_t webapi_handle_zs_record_list(zms_webapi_json_buf *jb)
+size_t webapi_handle_zs_record_list(zcs_webapi_json_buf *jb)
 {
     uint32_t n = zs_record_task_count();
     uint32_t i;
@@ -80,7 +80,7 @@ size_t webapi_handle_zs_record_list(zms_webapi_json_buf *jb)
     return jb->len;
 }
 
-size_t webapi_handle_zs_record_query(const zms_webapi_query_map *q, char *body, size_t body_cap,
+size_t webapi_handle_zs_record_query(const zcs_webapi_query_map *q, char *body, size_t body_cap,
                                      int *http_status)
 {
     zs_record_segment segs[256];
@@ -94,9 +94,9 @@ size_t webapi_handle_zs_record_query(const zms_webapi_query_map *q, char *body, 
     from_ms = q->start[0] ? (uint64_t)strtoull(q->start, NULL, 10) : 0;
     to_ms = q->end[0] ? (uint64_t)strtoull(q->end, NULL, 10) : 0;
     if (to_ms == 0) {
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "missing end", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_INVALID_ARGS, "missing end", NULL, body, body_cap);
     }
-    n = zms_zs_record_query(q->channel[0] ? q->channel : NULL, from_ms, to_ms, segs,
+    n = zcs_zs_record_query(q->channel[0] ? q->channel : NULL, from_ms, to_ms, segs,
                             (uint32_t)(sizeof(segs) / sizeof(segs[0])));
 
     off = (size_t)snprintf(body, body_cap, "{\"code\":0,\"msg\":\"success\",\"data\":{\"total\":%u,"
@@ -111,7 +111,7 @@ size_t webapi_handle_zs_record_query(const zms_webapi_query_map *q, char *body, 
                          (unsigned long long)segs[i].bytes);
         if (w < 0 || (size_t)w >= body_cap - off) {
             *http_status = 500;
-            return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body,
+            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body,
                                        body_cap);
         }
         off += (size_t)w;
@@ -126,7 +126,7 @@ size_t webapi_handle_zs_record_query(const zms_webapi_query_map *q, char *body, 
     return off;
 }
 
-size_t webapi_handle_zs_record_delete(const zms_webapi_query_map *q, char *body, size_t body_cap,
+size_t webapi_handle_zs_record_delete(const zcs_webapi_query_map *q, char *body, size_t body_cap,
                                       int *http_status)
 {
     uint32_t slots[256];
@@ -136,7 +136,7 @@ size_t webapi_handle_zs_record_delete(const zms_webapi_query_map *q, char *body,
 
     *http_status = 200;
     if (!q->slots[0]) {
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "missing slots", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_INVALID_ARGS, "missing slots", NULL, body, body_cap);
     }
     /* 解析 CSV 槽位号。 */
     p = q->slots;
@@ -153,12 +153,12 @@ size_t webapi_handle_zs_record_delete(const zms_webapi_query_map *q, char *body,
             break;
         }
     }
-    deleted = zms_zs_record_delete(slots, n);
+    deleted = zcs_zs_record_delete(slots, n);
     {
         char data[64];
 
         snprintf(data, sizeof(data), "{\"deleted\":%u,\"requested\":%u}", deleted, n);
-        return webapi_respond_json(ZMS_API_SUCCESS, "success", data, body, body_cap);
+        return webapi_respond_json(ZCS_API_SUCCESS, "success", data, body, body_cap);
     }
 }
 
@@ -171,7 +171,7 @@ size_t webapi_handle_zs_node_status(char *body, size_t body_cap, int *http_statu
     int w;
 
     *http_status = 200;
-    zms_zs_record_node_status(&slots, &free_slots, &used_bytes, &cap_bytes);
+    zcs_zs_record_node_status(&slots, &free_slots, &used_bytes, &cap_bytes);
     w = snprintf(body, body_cap,
                  "{\"code\":0,\"msg\":\"success\",\"data\":{\"slots\":%u,\"freeSlots\":%u,"
                  "\"usedGb\":%llu,\"capacityGb\":%llu,\"recordingTasks\":%u}}",
@@ -181,7 +181,7 @@ size_t webapi_handle_zs_node_status(char *body, size_t body_cap, int *http_statu
                  zs_record_task_count());
     if (w < 0 || (size_t)w >= body_cap) {
         *http_status = 500;
-        return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
     }
     return (size_t)w;
 }

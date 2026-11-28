@@ -2,7 +2,7 @@
  * @file msg.c
  * @brief 协议消息外壳实现（零拷贝视图 + 键值查找）。
  */
-#include "zms/message/msg.h"
+#include "zcs/message/msg.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -50,14 +50,14 @@ static void trim_view(const char **p, size_t *len)
     *len = n;
 }
 
-void zms_msg_init(zms_msg *m)
+void zcs_msg_init(zcs_msg *m)
 {
     if (m) {
         memset(m, 0, sizeof(*m));
     }
 }
 
-const char *zms_msg_own_copy(zms_msg *m, const char *s, size_t len)
+const char *zcs_msg_own_copy(zcs_msg *m, const char *s, size_t len)
 {
     char *copy;
 
@@ -86,7 +86,7 @@ const char *zms_msg_own_copy(zms_msg *m, const char *s, size_t len)
     return copy;
 }
 
-void zms_msg_fini(zms_msg *m)
+void zcs_msg_fini(zcs_msg *m)
 {
     int i;
 
@@ -100,7 +100,7 @@ void zms_msg_fini(zms_msg *m)
     memset(m, 0, sizeof(*m));
 }
 
-int zms_msg_set_method(zms_msg *m, const char *method, size_t len)
+int zcs_msg_set_method(zcs_msg *m, const char *method, size_t len)
 {
     if (!m || !method) {
         return -1;
@@ -111,7 +111,7 @@ int zms_msg_set_method(zms_msg *m, const char *method, size_t len)
     return 0;
 }
 
-int zms_msg_set_url(zms_msg *m, const char *url, size_t len)
+int zcs_msg_set_url(zcs_msg *m, const char *url, size_t len)
 {
     if (!m || !url) {
         return -1;
@@ -121,19 +121,19 @@ int zms_msg_set_url(zms_msg *m, const char *url, size_t len)
     return 0;
 }
 
-int zms_msg_set_status(zms_msg *m, int status, const char *reason, size_t len)
+int zcs_msg_set_status(zcs_msg *m, int status, const char *reason, size_t len)
 {
     if (!m) {
         return -1;
     }
-    m->kind = ZMS_MSG_KIND_RESPONSE;
+    m->kind = ZCS_MSG_KIND_RESPONSE;
     m->status = status;
     m->reason = reason;
     m->reason_len = len;
     return 0;
 }
 
-int zms_msg_set_body(zms_msg *m, const char *body, size_t len)
+int zcs_msg_set_body(zcs_msg *m, const char *body, size_t len)
 {
     if (!m) {
         return -1;
@@ -143,12 +143,12 @@ int zms_msg_set_body(zms_msg *m, const char *body, size_t len)
     return 0;
 }
 
-int zms_msg_add_hdr(zms_msg *m, const char *name, size_t name_len, const char *value,
+int zcs_msg_add_hdr(zcs_msg *m, const char *name, size_t name_len, const char *value,
                     size_t value_len)
 {
-    zms_kv *kv;
+    zcs_kv *kv;
 
-    if (!m || !name || m->hdr_n >= ZMS_MSG_HDR_MAX) {
+    if (!m || !name || m->hdr_n >= ZCS_MSG_HDR_MAX) {
         return -1;
     }
     trim_view(&name, &name_len);
@@ -164,7 +164,7 @@ int zms_msg_add_hdr(zms_msg *m, const char *name, size_t name_len, const char *v
     return 0;
 }
 
-const zms_kv *zms_msg_find(const zms_msg *m, const char *name)
+const zcs_kv *zcs_msg_find(const zcs_msg *m, const char *name)
 {
     if (!m || !name) {
         return NULL;
@@ -177,22 +177,22 @@ const zms_kv *zms_msg_find(const zms_msg *m, const char *name)
     return NULL;
 }
 
-int zms_msg_get_copy(const zms_msg *m, const char *name, char *out, size_t cap)
+int zcs_msg_get_copy(const zcs_msg *m, const char *name, char *out, size_t cap)
 {
-    const zms_kv *kv;
+    const zcs_kv *kv;
 
     if (!out || cap == 0) {
         return -1;
     }
     out[0] = '\0';
-    kv = zms_msg_find(m, name);
+    kv = zcs_msg_find(m, name);
     if (!kv) {
         return -1;
     }
-    return zms_kv_copy_value(kv, out, cap);
+    return zcs_kv_copy_value(kv, out, cap);
 }
 
-int zms_kv_copy_name(const zms_kv *kv, char *out, size_t cap)
+int zcs_kv_copy_name(const zcs_kv *kv, char *out, size_t cap)
 {
     if (!kv || !out || cap == 0) {
         return -1;
@@ -206,7 +206,7 @@ int zms_kv_copy_name(const zms_kv *kv, char *out, size_t cap)
     return 0;
 }
 
-int zms_kv_copy_value(const zms_kv *kv, char *out, size_t cap)
+int zcs_kv_copy_value(const zcs_kv *kv, char *out, size_t cap)
 {
     if (!kv || !out || cap == 0) {
         return -1;
@@ -220,9 +220,9 @@ int zms_kv_copy_value(const zms_kv *kv, char *out, size_t cap)
     return 0;
 }
 
-int zms_msg_get_int(const zms_msg *m, const char *name, int64_t def, int64_t *out)
+int zcs_msg_get_int(const zcs_msg *m, const char *name, int64_t def, int64_t *out)
 {
-    const zms_kv *kv = zms_msg_find(m, name);
+    const zcs_kv *kv = zcs_msg_find(m, name);
     char buf[32];
     char *end = NULL;
     long long v;
@@ -230,7 +230,7 @@ int zms_msg_get_int(const zms_msg *m, const char *name, int64_t def, int64_t *ou
     if (out) {
         *out = def;
     }
-    if (!kv || zms_kv_copy_value(kv, buf, sizeof(buf)) != 0 || buf[0] == '\0') {
+    if (!kv || zcs_kv_copy_value(kv, buf, sizeof(buf)) != 0 || buf[0] == '\0') {
         return -1;
     }
     v = strtoll(buf, &end, 10);
@@ -243,12 +243,12 @@ int zms_msg_get_int(const zms_msg *m, const char *name, int64_t def, int64_t *ou
     return 0;
 }
 
-int zms_msg_get_bool(const zms_msg *m, const char *name, int def)
+int zcs_msg_get_bool(const zcs_msg *m, const char *name, int def)
 {
-    const zms_kv *kv = zms_msg_find(m, name);
+    const zcs_kv *kv = zcs_msg_find(m, name);
     char buf[16];
 
-    if (!kv || zms_kv_copy_value(kv, buf, sizeof(buf)) != 0) {
+    if (!kv || zcs_kv_copy_value(kv, buf, sizeof(buf)) != 0) {
         return def;
     }
     if (str_ieq("1", buf, strlen(buf)) || str_ieq("true", buf, strlen(buf)) ||
@@ -262,7 +262,7 @@ int zms_msg_get_bool(const zms_msg *m, const char *name, int def)
     return def;
 }
 
-const char *zms_msg_query(const zms_msg *m, size_t *len)
+const char *zcs_msg_query(const zcs_msg *m, size_t *len)
 {
     size_t i;
 
@@ -346,7 +346,7 @@ static int query_scan(const char *q, size_t qlen, const char *name, char *out, s
     return -1;
 }
 
-int zms_msg_query_get(const zms_msg *m, const char *name, char *out, size_t cap)
+int zcs_msg_query_get(const zcs_msg *m, const char *name, char *out, size_t cap)
 {
     size_t qlen = 0;
     const char *q;
@@ -355,14 +355,14 @@ int zms_msg_query_get(const zms_msg *m, const char *name, char *out, size_t cap)
         return -1;
     }
     out[0] = '\0';
-    q = zms_msg_query(m, &qlen);
+    q = zcs_msg_query(m, &qlen);
     if (!q || !name || !name[0]) {
         return -1;
     }
     return query_scan(q, qlen, name, out, cap);
 }
 
-int zms_msg_query_get_int(const zms_msg *m, const char *name, int64_t def, int64_t *out)
+int zcs_msg_query_get_int(const zcs_msg *m, const char *name, int64_t def, int64_t *out)
 {
     char buf[32];
     char *end = NULL;
@@ -371,7 +371,7 @@ int zms_msg_query_get_int(const zms_msg *m, const char *name, int64_t def, int64
     if (out) {
         *out = def;
     }
-    if (zms_msg_query_get(m, name, buf, sizeof(buf)) != 0 || buf[0] == '\0') {
+    if (zcs_msg_query_get(m, name, buf, sizeof(buf)) != 0 || buf[0] == '\0') {
         return -1;
     }
     v = strtoll(buf, &end, 10);

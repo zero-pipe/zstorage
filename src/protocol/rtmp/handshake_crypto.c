@@ -141,7 +141,7 @@ static void sha256_final(sha256_ctx *ctx, uint8_t hash[32])
     }
 }
 
-void zms_rtmp_handshake_hmac_sha256(const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len,
+void zcs_rtmp_handshake_hmac_sha256(const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len,
                         uint8_t out[32])
 {
     uint8_t k[64];

@@ -6,7 +6,7 @@
  *   '$' <channel:1> <length:2 big-endian> <payload...>
  * 本文件拥有该帧格式，不依赖任何 librtsp/librtp 内部实现。
  */
-#include "zms/media/container/container_registry.h"
+#include "zcs/media/container/container_registry.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -21,7 +21,7 @@ typedef enum rtsp_ic_state {
 } rtsp_ic_state;
 
 typedef struct {
-    zms_container_demux_opts cfg;
+    zcs_container_demux_opts cfg;
     rtsp_ic_state state;
     uint8_t channel;
     uint16_t length;
@@ -33,13 +33,13 @@ typedef struct {
 static void rtsp_ic_onrtp(void *param, uint8_t channel, const void *data, uint16_t bytes)
 {
     rtsp_ic_ctx *c = (rtsp_ic_ctx *)param;
-    zms_container_packet pkt;
+    zcs_container_packet pkt;
 
     if (!c || !c->cfg.on_packet || !data || bytes == 0) {
         return;
     }
     memset(&pkt, 0, sizeof(pkt));
-    pkt.kind = ZMS_CONTAINER_PKT_RTP;
+    pkt.kind = ZCS_CONTAINER_PKT_RTP;
     pkt.channel = channel;
     pkt.data = (const uint8_t *)data;
     pkt.len = bytes;
@@ -121,7 +121,7 @@ static const uint8_t *rtsp_ic_scan(rtsp_ic_ctx *c, const uint8_t *data, const ui
     return data;
 }
 
-static void *rtsp_ic_create(const zms_container_demux_opts *opts)
+static void *rtsp_ic_create(const zcs_container_demux_opts *opts)
 {
     rtsp_ic_ctx *c;
 
@@ -183,8 +183,8 @@ static zn_err_t rtsp_ic_input_tag(void *ctx, uint8_t type_id, const uint8_t *bod
     return ZN_ERR_NOT_IMPL;
 }
 
-const zms_container_demuxer_ops zms_container_rtsp_interleaved_ops = {
-    ZMS_CONTAINER_RTSP_INTERLEAVED,
+const zcs_container_demuxer_ops zcs_container_rtsp_interleaved_ops = {
+    ZCS_CONTAINER_RTSP_INTERLEAVED,
     "rtsp-interleaved",
     rtsp_ic_create,
     rtsp_ic_destroy,

@@ -2,9 +2,9 @@
  * @file webrtc_server.c
  * @brief WebRTC 服务实例管理。
  */
-#include "zms/session/webrtc/webrtc_server.h"
-#include "zms/protocol/http/session_api.h"
-#include "zms/media/media_limits.h"
+#include "zcs/session/webrtc/webrtc_server.h"
+#include "zcs/protocol/http/session_api.h"
+#include "zcs/media/media_limits.h"
 #include "zn/net/tcp_server.h"
 #include "protocol/webrtc/media_internal.h"
 #include "protocol/webrtc/ice_internal.h"
@@ -32,7 +32,7 @@ static void client_autostart_cb(void *user)
     if (!a) {
         return;
     }
-    if (zms_webrtc_client_launch(a->kind, a->url, a->app, a->stream,
+    if (zcs_webrtc_client_launch(a->kind, a->url, a->app, a->stream,
                                  a->token[0] ? a->token : NULL, a->ssl_ctx) != 0) {
         zn_warn("[webrtc] autostart %s failed url=%s", a->kind, a->url);
     }
@@ -62,33 +62,33 @@ static void client_autostart_add(zn_poller *poller, const char *kind, const char
         free(a);
     }
 }
-struct zms_webrtc_server {
+struct zcs_webrtc_server {
     char host[64];
     char advertise_host[64];
     zn_poller *poller;
     uint16_t port_min;
     uint16_t port_max;
-    zms_webrtc_ice_server ice_servers[2];
+    zcs_webrtc_ice_server ice_servers[2];
     size_t ice_server_count;
 };
 
-static zms_webrtc_server *g_webrtc_service;
-zms_webrtc_server *zms_webrtc_server_instance(void)
+static zcs_webrtc_server *g_webrtc_service;
+zcs_webrtc_server *zcs_webrtc_server_instance(void)
 {
     return g_webrtc_service;
 }
 
-void zms_webrtc_server_set_instance(zms_webrtc_server *srv)
+void zcs_webrtc_server_set_instance(zcs_webrtc_server *srv)
 {
     g_webrtc_service = srv;
 }
 
-const char *zms_webrtc_server_bind_host(const zms_webrtc_server *srv)
+const char *zcs_webrtc_server_bind_host(const zcs_webrtc_server *srv)
 {
     return (srv && srv->host[0]) ? srv->host : "0.0.0.0";
 }
 
-const char *zms_webrtc_server_advertise_host(const zms_webrtc_server *srv)
+const char *zcs_webrtc_server_advertise_host(const zcs_webrtc_server *srv)
 {
     if (srv && srv->advertise_host[0]) {
         return srv->advertise_host;
@@ -96,7 +96,7 @@ const char *zms_webrtc_server_advertise_host(const zms_webrtc_server *srv)
     return "127.0.0.1";
 }
 
-int zms_webrtc_server_port_range(const zms_webrtc_server *srv, uint16_t *out_min,
+int zcs_webrtc_server_port_range(const zcs_webrtc_server *srv, uint16_t *out_min,
                                  uint16_t *out_max)
 {
     if (!srv || !out_min || !out_max) {
@@ -107,41 +107,41 @@ int zms_webrtc_server_port_range(const zms_webrtc_server *srv, uint16_t *out_min
     return *out_min > 0 && *out_max >= *out_min;
 }
 
-zn_poller *zms_webrtc_server_poller(const zms_webrtc_server *srv)
+zn_poller *zcs_webrtc_server_poller(const zcs_webrtc_server *srv)
 {
     return srv ? srv->poller : NULL;
 }
 
-zn_poller *zms_webrtc_server_resolve_poller(zms_http_session *hs)
+zn_poller *zcs_webrtc_server_resolve_poller(zcs_http_session *hs)
 {
-    zms_webrtc_server *svc = zms_webrtc_server_instance();
-    if (hs && zms_http_session_tcp(hs)) {
-        return zn_tcp_session_poller(zms_http_session_tcp(hs));
+    zcs_webrtc_server *svc = zcs_webrtc_server_instance();
+    if (hs && zcs_http_session_tcp(hs)) {
+        return zn_tcp_session_poller(zcs_http_session_tcp(hs));
     }
     if (svc && svc->poller) {
         return svc->poller;
     }
     if (hs) {
-        return zms_http_session_poller(hs);
+        return zcs_http_session_poller(hs);
     }
     return NULL;
 }
 
-static zms_webrtc_talk_audio_cb g_talk_cb;
+static zcs_webrtc_talk_audio_cb g_talk_cb;
 static void *g_talk_user;
 
-void zms_webrtc_server_set_talk_audio_cb(zms_webrtc_talk_audio_cb cb, void *user)
+void zcs_webrtc_server_set_talk_audio_cb(zcs_webrtc_talk_audio_cb cb, void *user)
 {
     g_talk_cb = cb;
     g_talk_user = user;
 }
 
-int zms_webrtc_server_has_talk_audio_cb(void)
+int zcs_webrtc_server_has_talk_audio_cb(void)
 {
     return g_talk_cb != NULL;
 }
 
-int zms_webrtc_server_emit_talk_audio(const char *app, const char *stream, int codec, int rate,
+int zcs_webrtc_server_emit_talk_audio(const char *app, const char *stream, int codec, int rate,
                                        const uint8_t *data, size_t len)
 {
     if (!g_talk_cb) {
@@ -151,9 +151,9 @@ int zms_webrtc_server_emit_talk_audio(const char *app, const char *stream, int c
     return 1;
 }
 
-size_t zms_webrtc_server_ice_servers(zms_webrtc_ice_server *out, size_t cap)
+size_t zcs_webrtc_server_ice_servers(zcs_webrtc_ice_server *out, size_t cap)
 {
-    zms_webrtc_server *srv = g_webrtc_service;
+    zcs_webrtc_server *srv = g_webrtc_service;
     size_t n;
 
     if (!srv || !out || cap == 0) {
@@ -169,13 +169,13 @@ size_t zms_webrtc_server_ice_servers(zms_webrtc_ice_server *out, size_t cap)
     return n;
 }
 
-zms_webrtc_server *zms_webrtc_server_create(const zms_webrtc_server_opts *opts)
+zcs_webrtc_server *zcs_webrtc_server_create(const zcs_webrtc_server_opts *opts)
 {
-    zms_webrtc_server *srv;
+    zcs_webrtc_server *srv;
     if (!opts || !opts->poller) {
         return NULL;
     }
-    srv = (zms_webrtc_server *)calloc(1, sizeof(*srv));
+    srv = (zcs_webrtc_server *)calloc(1, sizeof(*srv));
     if (!srv) {
         return NULL;
     }
@@ -193,12 +193,12 @@ zms_webrtc_server *zms_webrtc_server_create(const zms_webrtc_server_opts *opts)
         strncpy(srv->advertise_host, "127.0.0.1", sizeof(srv->advertise_host) - 1);
     }
     if (opts->stun_server && opts->stun_server[0]) {
-        zms_webrtc_ice_server *srvcfg = &srv->ice_servers[srv->ice_server_count++];
+        zcs_webrtc_ice_server *srvcfg = &srv->ice_servers[srv->ice_server_count++];
         snprintf(srvcfg->url, sizeof(srvcfg->url), "%s", opts->stun_server);
         srvcfg->turn = 0;
     }
     if (opts->turn_server && opts->turn_server[0]) {
-        zms_webrtc_ice_server *srvcfg = &srv->ice_servers[srv->ice_server_count++];
+        zcs_webrtc_ice_server *srvcfg = &srv->ice_servers[srv->ice_server_count++];
         snprintf(srvcfg->url, sizeof(srvcfg->url), "%s", opts->turn_server);
         snprintf(srvcfg->user, sizeof(srvcfg->user), "%s",
                  opts->turn_user ? opts->turn_user : "");
@@ -207,18 +207,18 @@ zms_webrtc_server *zms_webrtc_server_create(const zms_webrtc_server_opts *opts)
         srvcfg->turn = 1;
     }
     int zice_on;
-    (void)zms_webrtc_dtls_global_init();
-    zms_webrtc_ice_port_init(opts->poller);
-#if defined(ZMS_WEBRTC_USE_ZICE) && ZMS_WEBRTC_USE_ZICE
+    (void)zcs_webrtc_dtls_global_init();
+    zcs_webrtc_ice_port_init(opts->poller);
+#if defined(ZCS_WEBRTC_USE_ZICE) && ZCS_WEBRTC_USE_ZICE
     zice_on = 1;
 #else
     zice_on = 0;
 #endif
     zn_info("[webrtc] play egress build=20250628 poller=http_session rtp_flush=%u zice=%d",
-             (unsigned)ZMS_WEBRTC_PLAY_RTP_FLUSH, zice_on);
+             (unsigned)ZCS_WEBRTC_PLAY_RTP_FLUSH, zice_on);
     g_webrtc_service = srv;
     if (opts->signaling_enable && opts->signaling_url && opts->signaling_url[0]) {
-        if (zms_webrtc_signaling_start(opts->signaling_url, opts->signaling_room,
+        if (zcs_webrtc_signaling_start(opts->signaling_url, opts->signaling_room,
                                        opts->signaling_token, opts->signaling_app,
                                        opts->signaling_stream) != 0) {
             zn_warn("[webrtc] signaling client start failed url=%s", opts->signaling_url);
@@ -233,20 +233,20 @@ zms_webrtc_server *zms_webrtc_server_create(const zms_webrtc_server_opts *opts)
     return srv;
 }
 
-void zms_webrtc_server_destroy(zms_webrtc_server *srv)
+void zcs_webrtc_server_destroy(zcs_webrtc_server *srv)
 {
     if (!srv) {
         return;
     }
-    zms_webrtc_signaling_stop();
-    zms_webrtc_client_shutdown();
-    zms_webrtc_session_destroy_all();
+    zcs_webrtc_signaling_stop();
+    zcs_webrtc_client_shutdown();
+    zcs_webrtc_session_destroy_all();
     if (g_webrtc_service == srv) {
         g_webrtc_service = NULL;
     }
-    zms_webrtc_ice_port_fini();
+    zcs_webrtc_ice_port_fini();
     free(srv);
     if (!g_webrtc_service) {
-        zms_webrtc_dtls_global_fini();
+        zcs_webrtc_dtls_global_fini();
     }
 }

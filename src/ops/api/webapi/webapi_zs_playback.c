@@ -14,42 +14,42 @@
  * 正在出流的会话 reader 由各自 poller 驱动，跨线程改其 demux/fifo 不安全。
  */
 #include "ops/api/webapi/webapi_internal.h"
-#include "zms/vod/io/source.h"
-#include "zms/core/event.h"
-#include "zms/core/stream/hub.h"
-#include "zms/egress/recorder/zs_record_task.h"
+#include "zcs/vod/io/source.h"
+#include "zcs/core/event.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/egress/recorder/zs_record_task.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 // 查找回放 VOD 源，兼容规范名（open 时流名会被规范化加后缀）。
-static zms_media_source *zs_find_playback_src(const zms_webapi_query_map *q, const char *app)
+static zcs_media_source *zs_find_playback_src(const zcs_webapi_query_map *q, const char *app)
 {
-    zms_media_source *src;
+    zcs_media_source *src;
 
-    src = zms_media_source_find_api_ex(ZMS_SCHEMA_RTMP, q->vhost, app, q->stream);
+    src = zcs_media_source_find_api_ex(ZCS_SCHEMA_RTMP, q->vhost, app, q->stream);
     if (src) {
         return src;
     }
     {
-        char canon[ZMS_STREAM_MAX];
+        char canon[ZCS_STREAM_MAX];
 
         canon[0] = '\0';
-        zms_vod_canonical_stream(q->stream, canon, sizeof(canon));
+        zcs_vod_canonical_stream(q->stream, canon, sizeof(canon));
         if (canon[0] && strcmp(canon, q->stream) != 0) {
-            src = zms_media_source_find_api_ex(ZMS_SCHEMA_RTMP, q->vhost, app, canon);
+            src = zcs_media_source_find_api_ex(ZCS_SCHEMA_RTMP, q->vhost, app, canon);
         }
     }
     return src;
 }
 
-size_t webapi_handle_zs_playback_start(const zms_webapi_query_map *q, char *body, size_t body_cap,
+size_t webapi_handle_zs_playback_start(const zcs_webapi_query_map *q, char *body, size_t body_cap,
                                        int *http_status)
 {
-    zms_media_source *src;
+    zcs_media_source *src;
     char path[512];
-    char stream[ZMS_STREAM_MAX];
+    char stream[ZCS_STREAM_MAX];
     const char *app;
     const char *slot_src;
     uint32_t slot;
@@ -59,7 +59,7 @@ size_t webapi_handle_zs_playback_start(const zms_webapi_query_map *q, char *body
     *http_status = 200;
     slot_src = q->slot[0] ? q->slot : q->slots;
     if (!slot_src[0]) {
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "missing slot", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_INVALID_ARGS, "missing slot", NULL, body, body_cap);
     }
     slot = (uint32_t)strtoul(slot_src, NULL, 10);
     app = q->app[0] ? q->app : "playback";
@@ -70,20 +70,20 @@ size_t webapi_handle_zs_playback_start(const zms_webapi_query_map *q, char *body
     } else {
         snprintf(stream, sizeof(stream), "ps_%u", slot);
     }
-    if (zms_zs_record_slot_path(slot, path, sizeof(path)) != 0) {
-        return webapi_respond_json(ZMS_API_NOT_FOUND, "slot not found", NULL, body, body_cap);
+    if (zcs_zs_record_slot_path(slot, path, sizeof(path)) != 0) {
+        return webapi_respond_json(ZCS_API_NOT_FOUND, "slot not found", NULL, body, body_cap);
     }
-    src = zms_vod_source_open_vhost(q->vhost, app, stream, path, zms_media_events_poller());
+    src = zcs_vod_source_open_vhost(q->vhost, app, stream, path, zcs_media_events_poller());
     if (!src) {
-        return webapi_respond_json(ZMS_API_OTHER_FAILED, "open slot failed", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_OTHER_FAILED, "open slot failed", NULL, body, body_cap);
     }
     if (q->start[0]) {
         start_ms = (uint64_t)strtoull(q->start, NULL, 10);
         if (start_ms > 0) {
-            (void)zms_vod_source_seek_ms(src, start_ms);
+            (void)zcs_vod_source_seek_ms(src, start_ms);
         }
     }
-    dur = zms_vod_source_duration_ms(src);
+    dur = zcs_vod_source_duration_ms(src);
     return (size_t)snprintf(body, body_cap,
                             "{\"code\":0,\"msg\":\"success\",\"data\":{\"app\":\"%s\","
                             "\"stream\":\"%s\",\"slot\":%u,\"start\":%llu,\"duration\":%llu}}",
@@ -91,20 +91,20 @@ size_t webapi_handle_zs_playback_start(const zms_webapi_query_map *q, char *body
                             (unsigned long long)dur);
 }
 
-size_t webapi_handle_zs_playback_stop(const zms_webapi_query_map *q, char *body, size_t body_cap,
+size_t webapi_handle_zs_playback_stop(const zcs_webapi_query_map *q, char *body, size_t body_cap,
                                       int *http_status)
 {
-    zms_media_source *src;
+    zcs_media_source *src;
     const char *app;
 
     *http_status = 200;
     app = q->app[0] ? q->app : "playback";
     if (!q->stream[0]) {
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "missing stream", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_INVALID_ARGS, "missing stream", NULL, body, body_cap);
     }
     src = zs_find_playback_src(q, app);
-    if (src && zms_media_source_is_vod(src)) {
-        zms_vod_source_stop(src);
+    if (src && zcs_media_source_is_vod(src)) {
+        zcs_vod_source_stop(src);
     }
-    return webapi_respond_json(ZMS_API_SUCCESS, "success", NULL, body, body_cap);
+    return webapi_respond_json(ZCS_API_SUCCESS, "success", NULL, body, body_cap);
 }

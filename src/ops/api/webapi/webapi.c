@@ -2,22 +2,22 @@
  * @file webapi.c
  * @brief Web API 请求处理。
  */
-#include "zms/ops/api/webapi/webapi.h"
+#include "zcs/ops/api/webapi/webapi.h"
 #include "ops/api/webapi/webapi_internal.h"
-#include "zms/pull/proxy.h"
-#include "zms/protocol/rtp/ps_server.h"
-#include "zms/ops/config/config.h"
-#include "zms/ops/config/pull_ssl.h"
-#if defined(ZMS_ENABLE_WEBRTC) && ZMS_ENABLE_WEBRTC
-#include "zms/session/webrtc/webrtc_server.h"
+#include "zcs/pull/proxy.h"
+#include "zcs/protocol/rtp/ps_server.h"
+#include "zcs/ops/config/config.h"
+#include "zcs/ops/config/pull_ssl.h"
+#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
+#include "zcs/session/webrtc/webrtc_server.h"
 #endif
-#include "zms/util/buf_pool.h"
-#include "zms/version.h"
-#include "zms/ops/api/json/media_json.h"
-#include "zms/core/stream/hub.h"
-#include "zms/core/event.h"
-#include "zms/vod/io/source.h"
-#include "zms/core/auth.h"
+#include "zcs/util/buf_pool.h"
+#include "zcs/version.h"
+#include "zcs/ops/api/json/media_json.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/core/event.h"
+#include "zcs/vod/io/source.h"
+#include "zcs/core/auth.h"
 #include "zn/net/socket.h"
 #include "zn/platform.h"
 #include "zn/util/log.h"
@@ -75,14 +75,14 @@ static void url_decode_inplace(char *s)
     }
     *w = '\0';
 }
-static void parse_query(const char *query, zms_webapi_query_map *m)
+static void parse_query(const char *query, zcs_webapi_query_map *m)
 {
     if (!query || !m) {
         return;
     }
     char buf[1024];
 
-    zms_auth_params_copy(query, m->raw_query, sizeof(m->raw_query));
+    zcs_auth_params_copy(query, m->raw_query, sizeof(m->raw_query));
     strncpy(buf, query, sizeof(buf) - 1);
     buf[sizeof(buf) - 1] = '\0';
 #ifdef _WIN32
@@ -226,9 +226,9 @@ static int check_secret(zn_tcp_session *tcp, const char *cfg_secret, const char 
     }
     return req_secret && strcmp(req_secret, cfg_secret) == 0;
 }
-int webapi_jb_append(zms_webapi_json_buf *jb, const char *fmt, ...)
+int webapi_jb_append(zcs_webapi_json_buf *jb, const char *fmt, ...)
 {
-    zms_json_buf zjb = {jb->buf, jb->cap, jb->len};
+    zcs_json_buf zjb = {jb->buf, jb->cap, jb->len};
     va_list ap;
     va_start(ap, fmt);
     int n = vsnprintf(zjb.buf + zjb.len, zjb.cap - zjb.len, fmt, ap);
@@ -239,9 +239,9 @@ int webapi_jb_append(zms_webapi_json_buf *jb, const char *fmt, ...)
     jb->len = zjb.len + (size_t)n;
     return 0;
 }
-zms_media_server_ports webapi_ports_from_cfg(const zms_config *cfg)
+zcs_media_server_ports webapi_ports_from_cfg(const zcs_config *cfg)
 {
-    zms_media_server_ports p = {0};
+    zcs_media_server_ports p = {0};
     if (cfg) {
         p.rtmp = cfg->rtmp.port;
         p.rtsp = cfg->rtsp.port;
@@ -250,24 +250,24 @@ zms_media_server_ports webapi_ports_from_cfg(const zms_config *cfg)
     }
     return p;
 }
-static int append_media_json(zms_media_source *s, zms_webapi_json_buf *jb, int *first,
-                             const zms_media_server_ports *ports)
+static int append_media_json(zcs_media_source *s, zcs_webapi_json_buf *jb, int *first,
+                             const zcs_media_server_ports *ports)
 {
-    zms_json_buf zjb = {jb->buf, jb->cap, jb->len};
-    int r = zms_json_append_media_item(&zjb, s, first, ports);
+    zcs_json_buf zjb = {jb->buf, jb->cap, jb->len};
+    int r = zcs_json_append_media_item(&zjb, s, first, ports);
     jb->len = zjb.len;
     return r;
 }
 
-typedef struct zms_webapi_list_ctx {
-    zms_webapi_json_buf *jb;
+typedef struct zcs_webapi_list_ctx {
+    zcs_webapi_json_buf *jb;
     int first;
-    zms_media_server_ports ports;
-} zms_webapi_list_ctx;
+    zcs_media_server_ports ports;
+} zcs_webapi_list_ctx;
 
-static int list_visit(zms_media_source *src, void *user)
+static int list_visit(zcs_media_source *src, void *user)
 {
-    zms_webapi_list_ctx *ctx = (zms_webapi_list_ctx *)user;
+    zcs_webapi_list_ctx *ctx = (zcs_webapi_list_ctx *)user;
     return append_media_json(src, ctx->jb, &ctx->first, &ctx->ports);
 }
 
@@ -280,95 +280,95 @@ size_t webapi_respond_json(int code, const char *msg, const char *extra, char *b
     }
     return (size_t)snprintf(body, body_cap, "{\"code\":%d,\"msg\":\"%s\"}", code, msg);
 }
-static size_t handle_get_media_list(const zms_webapi_query_map *q, zms_webapi_json_buf *jb,
-                                    const zms_config *cfg)
+static size_t handle_get_media_list(const zcs_webapi_query_map *q, zcs_webapi_json_buf *jb,
+                                    const zcs_config *cfg)
 {
-    zms_media_source_filter filter = {
+    zcs_media_source_filter filter = {
         .schema = q->schema[0] ? q->schema : NULL,
         .vhost = q->vhost[0] ? q->vhost : NULL,
         .app = q->app[0] ? q->app : NULL,
         .stream = q->stream[0] ? q->stream : NULL,
     };
-    zms_webapi_list_ctx ctx = {jb, 1, webapi_ports_from_cfg(cfg)};
+    zcs_webapi_list_ctx ctx = {jb, 1, webapi_ports_from_cfg(cfg)};
     if (webapi_jb_append(jb, "{\"code\":0,\"data\":[") != 0) {
         return 0;
     }
-    zms_media_source_foreach(list_visit, &ctx, &filter);
+    zcs_media_source_foreach(list_visit, &ctx, &filter);
     if (webapi_jb_append(jb, "]}") != 0) {
         return 0;
     }
     return jb->len;
 }
 
-static size_t handle_close_stream(const zms_webapi_query_map *q, char *body, size_t body_cap,
+static size_t handle_close_stream(const zcs_webapi_query_map *q, char *body, size_t body_cap,
                                   int *http_status)
 {
     if (!q->app[0] || !q->stream[0]) {
         *http_status = 200;
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "missing app/stream", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_INVALID_ARGS, "missing app/stream", NULL, body, body_cap);
     }
-    const char *schema = q->schema[0] ? q->schema : ZMS_SCHEMA_RTMP;
-    zms_media_source *src = zms_media_source_find_api_ex(schema, q->vhost, q->app, q->stream);
-    if (!src || !zms_media_source_is_online(src)) {
+    const char *schema = q->schema[0] ? q->schema : ZCS_SCHEMA_RTMP;
+    zcs_media_source *src = zcs_media_source_find_api_ex(schema, q->vhost, q->app, q->stream);
+    if (!src || !zcs_media_source_is_online(src)) {
         *http_status = 200;
-        return webapi_respond_json(ZMS_API_NOT_FOUND, "can not find the stream", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_NOT_FOUND, "can not find the stream", NULL, body, body_cap);
     }
     int force = q->force[0] && q->force[0] != '0';
-    int ok = zms_media_source_close(src, force);
+    int ok = zcs_media_source_close(src, force);
     *http_status = 200;
     if (ok) {
-        return webapi_respond_json(ZMS_API_SUCCESS, "success", "\"result\":0", body, body_cap);
+        return webapi_respond_json(ZCS_API_SUCCESS, "success", "\"result\":0", body, body_cap);
     }
-    return webapi_respond_json(ZMS_API_OTHER_FAILED, "close failed", "\"result\":-1", body, body_cap);
+    return webapi_respond_json(ZCS_API_OTHER_FAILED, "close failed", "\"result\":-1", body, body_cap);
 }
 
-static size_t handle_get_media_info(const zms_webapi_query_map *q, zms_webapi_json_buf *jb,
-                                    const zms_config *cfg)
+static size_t handle_get_media_info(const zcs_webapi_query_map *q, zcs_webapi_json_buf *jb,
+                                    const zcs_config *cfg)
 {
     if (!q->schema[0] || !q->app[0] || !q->stream[0]) {
         return 0;
     }
-    zms_media_source *src = zms_media_source_find_api_ex(q->schema, q->vhost, q->app, q->stream);
-    if (!src || !zms_media_source_is_online(src)) {
+    zcs_media_source *src = zcs_media_source_find_api_ex(q->schema, q->vhost, q->app, q->stream);
+    if (!src || !zcs_media_source_is_online(src)) {
         return 0;
     }
-    zms_json_buf zjb = {jb->buf, jb->cap, jb->len};
-    zms_media_server_ports ports = webapi_ports_from_cfg(cfg);
-    if (zms_json_write_media_info(&zjb, src, &ports) != 0) {
+    zcs_json_buf zjb = {jb->buf, jb->cap, jb->len};
+    zcs_media_server_ports ports = webapi_ports_from_cfg(cfg);
+    if (zcs_json_write_media_info(&zjb, src, &ports) != 0) {
         return 0;
     }
     jb->len = zjb.len;
     return jb->len;
 }
 
-typedef struct zms_webapi_close_streams_ctx {
-    const zms_webapi_query_map *q;
+typedef struct zcs_webapi_close_streams_ctx {
+    const zcs_webapi_query_map *q;
     int count_hit;
     int count_closed;
     int force;
-} zms_webapi_close_streams_ctx;
+} zcs_webapi_close_streams_ctx;
 
-static int close_streams_visit(zms_media_source *src, void *user)
+static int close_streams_visit(zcs_media_source *src, void *user)
 {
-    zms_webapi_close_streams_ctx *ctx = (zms_webapi_close_streams_ctx *)user;
+    zcs_webapi_close_streams_ctx *ctx = (zcs_webapi_close_streams_ctx *)user;
     ++ctx->count_hit;
-    if (zms_media_source_close(src, ctx->force)) {
+    if (zcs_media_source_close(src, ctx->force)) {
         ++ctx->count_closed;
     }
     return 0;
 }
 
-static size_t handle_close_streams(const zms_webapi_query_map *q, char *body, size_t body_cap,
+static size_t handle_close_streams(const zcs_webapi_query_map *q, char *body, size_t body_cap,
                                    int *http_status)
 {
-    zms_webapi_close_streams_ctx ctx = {q, 0, 0, q->force[0] && q->force[0] != '0'};
-    zms_media_source_filter filter = {
+    zcs_webapi_close_streams_ctx ctx = {q, 0, 0, q->force[0] && q->force[0] != '0'};
+    zcs_media_source_filter filter = {
         .schema = q->schema[0] ? q->schema : NULL,
         .vhost = q->vhost[0] ? q->vhost : NULL,
         .app = q->app[0] ? q->app : NULL,
         .stream = q->stream[0] ? q->stream : NULL,
     };
-    zms_media_source_foreach(close_streams_visit, &ctx, &filter);
+    zcs_media_source_foreach(close_streams_visit, &ctx, &filter);
     *http_status = 200;
     return (size_t)snprintf(body, body_cap, "{\"code\":0,\"count_hit\":%d,\"count_closed\":%d}",
                             ctx.count_hit, ctx.count_closed);
@@ -379,7 +379,7 @@ static size_t handle_get_server_config(char *body, size_t body_cap, int *http_st
     return (size_t)snprintf(body, body_cap,
                             "{\"code\":0,\"data\":["
                             "[\"api.apiDebug\",\"0\"],"
-                            "[\"general.mediaServerId\",\"zms\"],"
+                            "[\"general.mediaServerId\",\"zcs\"],"
                             "[\"protocol.enable_rtmp\",\"1\"],"
                             "[\"protocol.enable_rtsp\",\"1\"],"
                             "[\"protocol.enable_hls\",\"1\"]"
@@ -423,16 +423,16 @@ static size_t handle_get_api_list(char *body, size_t body_cap)
                             "\"/index/api/zstorage/playback/stop\""
                             "]}");
 }
-static size_t handle_is_media_online(const zms_webapi_query_map *q, char *body, size_t body_cap,
+static size_t handle_is_media_online(const zcs_webapi_query_map *q, char *body, size_t body_cap,
                                      int *http_status)
 {
     *http_status = 200;
     if (!q->schema[0] || !q->app[0] || !q->stream[0]) {
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "missing schema/app/stream", NULL, body,
+        return webapi_respond_json(ZCS_API_INVALID_ARGS, "missing schema/app/stream", NULL, body,
                             body_cap);
     }
-    zms_media_source *src = zms_media_source_find_api_ex(q->schema, q->vhost, q->app, q->stream);
-    int online = src && zms_media_source_is_online(src);
+    zcs_media_source *src = zcs_media_source_find_api_ex(q->schema, q->vhost, q->app, q->stream);
+    int online = src && zcs_media_source_is_online(src);
     return (size_t)snprintf(body, body_cap, "{\"code\":0,\"online\":%s}",
                             online ? "true" : "false");
 }
@@ -441,21 +441,21 @@ static size_t handle_version(char *body, size_t body_cap, int *http_status)
 {
     *http_status = 200;
     return (size_t)snprintf(body, body_cap, "{\"code\":0,\"data\":{\"version\":\"%s\"}}",
-                            ZMS_VERSION_STRING);
+                            ZCS_VERSION_STRING);
 }
 
-/* 由 webapi_webrtc.c 提供（按 ZMS_ENABLE_WEBRTC 条件编译） */
-#if defined(ZMS_ENABLE_WEBRTC) && ZMS_ENABLE_WEBRTC
+/* 由 webapi_webrtc.c 提供（按 ZCS_ENABLE_WEBRTC 条件编译） */
+#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
 size_t webapi_handle_webrtc_stats(char *body, size_t body_cap, int *http_status);
 size_t webapi_handle_webrtc_capabilities(char *body, size_t body_cap, int *http_status);
-size_t webapi_handle_start_webrtc_client(const zms_webapi_query_map *q, zms_webapi_json_buf *jb,
-                                         const zms_config *cfg);
-size_t webapi_handle_get_webrtc_clients(zms_webapi_json_buf *jb);
-size_t webapi_handle_stop_webrtc_client(const zms_webapi_query_map *q, zms_webapi_json_buf *jb);
+size_t webapi_handle_start_webrtc_client(const zcs_webapi_query_map *q, zcs_webapi_json_buf *jb,
+                                         const zcs_config *cfg);
+size_t webapi_handle_get_webrtc_clients(zcs_webapi_json_buf *jb);
+size_t webapi_handle_stop_webrtc_client(const zcs_webapi_query_map *q, zcs_webapi_json_buf *jb);
 #endif
 
-size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *path_with_query,
-                          const zms_web_api_opts *opts, int *http_status, char *body,
+size_t zcs_web_api_handle(zn_tcp_session *tcp, const char *method, const char *path_with_query,
+                          const zcs_web_api_opts *opts, int *http_status, char *body,
                           size_t body_cap)
 {
     if (!http_status || !body || body_cap < 64) {
@@ -466,14 +466,14 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
 
     if (!method || (strcmp(method, "GET") != 0 && strcmp(method, "POST") != 0)) {
         *http_status = 405;
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "method not allowed", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_INVALID_ARGS, "method not allowed", NULL, body, body_cap);
     }
 
     char path[512];
     char query[1024];
     split_path_query(path_with_query, path, sizeof(path), query, sizeof(query));
 
-    zms_webapi_query_map q;
+    zcs_webapi_query_map q;
     memset(&q, 0, sizeof(q));
     parse_query(query, &q);
 
@@ -485,13 +485,13 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
     const char *cfg_secret = opts ? opts->api_secret : NULL;
     if (!check_secret(tcp, cfg_secret, q.secret)) {
         *http_status = 200;
-        return webapi_respond_json(ZMS_API_AUTH_FAILED, "auth failed", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_AUTH_FAILED, "auth failed", NULL, body, body_cap);
     }
 
     /* 接入 token 白名单同步：平台把启用中的 token 推到此端点，用于推拉流本地验签。 */
     if (strcmp(path, "/index/api/auth/tokens") == 0) {
         *http_status = 200;
-        zms_auth_set_tokens(q.tokens);
+        zcs_auth_set_tokens(q.tokens);
         return webapi_respond_json(0, "success", NULL, body, body_cap);
     }
 
@@ -502,11 +502,11 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
     }
 
     if (strcmp(path, "/index/api/media/list") == 0) {
-        zms_webapi_json_buf jb = {body, body_cap, 0};
+        zcs_webapi_json_buf jb = {body, body_cap, 0};
         size_t n = handle_get_media_list(&q, &jb, opts ? opts->cfg : NULL);
         if (n == 0) {
             *http_status = 500;
-            return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
         }
         *http_status = 200;
         return n;
@@ -517,11 +517,11 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
     }
 
     if (strcmp(path, "/index/api/media/info") == 0) {
-        zms_webapi_json_buf jb = {body, body_cap, 0};
+        zcs_webapi_json_buf jb = {body, body_cap, 0};
         size_t n = handle_get_media_info(&q, &jb, opts ? opts->cfg : NULL);
         if (n == 0) {
             *http_status = 200;
-            return webapi_respond_json(ZMS_API_NOT_FOUND, "can not find the stream", NULL, body, body_cap);
+            return webapi_respond_json(ZCS_API_NOT_FOUND, "can not find the stream", NULL, body, body_cap);
         }
         *http_status = 200;
         return n;
@@ -547,7 +547,7 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
         return webapi_handle_statistic(body, body_cap, http_status);
     }
 
-#if defined(ZMS_ENABLE_WEBRTC) && ZMS_ENABLE_WEBRTC
+#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
     if (strcmp(path, "/index/api/webrtc/stats") == 0) {
         return webapi_handle_webrtc_stats(body, body_cap, http_status);
     }
@@ -557,39 +557,39 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
     }
 
     if (strcmp(path, "/index/api/webrtc/client_start") == 0) {
-        zms_webapi_json_buf jb = {body, body_cap, 0};
+        zcs_webapi_json_buf jb = {body, body_cap, 0};
         size_t n = webapi_handle_start_webrtc_client(&q, &jb, opts ? opts->cfg : NULL);
         if (n == 0) {
             *http_status = 500;
-            return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
         }
         *http_status = 200;
         return n;
     }
 
     if (strcmp(path, "/index/api/webrtc/client_list") == 0) {
-        zms_webapi_json_buf jb = {body, body_cap, 0};
+        zcs_webapi_json_buf jb = {body, body_cap, 0};
         size_t n = webapi_handle_get_webrtc_clients(&jb);
         if (n == 0) {
             *http_status = 500;
-            return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
         }
         *http_status = 200;
         return n;
     }
 
     if (strcmp(path, "/index/api/webrtc/client_stop") == 0) {
-        zms_webapi_json_buf jb = {body, body_cap, 0};
+        zcs_webapi_json_buf jb = {body, body_cap, 0};
         size_t n = webapi_handle_stop_webrtc_client(&q, &jb);
         if (n == 0) {
             *http_status = 500;
-            return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
         }
         *http_status = 200;
         return n;
     }
 
-#endif /* ZMS_ENABLE_WEBRTC */
+#endif /* ZCS_ENABLE_WEBRTC */
 
     if (strcmp(path, "/index/api/system/config") == 0) {
         return handle_get_server_config(body, body_cap, http_status);
@@ -604,11 +604,11 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
     }
 
     if (strcmp(path, "/index/api/proxy/list") == 0) {
-        zms_webapi_json_buf jb = {body, body_cap, 0};
+        zcs_webapi_json_buf jb = {body, body_cap, 0};
         size_t n = webapi_handle_proxy_list(&jb);
         if (n == 0) {
             *http_status = 500;
-            return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
         }
         *http_status = 200;
         return n;
@@ -627,11 +627,11 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
     }
 
     if (strcmp(path, "/index/api/rtp/list") == 0) {
-        zms_webapi_json_buf jb = {body, body_cap, 0};
+        zcs_webapi_json_buf jb = {body, body_cap, 0};
         size_t n = webapi_handle_rtp_list(&jb);
         if (n == 0) {
             *http_status = 500;
-            return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
         }
         *http_status = 200;
         return n;
@@ -656,7 +656,7 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
     /* downloadFile 由 HTTP 路由层直接流式发送文件 */
     if (strcmp(path, "/index/api/record/download") == 0) {
         *http_status = 200;
-        return webapi_respond_json(ZMS_API_OTHER_FAILED, "use http handler for download", NULL, body,
+        return webapi_respond_json(ZCS_API_OTHER_FAILED, "use http handler for download", NULL, body,
                             body_cap);
     }
 
@@ -689,16 +689,16 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
     }
 
     if (strcmp(path, "/index/api/zstorage/record/list") == 0) {
-        zms_webapi_json_buf jb = {body, body_cap, 0};
+        zcs_webapi_json_buf jb = {body, body_cap, 0};
         size_t n = webapi_handle_zs_record_list(&jb);
         if (n == 0) {
             *http_status = 500;
-            return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+            return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
         }
         *http_status = 200;
         return n;
     }
 
     *http_status = 404;
-    return webapi_respond_json(ZMS_API_NOT_FOUND, "api not found", NULL, body, body_cap);
+    return webapi_respond_json(ZCS_API_NOT_FOUND, "api not found", NULL, body, body_cap);
 }

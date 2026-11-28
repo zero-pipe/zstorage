@@ -2,17 +2,17 @@
  * @file gb28181_internal.h
  * @brief GB28181 设备端模块内部共享定义（SIP / MANSCDP / 会话 / 媒体）。
  */
-#ifndef ZMS_SRC_DEVICE_GB28181_INTERNAL_H
-#define ZMS_SRC_DEVICE_GB28181_INTERNAL_H
+#ifndef ZCS_SRC_DEVICE_GB28181_INTERNAL_H
+#define ZCS_SRC_DEVICE_GB28181_INTERNAL_H
 
-#include "zms/device/gb28181/gb28181.h"
-#include "zms/device/core/device_core.h"
+#include "zcs/device/gb28181/gb28181.h"
+#include "zcs/device/core/device_core.h"
 #include "device/core/sip_transport.h"
-#include "zms/core/gop/queue.h"
-#include "zms/core/stream/hub.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/message/msg.h"
-#include "zms/message/xml.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/message/msg.h"
+#include "zcs/message/xml.h"
 #include "zn/net/tcp_client.h"
 #include "zn/net/tcp_server.h"
 #include "zn/net/udp_server.h"
@@ -154,11 +154,11 @@ int gb_digest_verify(const char *auth_header, const char *method, const char *ur
  * 只为既有调用点保留；新增字段请用 gb_manscdp_get() 按标签名取，不要加成员。
  */
 typedef struct gb_manscdp_msg {
-    zms_msg msg;
+    zcs_msg msg;
     char root[16];     /**< Notify / Response / Query / Control */
     char cmd_type[32]; /**< Keepalive / Catalog / DeviceInfo / ... */
     char sn[32];
-    char device_id[ZMS_GB28181_ID_MAX];
+    char device_id[ZCS_GB28181_ID_MAX];
     char result[16];
     char ptz_cmd[256];
     char record_cmd[32];
@@ -220,7 +220,7 @@ void gb_format_time_iso(time_t t, char *out, size_t cap);
 
 /* ── 设备 / 通道模型 ────────────────────────────────────────────────────── */
 
-typedef zms_device_channel_info gb_channel;
+typedef zcs_device_channel_info gb_channel;
 
 typedef struct gb_media_session gb_media_session;
 typedef struct gb_playback gb_playback;
@@ -229,13 +229,13 @@ struct gb28181_ctx {
     int running;
     int registered;
 
-    char platform_id[ZMS_GB28181_ID_MAX];
-    char platform_domain[ZMS_GB28181_ID_MAX];
+    char platform_id[ZCS_GB28181_ID_MAX];
+    char platform_domain[ZCS_GB28181_ID_MAX];
     char platform_ip[64];
     unsigned platform_port;
 
-    char device_id[ZMS_GB28181_ID_MAX];
-    char device_name[ZMS_GB28181_NAME_MAX];
+    char device_id[ZCS_GB28181_ID_MAX];
+    char device_name[ZCS_GB28181_NAME_MAX];
     char manufacturer[64];
     char model[64];
     char firmware[32];
@@ -251,8 +251,8 @@ struct gb28181_ctx {
 
     zn_poller_pool *pool;
     zn_poller *poller;
-    zms_sip_transport *sip;
-    int sip_transport_mode; /**< ZMS_SIP_TRANSPORT_* */
+    zcs_sip_transport *sip;
+    int sip_transport_mode; /**< ZCS_SIP_TRANSPORT_* */
     int sip_server_mode;    /**< 1 = 平台连入 */
     zn_timer *tick;
 
@@ -308,15 +308,15 @@ void gb_invite_handle_bye(const gb_sip_msg *m);
 void gb_invite_handle_info(const gb_sip_msg *m);
 
 int gb_channel_get(const char *id, gb_channel *out);
-zms_media_source *gb_channel_source(const gb_channel *ch);
+zcs_media_source *gb_channel_source(const gb_channel *ch);
 int gb_channel_online(const gb_channel *ch);
 int gb_channels_load(const char *spec);
 
 /* 录像：RecordInfo / 回放（gb_playback.c） */
-#define GB_RECORD_MAX ZMS_DEVICE_RECORD_MAX
+#define GB_RECORD_MAX ZCS_DEVICE_RECORD_MAX
 
-typedef zms_device_record_entry gb_record_ent;
-typedef zms_device_record_list gb_record_list;
+typedef zcs_device_record_entry gb_record_ent;
+typedef zcs_device_record_list gb_record_list;
 
 gb_record_list *gb_record_query(const char *channel_id, const char *start_time,
                                 const char *end_time);
@@ -324,11 +324,11 @@ gb_playback *gb_playback_open(const char *channel_id, const char *start_time,
                               const char *end_time, zn_poller *poller);
 void gb_playback_close(gb_playback *p);
 /** 底层 VOD source（取 codec/config）。 */
-zms_media_source *gb_playback_source(gb_playback *p);
+zcs_media_source *gb_playback_source(gb_playback *p);
 const uint8_t *gb_playback_video_config(gb_playback *p, size_t *len);
 const uint8_t *gb_playback_audio_config(gb_playback *p, size_t *len);
 /** 回放线程步进：返回 1=有帧，0=暂无，-1=结束/错误。slot->data 有效期到下次调用。 */
-int gb_playback_next(gb_playback *p, zms_gop_slot *slot, int timeout_ms);
+int gb_playback_next(gb_playback *p, zcs_gop_slot *slot, int timeout_ms);
 
 /* ── 媒体会话（gb_media.c） ─────────────────────────────────────────────── */
 
@@ -341,8 +341,8 @@ typedef enum gb_media_transport {
 struct gb_media_session {
     struct gb_media_session *next;
     char call_id[96];
-    char channel_id[ZMS_GB28181_ID_MAX];
-    char platform_id[ZMS_GB28181_ID_MAX];
+    char channel_id[ZCS_GB28181_ID_MAX];
+    char platform_id[ZCS_GB28181_ID_MAX];
     uint32_t ssrc;
     uint8_t payload_type;
     gb_media_transport transport;
@@ -359,16 +359,16 @@ struct gb_media_session {
     /** 引用计数：持有指针者 +1，最后一个释放者负责销毁（跨线程安全）。 */
     int32_t refs;
 
-    zms_media_source *source;
-    zms_media_subscriber reader;
+    zcs_media_source *source;
+    zcs_media_subscriber reader;
     int reader_valid;
 
-    void *ps_mux;  /**< zms_zm_ps_muxer* */
-    void *rtp_ps;  /**< zms_zm_rtp_ps* */
+    void *ps_mux;  /**< zcs_zm_ps_muxer* */
+    void *rtp_ps;  /**< zcs_zm_rtp_ps* */
     int video_stream;
     int audio_stream;
-    zms_codec_id video_codec;
-    zms_codec_id audio_codec;
+    zcs_codec_id video_codec;
+    zcs_codec_id audio_codec;
 
     gb_playback *playback;
     int is_playback;
@@ -379,8 +379,8 @@ struct gb_media_session {
     size_t au_cap;
     uint8_t *aud_buf;
     size_t aud_cap;
-    void *aac_cfg; /**< zms_aac_config*（AAC → ADTS） */
-    void *params;  /**< zms_codec_param_sets* */
+    void *aac_cfg; /**< zcs_aac_config*（AAC → ADTS） */
+    void *params;  /**< zcs_codec_param_sets* */
     uint32_t cur_rtp_ts;
     uint32_t last_rtp_ts;
     uint64_t first_wall_ms;
@@ -445,4 +445,4 @@ int gb_media_session_count(void);
 }
 #endif
 
-#endif /* ZMS_SRC_DEVICE_GB28181_INTERNAL_H */
+#endif /* ZCS_SRC_DEVICE_GB28181_INTERNAL_H */

@@ -2,8 +2,8 @@
  * @file flv_index.c
  * @brief VOD FLV 索引（按毫秒定位字节）。
  */
-#include "zms/media/container/flv/flv_index.h"
-#include "zms/media/container/container_registry.h"
+#include "zcs/media/container/flv/flv_index.h"
+#include "zcs/media/container/container_registry.h"
 #include "zn/util/log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -25,7 +25,7 @@ static size_t estimate_flv_body(int is_video, uint32_t sample_bytes)
     return (size_t)sample_bytes + 4;
 }
 
-static int vfi_push_keyframe(zms_vod_flv_index *idx, double time_sec, double byte_pos,
+static int vfi_push_keyframe(zcs_vod_flv_index *idx, double time_sec, double byte_pos,
                              double last_time)
 {
     if (!idx || time_sec < 0.0) {
@@ -55,7 +55,7 @@ static int vfi_push_keyframe(zms_vod_flv_index *idx, double time_sec, double byt
     return 1;
 }
 
-void zms_vod_flv_index_free(zms_vod_flv_index *idx)
+void zcs_vod_flv_index_free(zcs_vod_flv_index *idx)
 {
     if (!idx) {
         return;
@@ -66,14 +66,14 @@ void zms_vod_flv_index_free(zms_vod_flv_index *idx)
 }
 
 typedef struct {
-    zms_vod_flv_index *idx;
+    zcs_vod_flv_index *idx;
     uint64_t byte_pos;
     uint64_t tags_only;
     double last_kf_time;
     int failed;
 } vfi_build_ctx;
 
-static int vfi_on_sample(const zms_mp4_sample_info *s, void *user)
+static int vfi_on_sample(const zcs_mp4_sample_info *s, void *user)
 {
     vfi_build_ctx *b = (vfi_build_ctx *)user;
     size_t body = estimate_flv_body(s->is_video, s->bytes);
@@ -93,10 +93,10 @@ static int vfi_on_sample(const zms_mp4_sample_info *s, void *user)
     return 0;
 }
 
-zms_vod_flv_index *zms_vod_flv_index_build(void *mp4_demux, size_t video_cfg_len,
+zcs_vod_flv_index *zcs_vod_flv_index_build(void *mp4_demux, size_t video_cfg_len,
                                            size_t audio_cfg_len, size_t metadata_bytes)
 {
-    zms_vod_flv_index *idx;
+    zcs_vod_flv_index *idx;
     vfi_build_ctx b;
     uint64_t byte_pos;
 
@@ -104,7 +104,7 @@ zms_vod_flv_index *zms_vod_flv_index_build(void *mp4_demux, size_t video_cfg_len
         return NULL;
     }
 
-    idx = (zms_vod_flv_index *)calloc(1, sizeof(*idx));
+    idx = (zcs_vod_flv_index *)calloc(1, sizeof(*idx));
     if (!idx) {
         return NULL;
     }
@@ -130,7 +130,7 @@ zms_vod_flv_index *zms_vod_flv_index_build(void *mp4_demux, size_t video_cfg_len
     b.tags_only = 0;
     b.last_kf_time = -VFI_MIN_KEYFRAME_SEC;
     b.failed = 0;
-    if (zms_container_mp4_for_each_sample(mp4_demux, vfi_on_sample, &b) < 0 || b.failed) {
+    if (zcs_container_mp4_for_each_sample(mp4_demux, vfi_on_sample, &b) < 0 || b.failed) {
         goto fail;
     }
 
@@ -149,11 +149,11 @@ zms_vod_flv_index *zms_vod_flv_index_build(void *mp4_demux, size_t video_cfg_len
     return idx;
 
 fail:
-    zms_vod_flv_index_free(idx);
+    zcs_vod_flv_index_free(idx);
     return NULL;
 }
 
-double zms_vod_flv_index_byte_at_ms(const zms_vod_flv_index *idx, uint64_t play_ms)
+double zcs_vod_flv_index_byte_at_ms(const zcs_vod_flv_index *idx, uint64_t play_ms)
 {
     double t;
     size_t i;
@@ -180,10 +180,10 @@ double zms_vod_flv_index_byte_at_ms(const zms_vod_flv_index *idx, uint64_t play_
     return idx->filepositions[idx->count - 1];
 }
 
-zms_vod_flv_index_view *zms_vod_flv_index_view_create(const zms_vod_flv_index *idx,
+zcs_vod_flv_index_view *zcs_vod_flv_index_view_create(const zcs_vod_flv_index *idx,
                                                       uint64_t play_ms)
 {
-    zms_vod_flv_index_view *view;
+    zcs_vod_flv_index_view *view;
     double base;
     double play_sec;
     size_t i;
@@ -192,12 +192,12 @@ zms_vod_flv_index_view *zms_vod_flv_index_view_create(const zms_vod_flv_index *i
     if (!idx || idx->count == 0) {
         return NULL;
     }
-    view = (zms_vod_flv_index_view *)calloc(1, sizeof(*view));
+    view = (zcs_vod_flv_index_view *)calloc(1, sizeof(*view));
     if (!view) {
         return NULL;
     }
 
-    base = zms_vod_flv_index_byte_at_ms(idx, play_ms);
+    base = zcs_vod_flv_index_byte_at_ms(idx, play_ms);
     play_sec = play_ms / 1000.0;
     view->filesize = idx->filesize > base ? idx->filesize - base : 0.0;
 
@@ -213,7 +213,7 @@ zms_vod_flv_index_view *zms_vod_flv_index_view_create(const zms_vod_flv_index *i
     view->times = (double *)calloc(view->count, sizeof(double));
     view->filepositions = (double *)calloc(view->count, sizeof(double));
     if (!view->times || !view->filepositions) {
-        zms_vod_flv_index_view_free(view);
+        zcs_vod_flv_index_view_free(view);
         return NULL;
     }
 
@@ -238,7 +238,7 @@ zms_vod_flv_index_view *zms_vod_flv_index_view_create(const zms_vod_flv_index *i
     return view;
 }
 
-void zms_vod_flv_index_view_free(zms_vod_flv_index_view *view)
+void zcs_vod_flv_index_view_free(zcs_vod_flv_index_view *view)
 {
     if (!view) {
         return;

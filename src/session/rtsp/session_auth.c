@@ -2,9 +2,9 @@
  * @file session_auth.c
  * @brief RTSP 鉴权配置与请求校验。
  */
-#include "zms/session/rtsp/session_auth.h"
+#include "zcs/session/rtsp/session_auth.h"
 #include "session/rtsp/session_internal.h"
-#include "zms/protocol/rtsp/digest.h"
+#include "zcs/protocol/rtsp/digest.h"
 #include "zn/util/log.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +16,7 @@ static int g_test_reject_tcp;
 static int g_rtp_transport_type = -1;
 static int g_low_latency;
 
-void zms_rtsp_auth_configure(const char *user, const char *pass)
+void zcs_rtsp_auth_configure(const char *user, const char *pass)
 {
     g_auth_user[0] = g_auth_pass[0] = '\0';
     if (user && user[0]) {
@@ -27,44 +27,44 @@ void zms_rtsp_auth_configure(const char *user, const char *pass)
     }
 }
 
-void zms_rtsp_set_test_reject_tcp_setup(int enable)
+void zcs_rtsp_set_test_reject_tcp_setup(int enable)
 {
     g_test_reject_tcp = enable ? 1 : 0;
 }
 
-void zms_rtsp_set_rtp_transport_type(int type)
+void zcs_rtsp_set_rtp_transport_type(int type)
 {
     g_rtp_transport_type = type;
 }
 
-int zms_rtsp_rtp_transport_type(void)
+int zcs_rtsp_rtp_transport_type(void)
 {
     return g_rtp_transport_type;
 }
 
-void zms_rtsp_set_low_latency(int enable)
+void zcs_rtsp_set_low_latency(int enable)
 {
     g_low_latency = enable ? 1 : 0;
 }
 
-int zms_rtsp_low_latency_enabled(void)
+int zcs_rtsp_low_latency_enabled(void)
 {
     return g_low_latency;
 }
 
-int zms_rtsp_auth_enabled(void)
+int zcs_rtsp_auth_enabled(void)
 {
     return g_auth_user[0] && g_auth_pass[0];
 }
 
-int zms_rtsp_test_reject_tcp_setup(void)
+int zcs_rtsp_test_reject_tcp_setup(void)
 {
     return g_test_reject_tcp;
 }
 
-int zms_rtsp_auth_check(zms_rtsp_session *rs, const zms_rtsp_message *msg)
+int zcs_rtsp_auth_check(zcs_rtsp_session *rs, const zcs_rtsp_message *msg)
 {
-    if (!rs || !msg || !zms_rtsp_auth_enabled()) {
+    if (!rs || !msg || !zcs_rtsp_auth_enabled()) {
         return 1;
     }
 
@@ -72,14 +72,14 @@ int zms_rtsp_auth_check(zms_rtsp_session *rs, const zms_rtsp_message *msg)
         return 1;
     }
 
-    const char *auth = zms_rtsp_message_get(msg, "Authorization");
+    const char *auth = zcs_rtsp_message_get(msg, "Authorization");
     if (!auth || !auth[0]) {
         snprintf(rs->auth_nonce, sizeof(rs->auth_nonce), "%08x%08x", (unsigned)rand(),
                  (unsigned)rand());
         char extra[256];
-        snprintf(extra, sizeof(extra), "WWW-Authenticate: Digest realm=\"ZMS\", nonce=\"%s\"\r\n",
+        snprintf(extra, sizeof(extra), "WWW-Authenticate: Digest realm=\"ZCS\", nonce=\"%s\"\r\n",
                  rs->auth_nonce);
-        zms_rtsp_session_send_resp(rs, 401, "Unauthorized", extra, NULL, 0);
+        zcs_rtsp_session_send_resp(rs, 401, "Unauthorized", extra, NULL, 0);
         zn_info("RTSP #%u 401 auth required method=%d", rs->session_no, (int)msg->method);
         return 0;
     }
@@ -92,14 +92,14 @@ int zms_rtsp_auth_check(zms_rtsp_session *rs, const zms_rtsp_message *msg)
         method = names[msg->method];
     }
 
-    if (zms_rtsp_digest_verify(method, zms_rtsp_message_url(msg), g_auth_user, g_auth_pass, "ZMS", rs->auth_nonce,
+    if (zcs_rtsp_digest_verify(method, zcs_rtsp_message_url(msg), g_auth_user, g_auth_pass, "ZCS", rs->auth_nonce,
                                auth)) {
         rs->auth_ok = 1;
         zn_info("RTSP #%u auth ok user=%s", rs->session_no, g_auth_user);
         return 1;
     }
 
-    zms_rtsp_session_send_resp(rs, 401, "Unauthorized", NULL, NULL, 0);
+    zcs_rtsp_session_send_resp(rs, 401, "Unauthorized", NULL, NULL, 0);
     zn_warn("RTSP #%u auth failed", rs->session_no);
     return 0;
 }

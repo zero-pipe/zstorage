@@ -4,11 +4,11 @@
  *
  * 验证：录制产生文件、关闭后正式名存在、无残留 .tmp、线程池收尾无泄漏。
  */
-#include "zms/egress/recorder/egress_mp4_recorder.h"
-#include "zms/core/gop/queue.h"
-#include "zms/core/stream/hub.h"
-#include "zms/core/frame.h"
-#include "zms/util/thread_pool.h"
+#include "zcs/egress/recorder/egress_mp4_recorder.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/core/frame.h"
+#include "zcs/util/thread_pool.h"
 #include "zn/poller/poller.h"
 #include "zb/os/thread.h"
 #include "zb/os/platform.h"
@@ -146,16 +146,16 @@ static int scan_mp4_dir(const char *dir, int *final_count, int *tmp_count)
 
 int main(void)
 {
-    static zms_media_source src;
-    zms_record_config rcfg;
-    zms_gop_queue *q;
+    static zcs_media_source src;
+    zcs_record_config rcfg;
+    zcs_gop_queue *q;
     zn_poller *p;
     zb_thread *th;
     uint8_t avcc[64];
     uint8_t idr[2100];
     size_t avcc_len;
     size_t idr_len;
-    const char *root = "./zms_test_rec_async";
+    const char *root = "./zcs_test_rec_async";
     time_t now;
     struct tm tm_now;
     char date[32];
@@ -172,9 +172,9 @@ int main(void)
 
     memset(&rcfg, 0, sizeof(rcfg));
     snprintf(rcfg.root, sizeof(rcfg.root), "%s", root);
-    zms_mp4_recorder_configure(&rcfg);
+    zcs_mp4_recorder_configure(&rcfg);
 
-    zms_vod_thread_pool_init(1);
+    zcs_vod_thread_pool_init(1);
 
     p = zn_poller_create();
     CHECK(p != NULL);
@@ -185,42 +185,42 @@ int main(void)
     }
     CHECK(zn_poller_is_running(p));
 
-    q = zms_gop_queue_create();
+    q = zcs_gop_queue_create();
     CHECK(q != NULL);
     avcc_len = build_avcc(avcc, sizeof(avcc));
     CHECK(avcc_len > 0);
-    CHECK(zms_gop_queue_set_video_config(q, avcc, avcc_len) == ZN_OK);
+    CHECK(zcs_gop_queue_set_video_config(q, avcc, avcc_len) == ZN_OK);
 
     memset(&src, 0, sizeof(src));
     src.gop_queue = q;
     src.enable_mp4 = 1;
     src.has_video = 1;
-    src.video.codec = ZMS_CODEC_H264;
+    src.video.codec = ZCS_CODEC_H264;
     src.video.width = 640;
     src.video.height = 480;
     snprintf(src.app, sizeof(src.app), "%s", "live");
     snprintf(src.stream, sizeof(src.stream), "%s", "rec");
 
-    CHECK(zms_mp4_recorder_start(&src, p) == ZN_OK);
+    CHECK(zcs_mp4_recorder_start(&src, p) == ZN_OK);
 
     idr_len = build_idr(idr, sizeof(idr));
     CHECK(idr_len > 0);
     for (i = 0; i < 20; ++i) {
-        zms_frame f;
+        zcs_frame f;
         memset(&f, 0, sizeof(f));
         f.data = idr;
         f.size = idr_len;
         f.dts_ms = (uint64_t)i * 40u;
         f.pts_ms = f.dts_ms;
-        f.codec = ZMS_CODEC_H264;
-        f.track = ZMS_TRACK_VIDEO;
+        f.codec = ZCS_CODEC_H264;
+        f.track = ZCS_TRACK_VIDEO;
         f.keyframe = 1;
-        (void)zms_gop_queue_write(q, &f);
+        (void)zcs_gop_queue_write(q, &f);
         zb_sleep_ms(20);
     }
 
     /* 停推触发异步关文件。 */
-    zms_mp4_recorder_stop(&src);
+    zcs_mp4_recorder_stop(&src);
     zb_sleep_ms(200);
 
     g_stop = 1;
@@ -229,7 +229,7 @@ int main(void)
     zb_thread_destroy(th);
     zn_poller_destroy(p);
     /* 等后台关闭任务跑完（worker 会先执行完队列再退出）。 */
-    zms_vod_thread_pool_fini();
+    zcs_vod_thread_pool_fini();
 
     now = time(NULL);
 #if defined(_WIN32)
@@ -242,7 +242,7 @@ int main(void)
 
     /* 录制必须落地：至少一个正式文件，且没有 .tmp 残留。 */
     scan_mp4_dir(dir, &final_count, &tmp_count);
-    zms_gop_queue_destroy(q);
+    zcs_gop_queue_destroy(q);
 
     if (final_count < 1) {
         fprintf(stderr, "no finished mp4 under %s\n", dir);

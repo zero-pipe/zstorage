@@ -2,10 +2,10 @@
  * @file rtp_muxer.c
  * @brief RTP 出站：gop_queue 槽位经 librtsp rtp_payload_muxer 打成 RTP。
  *
- * Play-clock / epoch 在 ZMS；打包走 media-server rtp_payload_muxer + librtp。
+ * Play-clock / epoch 在 ZCS；打包走 media-server rtp_payload_muxer + librtp。
  *
  * 并发模型：所有入口都在会话所属 poller 线程，内部不加锁；RTP 包由
- * rtp_payload_muxer 经 zms_rtsp_onpacket 同步回调出来，再由 mux_emit 转发给
+ * rtp_payload_muxer 经 zcs_rtsp_onpacket 同步回调出来，再由 mux_emit 转发给
  * 上层 on_rtp，因此一次 input 调用内可能产生多个包。
  *
  * 时间戳分两种模式（abs_rtp_ts）：
@@ -14,18 +14,18 @@
  *     让 RTP 时间戳严格跟随媒体时间线，FFmpeg RTSP→MPEG-TS 拷贝不会因首包
  *     ts=0 报 "first pts and dts value must be set"。
  */
-#include "zms/egress/rtp/rtp_muxer.h"
+#include "zcs/egress/rtp/rtp_muxer.h"
 
 #include "zn/zn_errno.h"
 
-#include "zms/core/frame.h"
+#include "zcs/core/frame.h"
 
-#include "zms/media/container/flv/flv_tag_probe.h"
-#include "zms/media/codec/aac/aac_over_rtp.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/codec/av1/av1_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/aac/aac_over_rtp.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/av1/av1_over_rtmp.h"
 
 #include "egress/rtp/rtp_payload_muxer.h"
 
@@ -35,10 +35,10 @@
 #include "egress/rtp/rtp_muxer_internal.h"
 
 /** AAC-LC 编码帧载荷上限（1024 samples/声道 → <=768B/声道，立体声 1536B）。 */
-#define ZMS_RTP_AAC_FRAME_MAX 2048u
+#define ZCS_RTP_AAC_FRAME_MAX 2048u
 
-static uint32_t mux_video_clock_hz(const zms_rtp_muxer *m);
-static uint32_t mux_audio_clock_hz(const zms_rtp_muxer *m);
+static uint32_t mux_video_clock_hz(const zcs_rtp_muxer *m);
+static uint32_t mux_audio_clock_hz(const zcs_rtp_muxer *m);
 
 /*
  * 单个 RTP 包的出口。从 RTP 头里直接读 timestamp/seq 更新统计与“下一 seq”，
@@ -46,7 +46,7 @@ static uint32_t mux_audio_clock_hz(const zms_rtp_muxer *m);
  * v_seq/a_seq 记的是“本包 seq+1”，即下一包应使用的值，供 seek/recreate 后
  * 用 rtp_payload_muxer_add_payload 续上，保持 seq 单调（客户端按 seq 判丢包）。
  */
-static void mux_emit(zms_rtp_muxer *m, zms_rtp_mux_track track, const uint8_t *rtp, size_t len)
+static void mux_emit(zcs_rtp_muxer *m, zcs_rtp_mux_track track, const uint8_t *rtp, size_t len)
 
 {
     if (!m || !rtp || len < 8) {
@@ -56,7 +56,7 @@ static void mux_emit(zms_rtp_muxer *m, zms_rtp_mux_track track, const uint8_t *r
     uint32_t rtp_ts =
         ((uint32_t)rtp[4] << 24) | ((uint32_t)rtp[5] << 16) | ((uint32_t)rtp[6] << 8) | rtp[7];
 
-    if (track == ZMS_RTP_MUX_TRACK_VIDEO) {
+    if (track == ZCS_RTP_MUX_TRACK_VIDEO) {
         m->stats.video_last_rtp_ts = rtp_ts;
 
         m->stats.video_pkt_count++;
@@ -78,11 +78,11 @@ static void mux_emit(zms_rtp_muxer *m, zms_rtp_mux_track track, const uint8_t *r
     }
 }
 
-static int zms_rtsp_onpacket(void *param, int pid, const void *data, int bytes, uint32_t timestamp,
+static int zcs_rtsp_onpacket(void *param, int pid, const void *data, int bytes, uint32_t timestamp,
                              int flags)
 {
-    zms_rtp_muxer *m = (zms_rtp_muxer *)param;
-    zms_rtp_mux_track trk;
+    zcs_rtp_muxer *m = (zcs_rtp_muxer *)param;
+    zcs_rtp_mux_track trk;
 
     (void)timestamp;
     (void)flags;
@@ -90,9 +90,9 @@ static int zms_rtsp_onpacket(void *param, int pid, const void *data, int bytes, 
         return 0;
     }
     if (pid == m->v_pid) {
-        trk = ZMS_RTP_MUX_TRACK_VIDEO;
+        trk = ZCS_RTP_MUX_TRACK_VIDEO;
     } else if (pid == m->a_pid) {
-        trk = ZMS_RTP_MUX_TRACK_AUDIO;
+        trk = ZCS_RTP_MUX_TRACK_AUDIO;
     } else {
         return 0;
     }
@@ -100,31 +100,31 @@ static int zms_rtsp_onpacket(void *param, int pid, const void *data, int bytes, 
     return 0;
 }
 
-static void zms_rtsp_drop_video(zms_rtp_muxer *m)
+static void zcs_rtsp_drop_video(zcs_rtp_muxer *m)
 {
     if (!m) {
         return;
     }
     m->v_pid = -1;
     m->v_mid = -1;
-    m->video_codec = ZMS_CODEC_INVALID;
+    m->video_codec = ZCS_CODEC_INVALID;
 }
 
 /** recreate 前快照 librtsp seq，保持 seq 单调递增。 */
-static void zms_rtsp_snapshot_seq(zms_rtp_muxer *m)
+static void zcs_rtsp_snapshot_seq(zcs_rtp_muxer *m)
 {
     uint16_t seq;
     uint32_t ts;
     const char *sdp;
     int sdp_len;
 
-    if (!m || !m->zms) {
+    if (!m || !m->zcs) {
         return;
     }
-    if (m->v_pid >= 0 && rtp_payload_muxer_getinfo(m->zms, m->v_pid, &seq, &ts, &sdp, &sdp_len) == 0) {
+    if (m->v_pid >= 0 && rtp_payload_muxer_getinfo(m->zcs, m->v_pid, &seq, &ts, &sdp, &sdp_len) == 0) {
         m->v_seq = seq;
     }
-    if (m->a_pid >= 0 && rtp_payload_muxer_getinfo(m->zms, m->a_pid, &seq, &ts, &sdp, &sdp_len) == 0) {
+    if (m->a_pid >= 0 && rtp_payload_muxer_getinfo(m->zcs, m->a_pid, &seq, &ts, &sdp, &sdp_len) == 0) {
         m->a_seq = seq;
     }
 }
@@ -132,27 +132,27 @@ static void zms_rtsp_snapshot_seq(zms_rtp_muxer *m)
 /* 丢弃整个 rtp_payload_muxer 实例、按需重建其 pid/mid。用于码流参数变化（编解码切换、
  * seek、jump_live）——rtp_payload_muxer 不提供“改 payload”的接口，只能重建。重建前
  * 调用方应已用 snapshot_seq 记下续用 seq，否则会从 0 重新计数导致客户端判为乱序。 */
-static void zms_rtsp_recreate(zms_rtp_muxer *m)
+static void zcs_rtsp_recreate(zcs_rtp_muxer *m)
 {
     if (!m) {
         return;
     }
-    if (m->zms) {
-        rtp_payload_muxer_destroy(m->zms);
+    if (m->zcs) {
+        rtp_payload_muxer_destroy(m->zcs);
     }
-    m->zms = rtp_payload_muxer_create(zms_rtsp_onpacket, m);
+    m->zcs = rtp_payload_muxer_create(zcs_rtsp_onpacket, m);
     m->v_pid = m->a_pid = m->v_mid = m->a_mid = -1;
-    m->video_codec = ZMS_CODEC_INVALID;
+    m->video_codec = ZCS_CODEC_INVALID;
 }
 
-static int zms_rtsp_codec_supported(zms_codec_id codec, zms_rtp_mux_track trk)
+static int zcs_rtsp_codec_supported(zcs_codec_id codec, zcs_rtp_mux_track trk)
 {
-    if (trk == ZMS_RTP_MUX_TRACK_VIDEO) {
-        return codec == ZMS_CODEC_H264 || codec == ZMS_CODEC_H265 || codec == ZMS_CODEC_AV1 ||
-               codec == ZMS_CODEC_VP8 || codec == ZMS_CODEC_VP9 || codec == ZMS_CODEC_H266;
+    if (trk == ZCS_RTP_MUX_TRACK_VIDEO) {
+        return codec == ZCS_CODEC_H264 || codec == ZCS_CODEC_H265 || codec == ZCS_CODEC_AV1 ||
+               codec == ZCS_CODEC_VP8 || codec == ZCS_CODEC_VP9 || codec == ZCS_CODEC_H266;
     }
-    return codec == ZMS_CODEC_AAC || codec == ZMS_CODEC_G711A || codec == ZMS_CODEC_G711U ||
-           codec == ZMS_CODEC_OPUS;
+    return codec == ZCS_CODEC_AAC || codec == ZCS_CODEC_G711A || codec == ZCS_CODEC_G711U ||
+           codec == ZCS_CODEC_OPUS;
 }
 
 /*
@@ -162,30 +162,30 @@ static int zms_rtsp_codec_supported(zms_codec_id codec, zms_rtp_mux_track trk)
  * 也不发一个没有参数集的 RTP 流，否则客户端无法解码）。vid 轨 seq 用 m->v_seq
  * 续上，保证切换编解码后 seq 不乱。
  */
-static int zms_ensure_video(zms_rtp_muxer *m, zms_codec_id codec)
+static int zcs_ensure_video(zcs_rtp_muxer *m, zcs_codec_id codec)
 {
     const char *enc;
 
-    if (!m || !m->zms) {
+    if (!m || !m->zcs) {
         return -1;
     }
     if (m->v_mid >= 0 && m->video_codec == codec) {
         return 0;
     }
     if (m->v_mid >= 0) {
-        zms_rtsp_recreate(m);
+        zcs_rtsp_recreate(m);
     }
-    if (codec == ZMS_CODEC_H264) {
+    if (codec == ZCS_CODEC_H264) {
         enc = "H264";
-    } else if (codec == ZMS_CODEC_H265) {
+    } else if (codec == ZCS_CODEC_H265) {
         enc = "HEVC";
-    } else if (codec == ZMS_CODEC_AV1) {
+    } else if (codec == ZCS_CODEC_AV1) {
         enc = "AV1";
-    } else if (codec == ZMS_CODEC_VP8) {
+    } else if (codec == ZCS_CODEC_VP8) {
         enc = "VP8";
-    } else if (codec == ZMS_CODEC_VP9) {
+    } else if (codec == ZCS_CODEC_VP9) {
         enc = "VP9";
-    } else if (codec == ZMS_CODEC_H266) {
+    } else if (codec == ZCS_CODEC_H266) {
         enc = "H266";
     } else {
         return -1;
@@ -194,7 +194,7 @@ static int zms_ensure_video(zms_rtp_muxer *m, zms_codec_id codec)
         const void *vextra = NULL;
         int vextra_size = 0;
 
-        if (codec == ZMS_CODEC_H264) {
+        if (codec == ZCS_CODEC_H264) {
             if (m->h264_avcc_len == 0) {
                 (void)mux_h264_build_avcc_fallback(m);
             }
@@ -203,7 +203,7 @@ static int zms_ensure_video(zms_rtp_muxer *m, zms_codec_id codec)
             }
             vextra = m->h264_avcc;
             vextra_size = (int)m->h264_avcc_len;
-        } else if (codec == ZMS_CODEC_H265) {
+        } else if (codec == ZCS_CODEC_H265) {
             if (m->hevc_hvcc_len == 0) {
                 (void)mux_hevc_build_hvcc_fallback(m);
             }
@@ -212,21 +212,21 @@ static int zms_ensure_video(zms_rtp_muxer *m, zms_codec_id codec)
             }
             vextra = m->hevc_hvcc;
             vextra_size = (int)m->hevc_hvcc_len;
-        } else if (codec == ZMS_CODEC_AV1) {
+        } else if (codec == ZCS_CODEC_AV1) {
             if (m->av1_av1c_len == 0 || !m->av1_av1c) {
                 return -1;
             }
             vextra = m->av1_av1c;
             vextra_size = (int)m->av1_av1c_len;
         }
-        m->v_pid = rtp_payload_muxer_add_payload(m->zms, "RTP/AVP", (int)mux_video_clock_hz(m),
+        m->v_pid = rtp_payload_muxer_add_payload(m->zcs, "RTP/AVP", (int)mux_video_clock_hz(m),
                                           m->opts.video_pt ? m->opts.video_pt : 96, enc, m->v_seq,
                                           m->opts.video_ssrc, 0, vextra, vextra_size);
     }
     if (m->v_pid < 0) {
         return -1;
     }
-    m->v_mid = rtp_payload_muxer_add_media(m->zms, m->v_pid, (int)codec, NULL, 0);
+    m->v_mid = rtp_payload_muxer_add_media(m->zcs, m->v_pid, (int)codec, NULL, 0);
     if (m->v_mid < 0) {
         return -1;
     }
@@ -234,24 +234,24 @@ static int zms_ensure_video(zms_rtp_muxer *m, zms_codec_id codec)
     return 0;
 }
 
-static int zms_ensure_audio(zms_rtp_muxer *m)
+static int zcs_ensure_audio(zcs_rtp_muxer *m)
 {
     const char *enc = "mpeg4-generic";
     int rate = m->opts.audio_rate > 0 ? m->opts.audio_rate : 44100;
 
-    if (!m || !m->zms) {
+    if (!m || !m->zcs) {
         return -1;
     }
     if (m->a_mid >= 0) {
         return 0;
     }
-    if (m->opts.audio_codec == ZMS_CODEC_G711A) {
+    if (m->opts.audio_codec == ZCS_CODEC_G711A) {
         enc = "PCMA";
         rate = 8000;
-    } else if (m->opts.audio_codec == ZMS_CODEC_G711U) {
+    } else if (m->opts.audio_codec == ZCS_CODEC_G711U) {
         enc = "PCMU";
         rate = 8000;
-    } else if (m->opts.audio_codec == ZMS_CODEC_OPUS) {
+    } else if (m->opts.audio_codec == ZCS_CODEC_OPUS) {
         enc = "opus";
         rate = m->opts.audio_rate > 0 ? m->opts.audio_rate : 48000;
     }
@@ -260,26 +260,26 @@ static int zms_ensure_audio(zms_rtp_muxer *m)
         int extra_size = 0;
         int apt;
 
-        if (m->opts.audio_codec == ZMS_CODEC_G711A || m->opts.audio_codec == ZMS_CODEC_G711U) {
+        if (m->opts.audio_codec == ZCS_CODEC_G711A || m->opts.audio_codec == ZCS_CODEC_G711U) {
             apt = (int)m->opts.audio_pt; /* PT 0 (PCMU) 合法；勿用真假性判断 */
         } else {
             apt = m->opts.audio_pt ? (int)m->opts.audio_pt : 97;
         }
 
-        if (m->opts.audio_codec == ZMS_CODEC_AAC) {
+        if (m->opts.audio_codec == ZCS_CODEC_AAC) {
             if (m->aac_asc_len == 0 || !m->aac_asc) {
                 return -1;
             }
             extra = m->aac_asc;
             extra_size = (int)m->aac_asc_len;
         }
-        m->a_pid = rtp_payload_muxer_add_payload(m->zms, "RTP/AVP", rate, apt, enc, m->a_seq,
+        m->a_pid = rtp_payload_muxer_add_payload(m->zcs, "RTP/AVP", rate, apt, enc, m->a_seq,
                                           m->opts.audio_ssrc, 0, extra, extra_size);
     }
     if (m->a_pid < 0) {
         return -1;
     }
-    m->a_mid = rtp_payload_muxer_add_media(m->zms, m->a_pid, (int)m->opts.audio_codec, NULL, 0);
+    m->a_mid = rtp_payload_muxer_add_media(m->zcs, m->a_pid, (int)m->opts.audio_codec, NULL, 0);
     return m->a_mid >= 0 ? 0 : -1;
 }
 
@@ -288,8 +288,8 @@ static int zms_ensure_audio(zms_rtp_muxer *m)
  * -1=失败。sync_timeline 先把 dts/rtp_ts 写进该 payload 的时间线，再 input；
  * 两者拆开是为了让 muxer 在第一次 input 前就有正确的时间基准。
  */
-static int zms_pack_bits(zms_rtp_muxer *m, const void *data, size_t len, zms_codec_id codec,
-                         zms_rtp_mux_track trk, int64_t dts_ms, uint32_t rtp_ts, int keyframe)
+static int zcs_pack_bits(zcs_rtp_muxer *m, const void *data, size_t len, zcs_codec_id codec,
+                         zcs_rtp_mux_track trk, int64_t dts_ms, uint32_t rtp_ts, int keyframe)
 {
     int mid;
     int pid;
@@ -298,8 +298,8 @@ static int zms_pack_bits(zms_rtp_muxer *m, const void *data, size_t len, zms_cod
     if (!m || !data || len == 0) {
         return -1;
     }
-    if (trk == ZMS_RTP_MUX_TRACK_VIDEO) {
-        if (zms_ensure_video(m, codec) != 0) {
+    if (trk == ZCS_RTP_MUX_TRACK_VIDEO) {
+        if (zcs_ensure_video(m, codec) != 0) {
             return -1;
         }
         mid = m->v_mid;
@@ -307,30 +307,30 @@ static int zms_pack_bits(zms_rtp_muxer *m, const void *data, size_t len, zms_cod
     } else {
         /* 会话未协商音轨（如 WHEP 纯视频/对讲 recvonly）时丢弃源音轨，
          * 避免默认 AAC packer 收到非 AAC 数据触发断言。 */
-        if (m->opts.audio_codec == ZMS_CODEC_INVALID) {
+        if (m->opts.audio_codec == ZCS_CODEC_INVALID) {
             return 0;
         }
-        if (zms_ensure_audio(m) != 0) {
+        if (zcs_ensure_audio(m) != 0) {
             return -1;
         }
         mid = m->a_mid;
         pid = m->a_pid;
     }
-    if (rtp_payload_muxer_sync_timeline(m->zms, pid, dts_ms, rtp_ts) != 0) {
+    if (rtp_payload_muxer_sync_timeline(m->zcs, pid, dts_ms, rtp_ts) != 0) {
         return -1;
     }
-    if (rtp_payload_muxer_input(m->zms, mid, dts_ms, dts_ms, data, (int)len, 0) != 0) {
+    if (rtp_payload_muxer_input(m->zcs, mid, dts_ms, dts_ms, data, (int)len, 0) != 0) {
         return -1;
     }
     return 1;
 }
 
-static uint32_t mux_video_clock_hz(const zms_rtp_muxer *m)
+static uint32_t mux_video_clock_hz(const zcs_rtp_muxer *m)
 {
     return m && m->opts.video_clock_hz > 0 ? m->opts.video_clock_hz : 90000u;
 }
 
-static uint32_t mux_audio_clock_hz(const zms_rtp_muxer *m)
+static uint32_t mux_audio_clock_hz(const zcs_rtp_muxer *m)
 {
     if (!m) {
         return 44100u;
@@ -341,9 +341,9 @@ static uint32_t mux_audio_clock_hz(const zms_rtp_muxer *m)
     return (uint32_t)(m->opts.audio_rate > 0 ? m->opts.audio_rate : 44100);
 }
 
-static int mux_rtsp_video_play_start(const zms_frame *f)
+static int mux_rtsp_video_play_start(const zcs_frame *f)
 {
-    return zms_frame_is_play_start(f);
+    return zcs_frame_is_play_start(f);
 }
 
 /*
@@ -356,7 +356,7 @@ static int mux_rtsp_video_play_start(const zms_frame *f)
  *   4) H264/H265 只把 VCL NAL 送 RTP（参数集走 SDP sprop 或关键帧内联注入），
  *      否则单独发参数集 RTP 会让 FFmpeg 产出无 PTS 的 AVPacket。
  */
-static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_track trk)
+static int mux_pack_frame(zcs_rtp_muxer *m, const zcs_frame *frame, zcs_rtp_mux_track trk)
 
 {
     uint32_t rtp_ts;
@@ -366,9 +366,9 @@ static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_
         return -1;
     }
 
-    if (frame->track == ZMS_TRACK_VIDEO) {
+    if (frame->track == ZCS_TRACK_VIDEO) {
         if (!frame->config_frame && !m->video_key_out) {
-            zms_frame probe = *frame;
+            zcs_frame probe = *frame;
             if (!mux_rtsp_video_play_start(&probe)) {
                 return 0;
             }
@@ -376,62 +376,62 @@ static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_
 
         video_key = frame->keyframe;
         if (!video_key && frame->data && frame->size > 0) {
-            zms_frame probe = *frame;
+            zcs_frame probe = *frame;
             if (mux_rtsp_video_play_start(&probe)) {
                 video_key = 1;
             }
         }
 
         if (frame->config_frame) {
-            if (frame->codec == ZMS_CODEC_H265) {
+            if (frame->codec == ZCS_CODEC_H265) {
                 (void)mux_hevc_refresh_params_from_au(m, frame->data, frame->size);
                 return 0;
             }
             /* 缓存 H264 SPS/PPS 供内联注入（Annex-B config 路径） */
-            if (frame->codec == ZMS_CODEC_H264 && frame->data && frame->size > 0) {
+            if (frame->codec == ZCS_CODEC_H264 && frame->data && frame->size > 0) {
                 const uint8_t *sps_p = NULL, *pps_p = NULL;
                 size_t sps_l = 0, pps_l = 0;
-                if (zms_h264_annexb_extract_sps_pps(frame->data, frame->size, &sps_p, &sps_l,
+                if (zcs_h264_annexb_extract_sps_pps(frame->data, frame->size, &sps_p, &sps_l,
                                                     &pps_p, &pps_l) &&
                     sps_p && pps_p) {
                     mux_h264_cache_store(m, sps_p, sps_l, pps_p, pps_l);
                 }
             }
-            rtp_ts = m->abs_rtp_ts ? zms_ms_to_rtp_clock(m->vod_seek_ms, mux_video_clock_hz(m)) : 0;
+            rtp_ts = m->abs_rtp_ts ? zcs_ms_to_rtp_clock(m->vod_seek_ms, mux_video_clock_hz(m)) : 0;
         } else {
             if (!m->video_key_out) {
-                if (!zms_egress_clock_epoch_locked(&m->clk)) {
-                    (void)zms_egress_clock_lock_epoch(&m->clk, (uint32_t)frame->dts_ms);
+                if (!zcs_egress_clock_epoch_locked(&m->clk)) {
+                    (void)zcs_egress_clock_lock_epoch(&m->clk, (uint32_t)frame->dts_ms);
                 } else if (m->abs_rtp_ts && m->clk.epoch_ms != (uint32_t)frame->dts_ms) {
-                    zms_egress_clock_rebase(&m->clk, (uint32_t)frame->dts_ms);
+                    zcs_egress_clock_rebase(&m->clk, (uint32_t)frame->dts_ms);
                 }
             }
-            if (!zms_egress_clock_epoch_locked(&m->clk)) {
+            if (!zcs_egress_clock_epoch_locked(&m->clk)) {
                 return 0;
             }
             /* RTP ts 跟解码时间线 (DTS)，非 PTS；B 帧 PTS 会倒退。 */
             rtp_ts = m->abs_rtp_ts
-                         ? zms_ms_to_rtp_clock((uint32_t)frame->dts_ms, mux_video_clock_hz(m))
-                         : zms_egress_clock_rtp_ts(&m->clk, (uint32_t)frame->dts_ms,
+                         ? zcs_ms_to_rtp_clock((uint32_t)frame->dts_ms, mux_video_clock_hz(m))
+                         : zcs_egress_clock_rtp_ts(&m->clk, (uint32_t)frame->dts_ms,
                                                    mux_video_clock_hz(m));
         }
 
     } else {
-        if (!zms_egress_clock_epoch_locked(&m->clk)) {
+        if (!zcs_egress_clock_epoch_locked(&m->clk)) {
             return 0;
         }
 
-        rtp_ts = m->abs_rtp_ts ? zms_ms_to_rtp_clock((uint32_t)frame->dts_ms, mux_audio_clock_hz(m))
-                               : zms_egress_clock_rtp_ts(&m->clk, (uint32_t)frame->dts_ms,
+        rtp_ts = m->abs_rtp_ts ? zcs_ms_to_rtp_clock((uint32_t)frame->dts_ms, mux_audio_clock_hz(m))
+                               : zcs_egress_clock_rtp_ts(&m->clk, (uint32_t)frame->dts_ms,
                                                          mux_audio_clock_hz(m));
     }
 
-    if (!zms_rtsp_codec_supported(frame->codec, trk)) {
+    if (!zcs_rtsp_codec_supported(frame->codec, trk)) {
         return -1;
     }
 
-    if (frame->codec == ZMS_CODEC_H265 && frame->track == ZMS_TRACK_VIDEO && !frame->config_frame) {
-        zms_frame pack;
+    if (frame->codec == ZCS_CODEC_H265 && frame->track == ZCS_TRACK_VIDEO && !frame->config_frame) {
+        zcs_frame pack;
         uint8_t *vcl = NULL;
         uint8_t *prep = NULL;
         size_t vcl_len = 0;
@@ -448,7 +448,7 @@ static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_
 
             prep = (uint8_t *)malloc(need);
             if (prep &&
-                zms_h265_annexb_build_rtp_au(m->hevc_vps_len ? m->hevc_vps : NULL, m->hevc_vps_len,
+                zcs_h265_annexb_build_rtp_au(m->hevc_vps_len ? m->hevc_vps : NULL, m->hevc_vps_len,
                                              m->hevc_sps, m->hevc_sps_len, m->hevc_pps,
                                              m->hevc_pps_len, frame->data, frame->size, 1, prep,
                                              need, &prep_len) == ZN_OK &&
@@ -465,7 +465,7 @@ static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_
             if (!vcl) {
                 return -1;
             }
-            if (zms_h265_annexb_copy_vcl(frame->data, frame->size, vcl, frame->size, &vcl_len) !=
+            if (zcs_h265_annexb_copy_vcl(frame->data, frame->size, vcl, frame->size, &vcl_len) !=
                     ZN_OK ||
                 vcl_len == 0) {
                 free(vcl);
@@ -474,7 +474,7 @@ static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_
             pack.data = vcl;
             pack.size = vcl_len;
         }
-        r = zms_pack_bits(m, pack.data, pack.size, frame->codec, trk, (int64_t)frame->dts_ms,
+        r = zcs_pack_bits(m, pack.data, pack.size, frame->codec, trk, (int64_t)frame->dts_ms,
                           rtp_ts, video_key);
         free(vcl);
         free(prep);
@@ -489,8 +489,8 @@ static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_
     /* H264 RTP：仅 VCL (type 1)。VPS/SPS/PPS 走 SDP sprop；单独发 RTP NAL
      * 会让 FFmpeg 产出无 PTS 的 AVPacket，破坏 MPEG-TS mux
      *（"first pts and dts value must be set"）。 */
-    if (frame->codec == ZMS_CODEC_H264 && trk == ZMS_RTP_MUX_TRACK_VIDEO && !frame->config_frame) {
-        zms_frame pack;
+    if (frame->codec == ZCS_CODEC_H264 && trk == ZCS_RTP_MUX_TRACK_VIDEO && !frame->config_frame) {
+        zcs_frame pack;
         uint8_t *vcl = NULL;
         size_t vcl_len = 0;
         int r;
@@ -499,7 +499,7 @@ static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_
         if (!vcl) {
             return -1;
         }
-        if (zms_h264_annexb_copy_vcl(frame->data, frame->size, vcl, frame->size, &vcl_len) !=
+        if (zcs_h264_annexb_copy_vcl(frame->data, frame->size, vcl, frame->size, &vcl_len) !=
                 ZN_OK ||
             vcl_len == 0) {
             free(vcl);
@@ -508,7 +508,7 @@ static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_
         pack = *frame;
         pack.data = vcl;
         pack.size = vcl_len;
-        r = zms_pack_bits(m, pack.data, pack.size, frame->codec, trk, (int64_t)frame->dts_ms,
+        r = zcs_pack_bits(m, pack.data, pack.size, frame->codec, trk, (int64_t)frame->dts_ms,
                           rtp_ts, video_key);
         free(vcl);
         if (r < 0) {
@@ -525,17 +525,17 @@ static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_
         size_t pack_len = frame->size;
         /* AAC-LC 帧载荷上限：1024 samples/声道，编码后 <= 768B/声道，
          * 立体声 1536B；取 2 的幂 2KB，热路径不放大。 */
-        uint8_t aac_scratch[ZMS_RTP_AAC_FRAME_MAX];
+        uint8_t aac_scratch[ZCS_RTP_AAC_FRAME_MAX];
 
-        if (frame->codec == ZMS_CODEC_AV1 && trk == ZMS_RTP_MUX_TRACK_VIDEO &&
+        if (frame->codec == ZCS_CODEC_AV1 && trk == ZCS_RTP_MUX_TRACK_VIDEO &&
             !frame->config_frame) {
             (void)mux_av1_try_cache_av1c_from_obu(m, frame->data, frame->size);
         }
-        if (frame->codec == ZMS_CODEC_AAC && trk == ZMS_RTP_MUX_TRACK_AUDIO) {
+        if (frame->codec == ZCS_CODEC_AAC && trk == ZCS_RTP_MUX_TRACK_AUDIO) {
             const uint8_t *raw = frame->data;
             size_t raw_len = frame->size;
 
-            if (zms_aac_es_to_raw(frame->data, frame->size, &raw, &raw_len) == ZN_OK &&
+            if (zcs_aac_es_to_raw(frame->data, frame->size, &raw, &raw_len) == ZN_OK &&
                 raw != frame->data) {
                 if (raw_len == 0 || raw_len > sizeof(aac_scratch)) {
                     return -1;
@@ -545,12 +545,12 @@ static int mux_pack_frame(zms_rtp_muxer *m, const zms_frame *frame, zms_rtp_mux_
                 pack_len = raw_len;
             }
         }
-        if (zms_pack_bits(m, pack_data, pack_len, frame->codec, trk, (int64_t)frame->dts_ms, rtp_ts,
+        if (zcs_pack_bits(m, pack_data, pack_len, frame->codec, trk, (int64_t)frame->dts_ms, rtp_ts,
                           video_key) < 0) {
             return -1;
         }
     }
-    if (trk == ZMS_RTP_MUX_TRACK_VIDEO && video_key && !frame->config_frame) {
+    if (trk == ZCS_RTP_MUX_TRACK_VIDEO && video_key && !frame->config_frame) {
         m->video_key_out = 1;
     }
     return 1;
@@ -604,7 +604,7 @@ static size_t avcc_to_annexb(const uint8_t *body, size_t len, uint8_t *out, size
     return pos;
 }
 
-zms_rtp_muxer *zms_rtp_muxer_create(const zms_rtp_muxer_opts *opts, zms_rtp_mux_on_rtp on_rtp,
+zcs_rtp_muxer *zcs_rtp_muxer_create(const zcs_rtp_muxer_opts *opts, zcs_rtp_mux_on_rtp on_rtp,
                                     void *user)
 
 {
@@ -612,7 +612,7 @@ zms_rtp_muxer *zms_rtp_muxer_create(const zms_rtp_muxer_opts *opts, zms_rtp_mux_
         return NULL;
     }
 
-    zms_rtp_muxer *m = (zms_rtp_muxer *)calloc(1, sizeof(*m));
+    zcs_rtp_muxer *m = (zcs_rtp_muxer *)calloc(1, sizeof(*m));
 
     if (!m) {
         return NULL;
@@ -640,36 +640,36 @@ zms_rtp_muxer *zms_rtp_muxer_create(const zms_rtp_muxer_opts *opts, zms_rtp_mux_
 
     m->v_pid = m->a_pid = m->v_mid = m->a_mid = -1;
 
-    m->video_codec = ZMS_CODEC_INVALID;
+    m->video_codec = ZCS_CODEC_INVALID;
 
-    m->zms = rtp_payload_muxer_create(zms_rtsp_onpacket, m);
+    m->zcs = rtp_payload_muxer_create(zcs_rtsp_onpacket, m);
 
-    if (!m->zms) {
+    if (!m->zcs) {
         mux_codec_cache_release(m);
         free(m);
         return NULL;
     }
 
-    zms_egress_clock_init(&m->clk);
+    zcs_egress_clock_init(&m->clk);
 
     return m;
 }
 
-void zms_rtp_muxer_destroy(zms_rtp_muxer *m)
+void zcs_rtp_muxer_destroy(zcs_rtp_muxer *m)
 
 {
     if (!m) {
         return;
     }
 
-    if (m->zms) {
-        rtp_payload_muxer_destroy(m->zms);
+    if (m->zcs) {
+        rtp_payload_muxer_destroy(m->zcs);
     }
     mux_codec_cache_release(m);
     free(m);
 }
 
-void zms_rtp_muxer_reset(zms_rtp_muxer *m)
+void zcs_rtp_muxer_reset(zcs_rtp_muxer *m)
 
 {
     if (!m) {
@@ -684,19 +684,19 @@ void zms_rtp_muxer_reset(zms_rtp_muxer *m)
 
     m->a_seq = m->opts.audio_seq ? m->opts.audio_seq : 1;
 
-    zms_egress_clock_reset(&m->clk);
+    zcs_egress_clock_reset(&m->clk);
 
-    zms_rtsp_recreate(m);
+    zcs_rtsp_recreate(m);
 
     mux_hevc_cache_clear(m);
 }
 
-void zms_rtp_muxer_arm_play(zms_rtp_muxer *m)
+void zcs_rtp_muxer_arm_play(zcs_rtp_muxer *m)
 {
     if (!m) {
         return;
     }
-    zms_egress_clock_arm(&m->clk);
+    zcs_egress_clock_arm(&m->clk);
     m->video_key_out = 0;
     /* 直播 PLAY：RTP timestamp = media dts_ms（勿归零重基）。
      * ts 归零会导致 FFmpeg RTSP→MPEGTS 拷贝首包报错
@@ -706,61 +706,61 @@ void zms_rtp_muxer_arm_play(zms_rtp_muxer *m)
     m->vod_seek_ms = 0;
 }
 
-void zms_rtp_muxer_jump_live(zms_rtp_muxer *m)
+void zcs_rtp_muxer_jump_live(zcs_rtp_muxer *m)
 {
     if (!m) {
         return;
     }
     m->video_key_out = 0;
-    zms_egress_clock_unlock(&m->clk);
-    zms_rtsp_drop_video(m);
+    zcs_egress_clock_unlock(&m->clk);
+    zcs_rtsp_drop_video(m);
     /* 保留 hevc_vps/sps/pps，snap 后下一 IDR 仍可 insertConfigFrame。 */
 }
 
-const zms_egress_clock *zms_rtp_muxer_play_clock(const zms_rtp_muxer *m)
+const zcs_egress_clock *zcs_rtp_muxer_play_clock(const zcs_rtp_muxer *m)
 {
     return m ? &m->clk : NULL;
 }
 
-zms_egress_clock *zms_rtp_muxer_play_clock_mut(zms_rtp_muxer *m)
+zcs_egress_clock *zcs_rtp_muxer_play_clock_mut(zcs_rtp_muxer *m)
 {
     return m ? &m->clk : NULL;
 }
 
-uint16_t zms_rtp_muxer_video_seq(const zms_rtp_muxer *m)
+uint16_t zcs_rtp_muxer_video_seq(const zcs_rtp_muxer *m)
 {
     return m ? m->v_seq : 0;
 }
 
-uint16_t zms_rtp_muxer_audio_seq(const zms_rtp_muxer *m)
+uint16_t zcs_rtp_muxer_audio_seq(const zcs_rtp_muxer *m)
 {
     return m ? m->a_seq : 0;
 }
 
-const zms_rtp_muxer_stats *zms_rtp_muxer_get_stats(const zms_rtp_muxer *m)
+const zcs_rtp_muxer_stats *zcs_rtp_muxer_get_stats(const zcs_rtp_muxer *m)
 
 {
     return m ? &m->stats : NULL;
 }
 
-int zms_rtp_muxer_input_slot(zms_rtp_muxer *m, const zms_gop_slot *slot)
+int zcs_rtp_muxer_input_slot(zcs_rtp_muxer *m, const zcs_gop_slot *slot)
 
 {
-    zms_frame frame;
+    zcs_frame frame;
 
-    zms_rtp_mux_track trk;
+    zcs_rtp_mux_track trk;
 
     if (!m || !slot || !slot->data || slot->len == 0) {
         return -1;
     }
 
-    if (!zms_rtsp_codec_supported(slot->codec, slot->track == ZMS_TRACK_VIDEO
-                                                   ? ZMS_RTP_MUX_TRACK_VIDEO
-                                                   : ZMS_RTP_MUX_TRACK_AUDIO)) {
+    if (!zcs_rtsp_codec_supported(slot->codec, slot->track == ZCS_TRACK_VIDEO
+                                                   ? ZCS_RTP_MUX_TRACK_VIDEO
+                                                   : ZCS_RTP_MUX_TRACK_AUDIO)) {
         return -1;
     }
 
-    zms_frame_init(&frame);
+    zcs_frame_init(&frame);
 
     frame.data = slot->data;
 
@@ -774,9 +774,9 @@ int zms_rtp_muxer_input_slot(zms_rtp_muxer *m, const zms_gop_slot *slot)
     frame.config_frame = slot->config_frame;
 
     frame.dts_ms = slot->dts_ms;
-    frame.pts_ms = zms_gop_slot_pts_ms(slot);
+    frame.pts_ms = zcs_gop_slot_pts_ms(slot);
 
-    trk = slot->track == ZMS_TRACK_VIDEO ? ZMS_RTP_MUX_TRACK_VIDEO : ZMS_RTP_MUX_TRACK_AUDIO;
+    trk = slot->track == ZCS_TRACK_VIDEO ? ZCS_RTP_MUX_TRACK_VIDEO : ZCS_RTP_MUX_TRACK_AUDIO;
 
     return mux_pack_frame(m, &frame, trk);
 }
@@ -790,7 +790,7 @@ int zms_rtp_muxer_input_slot(zms_rtp_muxer *m, const zms_gop_slot *slot)
  *   FLV audio tag 先转成原始 ES 再打包。
  * 返回：>0 已打包，0 跳过，<0 失败。
  */
-int zms_rtp_muxer_input_rtmp(zms_rtp_muxer *m, uint8_t type_id, uint32_t tag_dts_ms,
+int zcs_rtp_muxer_input_rtmp(zcs_rtp_muxer *m, uint8_t type_id, uint32_t tag_dts_ms,
                              const uint8_t *data, size_t len,
 
                              uint8_t *scratch, size_t scratch_cap)
@@ -801,9 +801,9 @@ int zms_rtp_muxer_input_rtmp(zms_rtp_muxer *m, uint8_t type_id, uint32_t tag_dts
     }
 
     if (type_id == 9) {
-        zms_codec_id vc = zms_flv_tag_video_codec(data, len);
+        zcs_codec_id vc = zcs_flv_tag_video_codec(data, len);
 
-        zms_frame frame;
+        zcs_frame frame;
 
         size_t need = len + 64;
 
@@ -813,7 +813,7 @@ int zms_rtp_muxer_input_rtmp(zms_rtp_muxer *m, uint8_t type_id, uint32_t tag_dts
 
         uint8_t *heap = NULL;
 
-        if (len < 5 || data[1] != 1 || !zms_rtsp_codec_supported(vc, ZMS_RTP_MUX_TRACK_VIDEO)) {
+        if (len < 5 || data[1] != 1 || !zcs_rtsp_codec_supported(vc, ZCS_RTP_MUX_TRACK_VIDEO)) {
             return 0;
         }
 
@@ -839,7 +839,7 @@ int zms_rtp_muxer_input_rtmp(zms_rtp_muxer *m, uint8_t type_id, uint32_t tag_dts
             return 0;
         }
 
-        zms_frame_init(&frame);
+        zcs_frame_init(&frame);
 
         frame.data = conv;
 
@@ -847,13 +847,13 @@ int zms_rtp_muxer_input_rtmp(zms_rtp_muxer *m, uint8_t type_id, uint32_t tag_dts
 
         frame.codec = vc;
 
-        frame.track = ZMS_TRACK_VIDEO;
+        frame.track = ZCS_TRACK_VIDEO;
 
         frame.keyframe = key;
 
         frame.dts_ms = frame.pts_ms = tag_dts_ms;
 
-        int r = mux_pack_frame(m, &frame, ZMS_RTP_MUX_TRACK_VIDEO);
+        int r = mux_pack_frame(m, &frame, ZCS_RTP_MUX_TRACK_VIDEO);
 
         free(heap);
 
@@ -865,23 +865,23 @@ int zms_rtp_muxer_input_rtmp(zms_rtp_muxer *m, uint8_t type_id, uint32_t tag_dts
 
         size_t es_len = 0;
 
-        zms_codec_id ac = ZMS_CODEC_INVALID;
+        zcs_codec_id ac = ZCS_CODEC_INVALID;
 
-        zms_frame frame;
+        zcs_frame frame;
 
         if (!m->video_key_out) {
             return 0;
         }
 
-        if (zms_flv_tag_audio_to_es(data, len, &es, &es_len, &ac) != ZN_OK || !es || es_len == 0) {
+        if (zcs_flv_tag_audio_to_es(data, len, &es, &es_len, &ac) != ZN_OK || !es || es_len == 0) {
             return 0;
         }
 
-        if (!zms_rtsp_codec_supported(ac, ZMS_RTP_MUX_TRACK_AUDIO)) {
+        if (!zcs_rtsp_codec_supported(ac, ZCS_RTP_MUX_TRACK_AUDIO)) {
             return 0;
         }
 
-        zms_frame_init(&frame);
+        zcs_frame_init(&frame);
 
         frame.data = (uint8_t *)es;
 
@@ -889,22 +889,22 @@ int zms_rtp_muxer_input_rtmp(zms_rtp_muxer *m, uint8_t type_id, uint32_t tag_dts
 
         frame.codec = ac;
 
-        frame.track = ZMS_TRACK_AUDIO;
+        frame.track = ZCS_TRACK_AUDIO;
 
         frame.dts_ms = frame.pts_ms = tag_dts_ms;
 
-        return mux_pack_frame(m, &frame, ZMS_RTP_MUX_TRACK_AUDIO);
+        return mux_pack_frame(m, &frame, ZCS_RTP_MUX_TRACK_AUDIO);
     }
 
     return 0;
 }
 
-void zms_rtp_muxer_set_catchup(zms_rtp_muxer *m, int on)
+void zcs_rtp_muxer_set_catchup(zcs_rtp_muxer *m, int on)
 {
-    zms_rtp_muxer_set_catchup_budget(m, on, 256);
+    zcs_rtp_muxer_set_catchup_budget(m, on, 256);
 }
 
-void zms_rtp_muxer_set_catchup_budget(zms_rtp_muxer *m, int on, int max_frames)
+void zcs_rtp_muxer_set_catchup_budget(zcs_rtp_muxer *m, int on, int max_frames)
 {
     if (!m) {
         return;
@@ -917,17 +917,17 @@ void zms_rtp_muxer_set_catchup_budget(zms_rtp_muxer *m, int on, int max_frames)
     m->catchup_left = max_frames > 0 ? max_frames : 256;
 }
 
-int zms_rtp_muxer_catchup_on(const zms_rtp_muxer *m)
+int zcs_rtp_muxer_catchup_on(const zcs_rtp_muxer *m)
 {
     return m && m->catchup;
 }
 
-int zms_rtp_muxer_awaiting_video_key(const zms_rtp_muxer *m)
+int zcs_rtp_muxer_awaiting_video_key(const zcs_rtp_muxer *m)
 {
     return m && !m->video_key_out;
 }
 
-void zms_rtp_muxer_catchup_frame(zms_rtp_muxer *m)
+void zcs_rtp_muxer_catchup_frame(zcs_rtp_muxer *m)
 {
     if (!m || !m->catchup) {
         return;
@@ -942,7 +942,7 @@ void zms_rtp_muxer_catchup_frame(zms_rtp_muxer *m)
  * seek 点。snapshot_seq 必须在 recreate 之前——recreate 会销毁旧实例，seq 只能从
  * 旧实例读出来续上，否则 seek 后 seq 从 0 重来，ffplay/VLC 会判为回绕并丢包。
  */
-void zms_rtp_muxer_begin_vod_seek(zms_rtp_muxer *m, uint32_t seek_ms)
+void zcs_rtp_muxer_begin_vod_seek(zcs_rtp_muxer *m, uint32_t seek_ms)
 {
     if (!m) {
         return;
@@ -954,58 +954,58 @@ void zms_rtp_muxer_begin_vod_seek(zms_rtp_muxer *m, uint32_t seek_ms)
     m->stats.video_last_rtp_ts = 0;
     m->stats.audio_last_rtp_ts = 0;
     /* 会话中途 seek 仍保持 seq 单调（ffplay/VLC 遇 seq 回绕会丢包）。 */
-    zms_rtsp_snapshot_seq(m);
-    zms_rtsp_recreate(m);
+    zcs_rtsp_snapshot_seq(m);
+    zcs_rtsp_recreate(m);
     mux_hevc_cache_clear(m);
     m->abs_rtp_ts = 1;
     m->video_key_out = 0;
     m->clk.paused = 0;
     m->clk.pause_wall_ms = 0;
-    zms_rtp_muxer_arm_play(m);
+    zcs_rtp_muxer_arm_play(m);
     m->vod_seek_ms = seek_ms;
-    zms_egress_clock_rebase(&m->clk, seek_ms);
+    zcs_egress_clock_rebase(&m->clk, seek_ms);
 }
 
-uint32_t zms_rtp_muxer_vod_anchor_ms(const zms_rtp_muxer *m)
+uint32_t zcs_rtp_muxer_vod_anchor_ms(const zcs_rtp_muxer *m)
 {
     return m && m->abs_rtp_ts ? m->vod_seek_ms : 0;
 }
 
-void zms_rtp_muxer_set_play_scale(zms_rtp_muxer *m, double scale)
+void zcs_rtp_muxer_set_play_scale(zcs_rtp_muxer *m, double scale)
 {
     if (!m) {
         return;
     }
-    zms_egress_clock_set_scale(&m->clk, scale);
+    zcs_egress_clock_set_scale(&m->clk, scale);
 }
 
-void zms_rtp_muxer_pause_play(zms_rtp_muxer *m)
+void zcs_rtp_muxer_pause_play(zcs_rtp_muxer *m)
 {
     if (!m) {
         return;
     }
-    zms_egress_clock_pause(&m->clk);
+    zcs_egress_clock_pause(&m->clk);
 }
 
-void zms_rtp_muxer_resume_play(zms_rtp_muxer *m)
+void zcs_rtp_muxer_resume_play(zcs_rtp_muxer *m)
 {
     if (!m) {
         return;
     }
-    zms_egress_clock_resume(&m->clk);
+    zcs_egress_clock_resume(&m->clk);
 }
 
-void zms_rtp_muxer_send_avc_config(zms_rtp_muxer *m, const uint8_t *avcc, size_t avcc_len,
+void zcs_rtp_muxer_send_avc_config(zcs_rtp_muxer *m, const uint8_t *avcc, size_t avcc_len,
                                    uint32_t anchor_ms)
 {
     const uint8_t *sps = NULL, *pps = NULL;
     size_t sps_len = 0, pps_len = 0;
 
     (void)anchor_ms;
-    if (!m || !avcc || avcc_len <= 5 || zms_flv_tag_video_codec(avcc, avcc_len) != ZMS_CODEC_H264) {
+    if (!m || !avcc || avcc_len <= 5 || zcs_flv_tag_video_codec(avcc, avcc_len) != ZCS_CODEC_H264) {
         return;
     }
-    if (!zms_rtmp_avc_extract_sps_pps(avcc, avcc_len, &sps, &sps_len, &pps, &pps_len)) {
+    if (!zcs_rtmp_avc_extract_sps_pps(avcc, avcc_len, &sps, &sps_len, &pps, &pps_len)) {
         return;
     }
     mux_h264_store_avcc(m, avcc, avcc_len);
@@ -1015,7 +1015,7 @@ void zms_rtp_muxer_send_avc_config(zms_rtp_muxer *m, const uint8_t *avcc, size_t
     mux_h264_cache_store(m, sps, sps_len, pps, pps_len);
 }
 
-void zms_rtp_muxer_send_hevc_config(zms_rtp_muxer *m, const uint8_t *video_cfg, size_t cfg_len,
+void zcs_rtp_muxer_send_hevc_config(zcs_rtp_muxer *m, const uint8_t *video_cfg, size_t cfg_len,
                                     uint32_t anchor_ms)
 {
     const uint8_t *vps = NULL, *sps = NULL, *pps = NULL;
@@ -1025,7 +1025,7 @@ void zms_rtp_muxer_send_hevc_config(zms_rtp_muxer *m, const uint8_t *video_cfg, 
     if (!m || !video_cfg || cfg_len <= 5) {
         return;
     }
-    if (!zms_h265_video_config_param_sets(video_cfg, cfg_len, &vps, &vps_len, &sps, &sps_len, &pps,
+    if (!zcs_h265_video_config_param_sets(video_cfg, cfg_len, &vps, &vps_len, &sps, &sps_len, &pps,
                                           &pps_len)) {
         return;
     }
@@ -1034,7 +1034,7 @@ void zms_rtp_muxer_send_hevc_config(zms_rtp_muxer *m, const uint8_t *video_cfg, 
     mux_hevc_cache_store(m, vps, vps_len, sps, sps_len, pps, pps_len);
 }
 
-void zms_rtp_muxer_send_av1_config(zms_rtp_muxer *m, const uint8_t *video_cfg, size_t cfg_len,
+void zcs_rtp_muxer_send_av1_config(zcs_rtp_muxer *m, const uint8_t *video_cfg, size_t cfg_len,
                                    uint32_t anchor_ms)
 {
     const uint8_t *av1c = NULL;
@@ -1044,10 +1044,10 @@ void zms_rtp_muxer_send_av1_config(zms_rtp_muxer *m, const uint8_t *video_cfg, s
     if (!m || !video_cfg || cfg_len <= 5) {
         return;
     }
-    if (zms_flv_tag_video_codec(video_cfg, cfg_len) != ZMS_CODEC_AV1) {
+    if (zcs_flv_tag_video_codec(video_cfg, cfg_len) != ZCS_CODEC_AV1) {
         return;
     }
-    if (!zms_av1_over_rtmp_config_extradata(video_cfg, cfg_len, &av1c, &av1c_len) || !av1c ||
+    if (!zcs_av1_over_rtmp_config_extradata(video_cfg, cfg_len, &av1c, &av1c_len) || !av1c ||
         av1c_len == 0) {
         return;
     }

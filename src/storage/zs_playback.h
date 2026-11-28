@@ -14,8 +14,8 @@
  * 代价远大于"导出一次只读视图"。导出是顺序拷贝 + 后续只读，成本可接受；
  * 需要零拷贝时再演进为自定义 io 适配器（接口位置已留好）。
  */
-#ifndef ZMS_SRC_STORAGE_ZS_PLAYBACK_H
-#define ZMS_SRC_STORAGE_ZS_PLAYBACK_H
+#ifndef ZCS_SRC_STORAGE_ZS_PLAYBACK_H
+#define ZCS_SRC_STORAGE_ZS_PLAYBACK_H
 
 #include "storage/zs_slot.h"
 
@@ -64,4 +64,4 @@ int zs_playback_relative_ms(const zs_slot *s, uint64_t abs_ms, uint64_t *rel_ms)
 }
 #endif
 
-#endif /* ZMS_SRC_STORAGE_ZS_PLAYBACK_H */
+#endif /* ZCS_SRC_STORAGE_ZS_PLAYBACK_H */

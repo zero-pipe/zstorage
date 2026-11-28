@@ -2,16 +2,16 @@
  * @file auth.c
  * @brief 推流/播放鉴权骨架：本地同步验签，不做网络 I/O。
  */
-#include "zms/core/auth.h"
+#include "zcs/core/auth.h"
 #include "zn/net/socket.h"
 #include "zn/net/tcp_server.h"
 #include "zn/util/log.h"
 #include <stdio.h>
 #include <string.h>
 
-/* 进程启动前由 zms_auth_init()/zms_auth_set_verifier() 写，运行期只读。 */
-static zms_auth_options g_opt;
-static zms_auth_verify_fn g_verify;
+/* 进程启动前由 zcs_auth_init()/zcs_auth_set_verifier() 写，运行期只读。 */
+static zcs_auth_options g_opt;
+static zcs_auth_verify_fn g_verify;
 static void *g_verify_user;
 static int g_warned_no_verifier;
 
@@ -48,7 +48,7 @@ static void url_decode(const char *in, size_t in_len, char *out, size_t cap)
     out[oi] = '\0';
 }
 
-int zms_auth_param_get(const char *params, const char *name, char *out, size_t cap)
+int zcs_auth_param_get(const char *params, const char *name, char *out, size_t cap)
 {
     size_t nlen;
     const char *p;
@@ -78,7 +78,7 @@ int zms_auth_param_get(const char *params, const char *name, char *out, size_t c
     return -1;
 }
 
-void zms_auth_params_copy(const char *params, char *out, size_t cap)
+void zcs_auth_params_copy(const char *params, char *out, size_t cap)
 {
     size_t n;
 
@@ -97,7 +97,7 @@ void zms_auth_params_copy(const char *params, char *out, size_t cap)
     out[n] = '\0';
 }
 
-void zms_auth_split_query(const char *in, char *name, size_t name_cap, char *params,
+void zcs_auth_split_query(const char *in, char *name, size_t name_cap, char *params,
                           size_t params_cap)
 {
     const char *q;
@@ -128,11 +128,11 @@ void zms_auth_split_query(const char *in, char *name, size_t name_cap, char *par
         name[n] = '\0';
     }
     if (params && params_cap) {
-        zms_auth_params_copy(q + 1, params, params_cap);
+        zcs_auth_params_copy(q + 1, params, params_cap);
     }
 }
 
-void zms_auth_init(const zms_auth_options *opt)
+void zcs_auth_init(const zcs_auth_options *opt)
 {
     memset(&g_opt, 0, sizeof(g_opt));
     g_warned_no_verifier = 0;
@@ -147,25 +147,25 @@ void zms_auth_init(const zms_auth_options *opt)
              g_opt.token_param);
 }
 
-void zms_auth_fini(void)
+void zcs_auth_fini(void)
 {
     memset(&g_opt, 0, sizeof(g_opt));
     g_verify = NULL;
     g_verify_user = NULL;
 }
 
-void zms_auth_set_verifier(zms_auth_verify_fn fn, void *user)
+void zcs_auth_set_verifier(zcs_auth_verify_fn fn, void *user)
 {
     g_verify = fn;
     g_verify_user = user;
 }
 
-const char *zms_auth_token_param(void)
+const char *zcs_auth_token_param(void)
 {
     return g_opt.token_param[0] ? g_opt.token_param : "token";
 }
 
-void zms_auth_fill_peer(zn_tcp_session *tcp, char *ip, size_t cap, unsigned *port)
+void zcs_auth_fill_peer(zn_tcp_session *tcp, char *ip, size_t cap, unsigned *port)
 {
     zn_socket *sock;
 
@@ -194,12 +194,12 @@ void zms_auth_fill_peer(zn_tcp_session *tcp, char *ip, size_t cap, unsigned *por
 
 /* ── 内置 token 白名单（平台同步），用于未注册自定义验签实现时的本地比对 ─────── */
 
-#define ZMS_AUTH_TOKEN_LIST_MAX 1024
+#define ZCS_AUTH_TOKEN_LIST_MAX 1024
 
-static char g_tokens[ZMS_AUTH_TOKEN_LIST_MAX]; /* 逗号分隔的启用 token */
+static char g_tokens[ZCS_AUTH_TOKEN_LIST_MAX]; /* 逗号分隔的启用 token */
 static volatile int g_tokens_ready;
 
-void zms_auth_set_tokens(const char *csv)
+void zcs_auth_set_tokens(const char *csv)
 {
     size_t n;
 
@@ -255,7 +255,7 @@ static int token_list_contains(const char *tok)
 }
 
 /* 内置验签：仅对外部“推流”强制 token；播放保持放行，避免影响平台自身观看链路。 */
-static int builtin_verify(const zms_auth_request *req, zms_auth_decision *dec, void *user)
+static int builtin_verify(const zcs_auth_request *req, zcs_auth_decision *dec, void *user)
 {
     char tok[256];
 
@@ -265,12 +265,12 @@ static int builtin_verify(const zms_auth_request *req, zms_auth_decision *dec, v
     }
     dec->allow = 0;
     dec->enable_mp4 = 0;
-    if (req->action != ZMS_AUTH_ACTION_PUBLISH) {
+    if (req->action != ZCS_AUTH_ACTION_PUBLISH) {
         dec->allow = 1;
         return 0;
     }
     if (!req->params ||
-        zms_auth_param_get(req->params, zms_auth_token_param(), tok, sizeof(tok)) != 0 ||
+        zcs_auth_param_get(req->params, zcs_auth_token_param(), tok, sizeof(tok)) != 0 ||
         !tok[0]) {
         dec->allow = 0;
         return 0;
@@ -279,10 +279,10 @@ static int builtin_verify(const zms_auth_request *req, zms_auth_decision *dec, v
     return 0;
 }
 
-int zms_auth_check(const zms_auth_request *req, zms_auth_decision *dec)
+int zcs_auth_check(const zcs_auth_request *req, zcs_auth_decision *dec)
 {
-    zms_auth_decision local;
-    zms_auth_decision *out = dec ? dec : &local;
+    zcs_auth_decision local;
+    zcs_auth_decision *out = dec ? dec : &local;
 
     out->allow = 1;
     out->enable_mp4 = 0;

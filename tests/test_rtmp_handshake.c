@@ -7,7 +7,7 @@
  * 握手循环里空转（修复前该路径会死循环，导致 poller 线程 100% CPU 卡死，
  * 其上所有会话不再收发）。
  */
-#include "zms/protocol/rtmp/protocol.h"
+#include "zcs/protocol/rtmp/protocol.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -30,8 +30,8 @@ static void on_cmd(const char *cmd, double trans_id, const uint8_t *amf_rest, si
 
 int main(void)
 {
-    zms_rtmp_protocol_opts opts;
-    zms_rtmp_protocol *p;
+    zcs_rtmp_protocol_opts opts;
+    zcs_rtmp_protocol *p;
     uint8_t c0c1[1 + 1536];
     uint8_t reply[1 + 1536 * 2];
     size_t reply_len = 0;
@@ -46,17 +46,17 @@ int main(void)
 
     memset(&opts, 0, sizeof(opts));
     opts.on_cmd = on_cmd;
-    p = zms_rtmp_protocol_create(&opts);
+    p = zcs_rtmp_protocol_create(&opts);
     if (!p)
         return 1;
 
     memset(c0c1, 0, sizeof(c0c1));
     c0c1[0] = 3;
-    if (zms_rtmp_protocol_input(p, c0c1, sizeof(c0c1)) != ZN_OK)
+    if (zcs_rtmp_protocol_input(p, c0c1, sizeof(c0c1)) != ZN_OK)
         return 2;
-    if (!zms_rtmp_protocol_handshake_pending(p))
+    if (!zcs_rtmp_protocol_handshake_pending(p))
         return 3;
-    if (zms_rtmp_protocol_send_handshake_s0s1s2(p, reply, sizeof(reply), &reply_len) != ZN_OK)
+    if (zcs_rtmp_protocol_send_handshake_s0s1s2(p, reply, sizeof(reply), &reply_len) != ZN_OK)
         return 4;
     if (reply_len != 1 + 1536 * 2)
         return 5;
@@ -77,14 +77,14 @@ int main(void)
     memcpy(c + 12, amf_connect, sizeof(amf_connect));
 
     /* 修复前：这里死循环 */
-    if (zms_rtmp_protocol_input(p, buf, sizeof(buf)) != ZN_OK)
+    if (zcs_rtmp_protocol_input(p, buf, sizeof(buf)) != ZN_OK)
         return 6;
-    if (!zms_rtmp_protocol_handshake_complete(p))
+    if (!zcs_rtmp_protocol_handshake_complete(p))
         return 7;
     if (g_cmd_count != 1 || strcmp(g_last_cmd, "connect") != 0)
         return 8;
 
-    zms_rtmp_protocol_destroy(p);
+    zcs_rtmp_protocol_destroy(p);
     printf("test_rtmp_handshake ok\n");
     return 0;
 }

@@ -3,7 +3,7 @@
  * @brief MANSCDP XML（GB28181 信令体）解析与构造。
  */
 #include "device/gb28181/gb28181_internal.h"
-#include "zms/device/core/device_xml.h"
+#include "zcs/device/core/device_xml.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,7 +17,7 @@
 
 static int tag_text(const char *body, const char *tag, char *out, size_t cap)
 {
-    return zms_xml_text(body, tag, out, cap) == 0;
+    return zcs_xml_text(body, tag, out, cap) == 0;
 }
 
 static int tag_int(const char *body, const char *tag, int *out)
@@ -40,21 +40,21 @@ int gb_manscdp_parse(const char *body, size_t len, gb_manscdp_msg *out)
     }
     memset(out, 0, sizeof(*out));
     (void)i;
-    zms_msg_init(&out->msg);
-    (void)zms_msg_set_body(&out->msg, body, len);
+    zcs_msg_init(&out->msg);
+    (void)zcs_msg_set_body(&out->msg, body, len);
 
-    if (zms_msg_xml_root(&out->msg, roots, (int)(sizeof(roots) / sizeof(roots[0])), out->root,
+    if (zcs_msg_xml_root(&out->msg, roots, (int)(sizeof(roots) / sizeof(roots[0])), out->root,
                          sizeof(out->root)) != 0) {
         return -1;
     }
-    (void)zms_msg_xml_get(&out->msg, "CmdType", out->cmd_type, sizeof(out->cmd_type));
-    (void)zms_msg_xml_get(&out->msg, "SN", out->sn, sizeof(out->sn));
-    (void)zms_msg_xml_get(&out->msg, "DeviceID", out->device_id, sizeof(out->device_id));
-    (void)zms_msg_xml_get(&out->msg, "Result", out->result, sizeof(out->result));
-    (void)zms_msg_xml_get(&out->msg, "PTZCmd", out->ptz_cmd, sizeof(out->ptz_cmd));
-    (void)zms_msg_xml_get(&out->msg, "RecordCmd", out->record_cmd, sizeof(out->record_cmd));
-    (void)zms_msg_xml_get(&out->msg, "GuardCmd", out->guard_cmd, sizeof(out->guard_cmd));
-    (void)zms_msg_xml_get(&out->msg, "StartTime", out->start_time, sizeof(out->start_time));
+    (void)zcs_msg_xml_get(&out->msg, "CmdType", out->cmd_type, sizeof(out->cmd_type));
+    (void)zcs_msg_xml_get(&out->msg, "SN", out->sn, sizeof(out->sn));
+    (void)zcs_msg_xml_get(&out->msg, "DeviceID", out->device_id, sizeof(out->device_id));
+    (void)zcs_msg_xml_get(&out->msg, "Result", out->result, sizeof(out->result));
+    (void)zcs_msg_xml_get(&out->msg, "PTZCmd", out->ptz_cmd, sizeof(out->ptz_cmd));
+    (void)zcs_msg_xml_get(&out->msg, "RecordCmd", out->record_cmd, sizeof(out->record_cmd));
+    (void)zcs_msg_xml_get(&out->msg, "GuardCmd", out->guard_cmd, sizeof(out->guard_cmd));
+    (void)zcs_msg_xml_get(&out->msg, "StartTime", out->start_time, sizeof(out->start_time));
     tag_text(body, "EndTime", out->end_time, sizeof(out->end_time));
     tag_text(body, "Type", out->type, sizeof(out->type));
     tag_int(body, "Secrecy", &out->secrecy);
@@ -75,7 +75,7 @@ int gb_manscdp_get(const gb_manscdp_msg *q, const char *tag, char *out, size_t c
     if (!q) {
         return -1;
     }
-    return zms_msg_xml_get(&q->msg, tag, out, cap);
+    return zcs_msg_xml_get(&q->msg, tag, out, cap);
 }
 
 int gb_manscdp_build_keepalive(char *out, size_t cap, const char *device_id, const char *sn)

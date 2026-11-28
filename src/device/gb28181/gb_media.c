@@ -15,17 +15,17 @@
 
 #include "bridge/zm_ps_muxer.h"
 #include "bridge/zm_rtp_ps.h"
-#include "zms/media/codec/param_sets.h"
-#include "zms/media/codec/aac/aac_config.h"
-#include "zms/media/codec/aac/aac_over_rtmp.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/param_sets.h"
+#include "zcs/media/codec/aac/aac_config.h"
+#include "zcs/media/codec/aac/aac_over_rtmp.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
 #include "zn/platform.h"
 #include "zb/os/atomic.h"
 #include "zb/os/thread.h"
 #include "zn/poller/poller.h"
 #include "zn/util/timer.h"
-#include "zms/util/thread_pool.h"
+#include "zcs/util/thread_pool.h"
 #include "zn/util/log.h"
 
 #include <errno.h>
@@ -72,7 +72,7 @@ static uint64_t gbm_start_try(void *user);
 
 /* 槽位/复用器（定义在节拍回调之后） */
 static int media_setup_muxer(gb_media_session *s);
-static int media_handle_slot(gb_media_session *s, zms_gop_slot *slot);
+static int media_handle_slot(gb_media_session *s, zcs_gop_slot *slot);
 
 /* ── 套接字 ─────────────────────────────────────────────────────────────── */
 
@@ -148,7 +148,7 @@ static int ps_write_cb(void *user, int stream_id, const uint8_t *ps, size_t len)
     if (!s->rtp_ps) {
         return -1;
     }
-    return zms_zm_rtp_ps_input((zms_zm_rtp_ps *)s->rtp_ps, ps, len, s->cur_rtp_ts);
+    return zcs_zm_rtp_ps_input((zcs_zm_rtp_ps *)s->rtp_ps, ps, len, s->cur_rtp_ts);
 }
 
 /* ── 参数集 / AU 准备 ───────────────────────────────────────────────────── */
@@ -171,13 +171,13 @@ static int reserve_au(gb_media_session *s, size_t need)
     return 0;
 }
 
-static void params_store(zms_codec_param_sets *ps, const uint8_t *vps, size_t vps_len,
+static void params_store(zcs_codec_param_sets *ps, const uint8_t *vps, size_t vps_len,
                          const uint8_t *sps, size_t sps_len, const uint8_t *pps,
                          size_t pps_len)
 {
     /* 整体替换参数集缓存：先清旧值再按非空项深拷贝。参数集很小且不常变，
      * 每次全量重建比增量维护更简单不易错。 */
-    zms_codec_param_sets_clear(ps);
+    zcs_codec_param_sets_clear(ps);
     if (vps && vps_len) {
         ps->vps = (uint8_t *)malloc(vps_len);
         if (ps->vps) {
@@ -201,7 +201,7 @@ static void params_store(zms_codec_param_sets *ps, const uint8_t *vps, size_t vp
     }
 }
 
-static void media_refresh_params(gb_media_session *s, const zms_gop_slot *slot)
+static void media_refresh_params(gb_media_session *s, const zcs_gop_slot *slot)
 {
     const uint8_t *sps = NULL;
     const uint8_t *pps = NULL;
@@ -209,44 +209,44 @@ static void media_refresh_params(gb_media_session *s, const zms_gop_slot *slot)
     size_t sps_len = 0;
     size_t pps_len = 0;
     size_t vps_len = 0;
-    zms_codec_param_sets *ps = (zms_codec_param_sets *)s->params;
+    zcs_codec_param_sets *ps = (zcs_codec_param_sets *)s->params;
 
     if (!ps || !slot || !slot->data) {
         return;
     }
     /* 从码流内联的参数集刷新缓存：源可能有周期性的 SPS/PPS 更新，只有提取
      * 成功才覆盖（提取失败保留旧值）。H265 额外带 VPS。 */
-    if (slot->codec == ZMS_CODEC_H264) {
-        if (zms_h264_annexb_extract_sps_pps(slot->data, slot->len, &sps, &sps_len, &pps,
+    if (slot->codec == ZCS_CODEC_H264) {
+        if (zcs_h264_annexb_extract_sps_pps(slot->data, slot->len, &sps, &sps_len, &pps,
                                             &pps_len)) {
             params_store(ps, NULL, 0, sps, sps_len, pps, pps_len);
         }
-    } else if (slot->codec == ZMS_CODEC_H265) {
-        if (zms_h265_annexb_extract_vps_sps_pps(slot->data, slot->len, &vps, &vps_len, &sps,
+    } else if (slot->codec == ZCS_CODEC_H265) {
+        if (zcs_h265_annexb_extract_vps_sps_pps(slot->data, slot->len, &vps, &vps_len, &sps,
                                                 &sps_len, &pps, &pps_len)) {
             params_store(ps, vps, vps_len, sps, sps_len, pps, pps_len);
         }
     }
 }
 
-static int slot_video_is_idr(const zms_gop_slot *slot)
+static int slot_video_is_idr(const zcs_gop_slot *slot)
 {
     if (!slot || !slot->data || slot->len < 5 || slot->config_frame) {
         return 0;
     }
-    if (slot->codec == ZMS_CODEC_H264) {
-        return slot->keyframe || zms_h264_annexb_is_idr(slot->data, slot->len);
+    if (slot->codec == ZCS_CODEC_H264) {
+        return slot->keyframe || zcs_h264_annexb_is_idr(slot->data, slot->len);
     }
-    if (slot->codec == ZMS_CODEC_H265) {
-        return slot->keyframe || zms_h265_annexb_is_idr(slot->data, slot->len);
+    if (slot->codec == ZCS_CODEC_H265) {
+        return slot->keyframe || zcs_h265_annexb_is_idr(slot->data, slot->len);
     }
     return 0;
 }
 
-static const uint8_t *media_prepare_video(gb_media_session *s, const zms_gop_slot *slot,
+static const uint8_t *media_prepare_video(gb_media_session *s, const zcs_gop_slot *slot,
                                           size_t *out_len)
 {
-    zms_codec_param_sets *ps = (zms_codec_param_sets *)s->params;
+    zcs_codec_param_sets *ps = (zcs_codec_param_sets *)s->params;
     size_t need;
 
     *out_len = slot->len;
@@ -258,7 +258,7 @@ static const uint8_t *media_prepare_video(gb_media_session *s, const zms_gop_slo
     }
     media_refresh_params(s, slot);
 
-    if (slot->codec == ZMS_CODEC_H264) {
+    if (slot->codec == ZCS_CODEC_H264) {
         if (!ps->sps || !ps->pps || !ps->sps_len || !ps->pps_len) {
             return slot->data;
         }
@@ -268,7 +268,7 @@ static const uint8_t *media_prepare_video(gb_media_session *s, const zms_gop_slo
         }
         {
             size_t n = 0;
-            zn_err_t err = zms_h264_annexb_prepend_sps_pps(
+            zn_err_t err = zcs_h264_annexb_prepend_sps_pps(
                 ps->sps, ps->sps_len, ps->pps, ps->pps_len, slot->data, slot->len, s->au_buf,
                 s->au_cap, &n);
             if (err == ZN_OK && n > 0) {
@@ -278,7 +278,7 @@ static const uint8_t *media_prepare_video(gb_media_session *s, const zms_gop_slo
         }
         return slot->data;
     }
-    if (slot->codec == ZMS_CODEC_H265) {
+    if (slot->codec == ZCS_CODEC_H265) {
         int have = ps->sps && ps->sps_len && ps->pps && ps->pps_len;
         need = slot->len + ps->vps_len + ps->sps_len + ps->pps_len + 64;
         if (reserve_au(s, need) != 0) {
@@ -286,7 +286,7 @@ static const uint8_t *media_prepare_video(gb_media_session *s, const zms_gop_slo
         }
         {
             size_t n = 0;
-            zn_err_t err = zms_h265_annexb_build_rtp_au(
+            zn_err_t err = zcs_h265_annexb_build_rtp_au(
                 ps->vps, ps->vps_len, ps->sps, ps->sps_len, ps->pps, ps->pps_len, slot->data,
                 slot->len, have, s->au_buf, s->au_cap, &n);
             if (err == ZN_OK && n > 0) {
@@ -424,9 +424,9 @@ gb_media_session *gb_media_open(const char *call_id, const char *channel_id,
         *out_local_port = s->local_port;
     }
     s->refs = 1; /* 会话自持的一份（最后一个引用者销毁会话） */
-    s->params = calloc(1, sizeof(zms_codec_param_sets));
+    s->params = calloc(1, sizeof(zcs_codec_param_sets));
     if (s->params) {
-        zms_codec_param_sets_init((zms_codec_param_sets *)s->params);
+        zcs_codec_param_sets_init((zcs_codec_param_sets *)s->params);
     }
     session_link(s);
     zn_info("gb28181: media open call=%s transport=%d local_port=%u peer=%s:%u", call_id,
@@ -484,7 +484,7 @@ static void gbm_playback_submit(gb_media_session *s);
 /* 回放：一次读一帧交给 IO 池（文件 IO 不在 poller 上），读完回到 poller 发送。 */
 typedef struct gbm_pb_job {
     gb_media_session *s;
-    zms_gop_slot slot;
+    zcs_gop_slot slot;
     int r;
 } gbm_pb_job;
 
@@ -512,7 +512,7 @@ static void gbm_pb_on_io(void *user)
         } else if (j->r == 1) {
             /* 回放起播也要求从视频 IDR 开始，音频一起等，避免开播即花屏。 */
             if (!s->video_started) {
-                if (j->slot.track == ZMS_TRACK_VIDEO && slot_video_is_idr(&j->slot)) {
+                if (j->slot.track == ZCS_TRACK_VIDEO && slot_video_is_idr(&j->slot)) {
                     s->video_started = 1;
                     s->have_pace_base = 0;
                     s->last_rtp_ts = 0;
@@ -544,7 +544,7 @@ static void gbm_playback_submit(gb_media_session *s)
     /* 提交前给会话加一份引用：工作线程与 on_io 期间会话可能被 stop_all/外部
      * 并发释放，refs 保证任务执行时对象仍有效。提交失败要立刻回退该引用。 */
     (void)zb_atomic_add32(&s->refs, 1);
-    if (zms_vod_thread_pool_run(p, gbm_pb_work, gbm_pb_on_io, j) != ZN_OK) {
+    if (zcs_vod_thread_pool_run(p, gbm_pb_work, gbm_pb_on_io, j) != ZN_OK) {
         s->playback_reading = 0;
         gb_media_session_unref(s);
         free(j);
@@ -591,7 +591,7 @@ static void gbm_playback_open_submit(gb_media_session *s)
     /* 打开回放源也要读文件/建索引，丢线程池；同样先加引用保证 on_io 执行前
      * 会话不被释放。提交失败回退引用并 fail。 */
     (void)zb_atomic_add32(&s->refs, 1);
-    if (zms_vod_thread_pool_run(p, gbm_pb_open_work, gbm_pb_open_on_io, s) != ZN_OK) {
+    if (zcs_vod_thread_pool_run(p, gbm_pb_open_work, gbm_pb_open_on_io, s) != ZN_OK) {
         gb_media_session_unref(s);
         gbm_fail(s, "playback open submit failed");
     }
@@ -714,7 +714,7 @@ static void gbm_stop_inline(gb_media_session *s)
         s->fd_events = 0;
     }
     if (s->reader_valid) {
-        zms_media_subscriber_detach(&s->reader);
+        zcs_media_subscriber_detach(&s->reader);
         s->reader_valid = 0;
     }
     gb_media_session_unref(s); /* 释放会话自持引用 */
@@ -842,7 +842,7 @@ static uint64_t gbm_start_try(void *user)
 {
     gb_media_session *s = (gb_media_session *)user;
     gb_channel ch;
-    zms_media_source *src;
+    zcs_media_source *src;
 
     /* 单次执行（返回 0 不再自续）：成功则交棒给 gbm_begin_stream 里的发送
      * 节拍定时器；失败重试则自己排下一次 200ms。回放模式则先异步打开回放源，
@@ -896,16 +896,16 @@ static void gbm_begin_stream(gb_media_session *s)
         return;
     }
     if (!s->is_playback) {
-        if (zms_media_source_subscribe_gop(s->source, &s->reader) != ZN_OK) {
+        if (zcs_media_source_subscribe_gop(s->source, &s->reader) != ZN_OK) {
             gbm_fail(s, "attach reader failed");
             return;
         }
         s->reader_valid = 1;
         /* 从最近的 IDR 起读；若读者落后超过 240 个 slot（约数秒，来源卡顿或
          * 刚起播），改为 seek_live 直接跳到直播点，避免从过旧 GOP 开始追不上。 */
-        zms_gop_reader_seek_rtsp_idr(s->reader.gop);
-        if (zms_gop_reader_lag(s->reader.gop) > 240) {
-            zms_gop_reader_seek_live(s->reader.gop);
+        zcs_gop_reader_seek_rtsp_idr(s->reader.gop);
+        if (zcs_gop_reader_lag(s->reader.gop) > 240) {
+            zcs_gop_reader_seek_live(s->reader.gop);
         }
     }
 
@@ -955,7 +955,7 @@ static void gbm_connected(gb_media_session *s)
         s->tick_timer = zn_poller_do_delay(p, GBM_TICK_MS, gbm_tick_cb, s);
     }
     zn_info("gb28181: streaming channel=%s video=%s audio=%s ssrc=%u transport=%s",
-             s->channel_id, zms_codec_name(s->video_codec), zms_codec_name(s->audio_codec),
+             s->channel_id, zcs_codec_name(s->video_codec), zcs_codec_name(s->audio_codec),
              s->ssrc, s->transport == GB_MEDIA_UDP ? "udp" : "tcp");
 }
 
@@ -985,8 +985,8 @@ static uint64_t gbm_tick_cb(void *user)
         return GBM_TICK_MS;
     }
     for (i = 0; i < GBM_SLOTS_PER_TICK; ++i) {
-        zms_gop_slot slot;
-        int r = zms_gop_reader_read_muxed(s->reader.gop, &slot, 0);
+        zcs_gop_slot slot;
+        int r = zcs_gop_reader_read_muxed(s->reader.gop, &slot, 0);
 
         if (r <= 0) {
             break;
@@ -995,7 +995,7 @@ static uint64_t gbm_tick_cb(void *user)
             continue;
         }
         if (!s->video_started) {
-            if (slot.track == ZMS_TRACK_VIDEO && slot_video_is_idr(&slot)) {
+            if (slot.track == ZCS_TRACK_VIDEO && slot_video_is_idr(&slot)) {
                 s->video_started = 1;
                 s->have_pace_base = 0;
                 s->last_rtp_ts = 0;
@@ -1019,14 +1019,14 @@ static uint64_t gbm_tick_cb(void *user)
 
 static int media_setup_muxer(gb_media_session *s)
 {
-    zms_zm_ps_muxer_opts popts;
-    zms_zm_rtp_ps_opts ropts;
-    zms_codec_param_sets *ps = (zms_codec_param_sets *)s->params;
+    zcs_zm_ps_muxer_opts popts;
+    zcs_zm_rtp_ps_opts ropts;
+    zcs_codec_param_sets *ps = (zcs_codec_param_sets *)s->params;
 
     memset(&popts, 0, sizeof(popts));
     popts.write = ps_write_cb;
     popts.user = s;
-    s->ps_mux = zms_zm_ps_muxer_create(&popts);
+    s->ps_mux = zcs_zm_ps_muxer_create(&popts);
     if (!s->ps_mux) {
         return -1;
     }
@@ -1039,20 +1039,20 @@ static int media_setup_muxer(gb_media_session *s)
     ropts.mtu = 1400;
     ropts.write = rtp_write_cb;
     ropts.user = s;
-    s->rtp_ps = zms_zm_rtp_ps_create(&ropts);
+    s->rtp_ps = zcs_zm_rtp_ps_create(&ropts);
     if (!s->rtp_ps) {
         return -1;
     }
 
-    if (s->video_codec == ZMS_CODEC_H264 || s->video_codec == ZMS_CODEC_H265) {
-        s->video_stream = zms_zm_ps_muxer_add_video((zms_zm_ps_muxer *)s->ps_mux,
+    if (s->video_codec == ZCS_CODEC_H264 || s->video_codec == ZCS_CODEC_H265) {
+        s->video_stream = zcs_zm_ps_muxer_add_video((zcs_zm_ps_muxer *)s->ps_mux,
                                                       s->video_codec);
         if (s->video_stream <= 0) {
             return -1;
         }
         if (ps) {
             size_t cfg_len = 0;
-            const uint8_t *cfg = s->source ? zms_media_source_video_config(s->source, &cfg_len)
+            const uint8_t *cfg = s->source ? zcs_media_source_video_config(s->source, &cfg_len)
                                            : NULL;
             /* 直播源优先取源的视频 config；回放没有直播源时退回回放源的 config。
              * 缓存进 ps（参数集），供 media_prepare_video 在 IDR 前 prepend。 */
@@ -1060,38 +1060,38 @@ static int media_setup_muxer(gb_media_session *s)
                 cfg = gb_playback_video_config(s->playback, &cfg_len);
             }
             if (cfg && cfg_len) {
-                zms_codec_param_sets_cache_flv_cfg(ps, cfg, cfg_len);
+                zcs_codec_param_sets_cache_flv_cfg(ps, cfg, cfg_len);
             }
         }
     }
-    if (s->audio_codec == ZMS_CODEC_AAC || s->audio_codec == ZMS_CODEC_G711A ||
-        s->audio_codec == ZMS_CODEC_G711U) {
-        s->audio_stream = zms_zm_ps_muxer_add_audio((zms_zm_ps_muxer *)s->ps_mux,
+    if (s->audio_codec == ZCS_CODEC_AAC || s->audio_codec == ZCS_CODEC_G711A ||
+        s->audio_codec == ZCS_CODEC_G711U) {
+        s->audio_stream = zcs_zm_ps_muxer_add_audio((zcs_zm_ps_muxer *)s->ps_mux,
                                                      s->audio_codec);
     }
-    if (s->audio_codec == ZMS_CODEC_AAC && s->source) {
+    if (s->audio_codec == ZCS_CODEC_AAC && s->source) {
         size_t alen = 0;
-        const uint8_t *acfg = zms_media_source_audio_config(s->source, &alen);
+        const uint8_t *acfg = zcs_media_source_audio_config(s->source, &alen);
         if ((!acfg || !alen) && s->playback) {
             acfg = gb_playback_audio_config(s->playback, &alen);
         }
         const uint8_t *asc = NULL;
         size_t ascl = 0;
-        zms_aac_config *cfg = (zms_aac_config *)calloc(1, sizeof(*cfg));
+        zcs_aac_config *cfg = (zcs_aac_config *)calloc(1, sizeof(*cfg));
         if (cfg) {
             int ok = 0;
             /* ASC 可能以 FLV 音频头（带 tag 字节）形式给出，也可能就是裸 ASC：
              * 先尝试剥 FLV 头，失败再当裸 ASC 解析。都失败用源声道/采样率的
              * 默认参数兜底，至少让音频能出。 */
             if (acfg && alen) {
-                if (zms_rtmp_aac_extradata(acfg, alen, &asc, &ascl)) {
-                    ok = zms_aac_config_load_asc(cfg, asc, ascl);
+                if (zcs_rtmp_aac_extradata(acfg, alen, &asc, &ascl)) {
+                    ok = zcs_aac_config_load_asc(cfg, asc, ascl);
                 } else {
-                    ok = zms_aac_config_load_asc(cfg, acfg, alen);
+                    ok = zcs_aac_config_load_asc(cfg, acfg, alen);
                 }
             }
             if (!ok) {
-                zms_aac_config_set_defaults(cfg, s->source->audio.sample_rate, s->source->audio.channels);
+                zcs_aac_config_set_defaults(cfg, s->source->audio.sample_rate, s->source->audio.channels);
             }
             s->aac_cfg = cfg;
         }
@@ -1099,16 +1099,16 @@ static int media_setup_muxer(gb_media_session *s)
     return 0;
 }
 
-static const uint8_t *media_prepare_audio(gb_media_session *s, const zms_gop_slot *slot,
+static const uint8_t *media_prepare_audio(gb_media_session *s, const zcs_gop_slot *slot,
                                           size_t *out_len)
 {
-    zms_aac_config *cfg = (zms_aac_config *)s->aac_cfg;
+    zcs_aac_config *cfg = (zcs_aac_config *)s->aac_cfg;
     uint8_t hdr[16];
     int hn;
     size_t need;
 
     *out_len = slot->len;
-    if (slot->codec != ZMS_CODEC_AAC) {
+    if (slot->codec != ZCS_CODEC_AAC) {
         return slot->data;
     }
     if (!cfg) {
@@ -1116,7 +1116,7 @@ static const uint8_t *media_prepare_audio(gb_media_session *s, const zms_gop_slo
     }
     /* PS 里的 AAC 需为 ADTS 封装：每帧前加 7 字节 ADTS 头（含采样率/声道/
      * 帧长），从 ASC 反推。头生成失败就退回裸帧（少见，交给下游容忍）。 */
-    hn = zms_aac_config_adts_header(cfg, (uint16_t)slot->len, hdr, sizeof(hdr));
+    hn = zcs_aac_config_adts_header(cfg, (uint16_t)slot->len, hdr, sizeof(hdr));
     if (hn <= 0) {
         return slot->data;
     }
@@ -1135,7 +1135,7 @@ static const uint8_t *media_prepare_audio(gb_media_session *s, const zms_gop_slo
     return s->aud_buf;
 }
 
-static int media_handle_slot(gb_media_session *s, zms_gop_slot *slot)
+static int media_handle_slot(gb_media_session *s, zcs_gop_slot *slot)
 {
     uint32_t dts;
     uint32_t pts;
@@ -1147,17 +1147,17 @@ static int media_handle_slot(gb_media_session *s, zms_gop_slot *slot)
     if (!slot->data || slot->len == 0) {
         return 0;
     }
-    if (slot->track == ZMS_TRACK_VIDEO) {
+    if (slot->track == ZCS_TRACK_VIDEO) {
         /* 参数集帧不单独发，IDR 前统一 prepend。 */
         if (slot->config_frame) {
             return 0;
         }
         /* 只支持 H264/H265 出 PS；其它编码（如 AV1）无法封进 GB28181 PS，
          * 直接丢弃而不是发脏流。 */
-        if (slot->codec != ZMS_CODEC_H264 && slot->codec != ZMS_CODEC_H265) {
+        if (slot->codec != ZCS_CODEC_H264 && slot->codec != ZCS_CODEC_H265) {
             return 0;
         }
-    } else if (slot->track == ZMS_TRACK_AUDIO) {
+    } else if (slot->track == ZCS_TRACK_AUDIO) {
         if (slot->config_frame) {
             return 0;
         }
@@ -1194,13 +1194,13 @@ static int media_handle_slot(gb_media_session *s, zms_gop_slot *slot)
     /* 回放按节拍发送：记录该帧最早可发时刻。 */
     s->next_due_ms = s->first_wall_ms + rel_dts;
 
-    if (slot->track == ZMS_TRACK_VIDEO) {
+    if (slot->track == ZCS_TRACK_VIDEO) {
         size_t au_len = 0;
         const uint8_t *au = media_prepare_video(s, slot, &au_len);
         if (!au || !s->video_stream) {
             return 0;
         }
-        return zms_zm_ps_muxer_input_video((zms_zm_ps_muxer *)s->ps_mux, s->video_stream, au,
+        return zcs_zm_ps_muxer_input_video((zcs_zm_ps_muxer *)s->ps_mux, s->video_stream, au,
                                             au_len, slot_video_is_idr(slot), pts90, dts90);
     }
     {
@@ -1209,7 +1209,7 @@ static int media_handle_slot(gb_media_session *s, zms_gop_slot *slot)
         if (!au) {
             return 0;
         }
-        return zms_zm_ps_muxer_input_audio((zms_zm_ps_muxer *)s->ps_mux, s->audio_stream, au,
+        return zcs_zm_ps_muxer_input_audio((zcs_zm_ps_muxer *)s->ps_mux, s->audio_stream, au,
                                             alen, pts90);
     }
 }
@@ -1242,11 +1242,11 @@ static void session_free(gb_media_session *s)
         s->media_fd = -1;
     }
     if (s->ps_mux) {
-        zms_zm_ps_muxer_destroy((zms_zm_ps_muxer *)s->ps_mux);
+        zcs_zm_ps_muxer_destroy((zcs_zm_ps_muxer *)s->ps_mux);
         s->ps_mux = NULL;
     }
     if (s->rtp_ps) {
-        zms_zm_rtp_ps_destroy((zms_zm_rtp_ps *)s->rtp_ps);
+        zcs_zm_rtp_ps_destroy((zcs_zm_rtp_ps *)s->rtp_ps);
         s->rtp_ps = NULL;
     }
     if (s->playback) {
@@ -1254,7 +1254,7 @@ static void session_free(gb_media_session *s)
         s->playback = NULL;
     }
     if (s->params) {
-        zms_codec_param_sets_clear((zms_codec_param_sets *)s->params);
+        zcs_codec_param_sets_clear((zcs_codec_param_sets *)s->params);
         free(s->params);
         s->params = NULL;
     }

@@ -4,29 +4,29 @@
  *
  * Copyright (c) zero-media-server
  */
-#include "zms/publish/ingest/common/stream_ingest.h"
-#include "zms/publish/ingest/common/ingest_codec.h"
-#include "zms/media/codec/aac/aac_over_rtmp.h"
-#include "zms/media/codec/aac/aac_over_rtp.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/container/demux_pipeline.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
-#include "zms/media/wire/rtmp.h"
-#include "zms/core/event.h"
-#include "zms/media/clock.h"
-#include "zms/core/codec_filter.h"
-#include "zms/core/gop/queue.h"
-#include "zms/core/stream_track.h"
-#include "zms/util/buf_pool.h"
+#include "zcs/publish/ingest/common/stream_ingest.h"
+#include "zcs/publish/ingest/common/ingest_codec.h"
+#include "zcs/media/codec/aac/aac_over_rtmp.h"
+#include "zcs/media/codec/aac/aac_over_rtp.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/container/demux_pipeline.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/wire/rtmp.h"
+#include "zcs/core/event.h"
+#include "zcs/media/clock.h"
+#include "zcs/core/codec_filter.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/core/stream_track.h"
+#include "zcs/util/buf_pool.h"
 #include "publish/ingest/common/ingest_internal.h"
 #include "zn/util/buf.h"
 #include "zn/platform.h"
-#include "zms/util/log_throttle.h"
+#include "zcs/util/log_throttle.h"
 #include "zn/util/log.h"
 #include <stdlib.h>
 #include <string.h>
 
-static uint32_t ingest_linear_ms_pts(zms_live_ingest *ch, uint32_t raw_ms)
+static uint32_t ingest_linear_ms_pts(zcs_live_ingest *ch, uint32_t raw_ms)
 {
     if (ch->av_origin_set && raw_ms >= ch->av_origin_ms) {
         return raw_ms - ch->av_origin_ms;
@@ -42,7 +42,7 @@ static uint32_t ingest_linear_ms_pts(zms_live_ingest *ch, uint32_t raw_ms)
  * linear_ms 模式走的是“相对首帧的线性差”，绕过 timeline 的平滑/夹取逻辑，
  * 用于要求严格线性的源。
  */
-uint32_t live_ingest_video_pts(zms_live_ingest *ch, uint32_t raw_ms)
+uint32_t live_ingest_video_pts(zcs_live_ingest *ch, uint32_t raw_ms)
 {
     if (ch->last_v_valid && ch->last_v_raw_ms == raw_ms) {
         return ch->last_v_pts;
@@ -51,13 +51,13 @@ uint32_t live_ingest_video_pts(zms_live_ingest *ch, uint32_t raw_ms)
     if (ch->tl.linear_ms) {
         ch->last_v_pts = ingest_linear_ms_pts(ch, raw_ms);
     } else {
-        ch->last_v_pts = zms_media_timeline_video(&ch->tl, raw_ms);
+        ch->last_v_pts = zcs_media_timeline_video(&ch->tl, raw_ms);
     }
     ch->last_v_valid = 1;
     return ch->last_v_pts;
 }
 
-uint32_t live_ingest_audio_pts(zms_live_ingest *ch, uint32_t raw_ms)
+uint32_t live_ingest_audio_pts(zcs_live_ingest *ch, uint32_t raw_ms)
 {
     if (ch->last_a_valid && ch->last_a_raw_ms == raw_ms) {
         return ch->last_a_pts;
@@ -66,24 +66,24 @@ uint32_t live_ingest_audio_pts(zms_live_ingest *ch, uint32_t raw_ms)
     if (ch->tl.linear_ms) {
         ch->last_a_pts = ingest_linear_ms_pts(ch, raw_ms);
     } else {
-        ch->last_a_pts = zms_media_timeline_audio(&ch->tl, raw_ms);
+        ch->last_a_pts = zcs_media_timeline_audio(&ch->tl, raw_ms);
     }
     ch->last_a_valid = 1;
     return ch->last_a_pts;
 }
 
-uint8_t *live_ingest_work_buf(zms_live_ingest *ch)
+uint8_t *live_ingest_work_buf(zcs_live_ingest *ch)
 {
     if (!ch) {
         return NULL;
     }
-    if (!ingest_slot_resize(ch, &ch->work_buf, &ch->work_cap, ZMS_LIVE_INGEST_WORK_BUF)) {
+    if (!ingest_slot_resize(ch, &ch->work_buf, &ch->work_cap, ZCS_LIVE_INGEST_WORK_BUF)) {
         return NULL;
     }
     return ch->work_buf;
 }
 
-uint8_t *live_ingest_large_buf(zms_live_ingest *ch, size_t need)
+uint8_t *live_ingest_large_buf(zcs_live_ingest *ch, size_t need)
 {
     if (!ch || need == 0) {
         return NULL;
@@ -94,28 +94,28 @@ uint8_t *live_ingest_large_buf(zms_live_ingest *ch, size_t need)
     return ch->large_buf;
 }
 
-void live_ingest_set_video_config(zms_live_ingest *ch, const void *data, size_t len)
+void live_ingest_set_video_config(zcs_live_ingest *ch, const void *data, size_t len)
 {
     zn_err_t err;
 
     if (!ch || !ch->source || !ch->source->gop_queue || !data || len == 0) {
         return;
     }
-    err = zms_gop_queue_set_video_config(ch->source->gop_queue, data, len);
+    err = zcs_gop_queue_set_video_config(ch->source->gop_queue, data, len);
     if (err != ZN_OK) {
         zn_warn("ingress: set video config failed err=%d len=%u", (int)err, (unsigned)len);
     }
 }
 
-void live_ingest_set_audio_config(zms_live_ingest *ch, const void *data, size_t len)
+void live_ingest_set_audio_config(zcs_live_ingest *ch, const void *data, size_t len)
 {
     if (!ch || !ch->source || !ch->source->gop_queue || !data || len == 0) {
         return;
     }
-    (void)zms_gop_queue_set_audio_config(ch->source->gop_queue, data, len);
+    (void)zcs_gop_queue_set_audio_config(ch->source->gop_queue, data, len);
 }
 
-static void live_ingest_maybe_mute_audio(zms_live_ingest *ch, uint32_t dts_ms);
+static void live_ingest_maybe_mute_audio(zcs_live_ingest *ch, uint32_t dts_ms);
 
 /* [protocol] modify_stamp=1：用接收系统时间（相对首帧）覆盖源时间戳，平滑且单调。 */
 /*
@@ -123,7 +123,7 @@ static void live_ingest_maybe_mute_audio(zms_live_ingest *ch, uint32_t dts_ms);
  * 而 GOP 队列/播放端都假定 DTS 单调。这里 out<=last 时强制 +1ms 兜底，
  * 牺牲一点时间精度换取时间轴可推进、不卡死。
  */
-static void live_ingest_modify_stamp(zms_live_ingest *ch, zms_frame *f)
+static void live_ingest_modify_stamp(zcs_live_ingest *ch, zcs_frame *f)
 {
     int64_t now;
     int64_t out;
@@ -147,23 +147,23 @@ static void live_ingest_modify_stamp(zms_live_ingest *ch, zms_frame *f)
 /* 复制一份 frame 再写：copy.owned=0 表明 buffer 归调用方所有，GOP 队列只
  * 引用不接管，避免入站 buffer 生命周期与队列混在一起。modify_stamp 只改
  * 副本，不污染调用方的 frame。 */
-void live_ingest_write_frame(zms_live_ingest *ch, const zms_frame *frame)
+void live_ingest_write_frame(zcs_live_ingest *ch, const zcs_frame *frame)
 {
     if (!ch || !ch->source || !ch->source->gop_queue || !frame || !frame->data ||
         frame->size == 0) {
         return;
     }
-    zms_frame copy = *frame;
+    zcs_frame copy = *frame;
     copy.owned = 0;
     live_ingest_modify_stamp(ch, &copy);
-    if (zms_gop_queue_write(ch->source->gop_queue, &copy) == ZN_OK) {
-        zms_media_stats_on_ingress(ch->source, frame->size);
-        zms_media_stats_on_frame(ch->source, frame->track == ZMS_TRACK_VIDEO);
-        if (frame->track == ZMS_TRACK_VIDEO) {
+    if (zcs_gop_queue_write(ch->source->gop_queue, &copy) == ZN_OK) {
+        zcs_media_stats_on_ingress(ch->source, frame->size);
+        zcs_media_stats_on_frame(ch->source, frame->track == ZCS_TRACK_VIDEO);
+        if (frame->track == ZCS_TRACK_VIDEO) {
             live_ingest_maybe_mute_audio(ch, (uint32_t)frame->dts_ms);
         }
     } else {
-        zms_media_stats_on_drop(ch->source);
+        zcs_media_stats_on_drop(ch->source);
     }
 }
 
@@ -178,7 +178,7 @@ void live_ingest_write_frame(zms_live_ingest *ch, const zms_frame *frame)
  * mute_audio_active 要在 ensure 前置位：ensure 内部会判“是否已有音轨”，
  * 若不先置位，会把自己创建的静音轨当成外来真实音轨而拒绝。
  */
-static void live_ingest_maybe_mute_audio(zms_live_ingest *ch, uint32_t dts_ms)
+static void live_ingest_maybe_mute_audio(zcs_live_ingest *ch, uint32_t dts_ms)
 {
     if (!ch || !ch->opt.add_mute_audio || ch->real_audio || !ch->source) {
         return;
@@ -199,7 +199,7 @@ static void live_ingest_maybe_mute_audio(zms_live_ingest *ch, uint32_t dts_ms)
     }
     if (!ch->mute_audio_active) {
         ch->mute_audio_active = 1; /* 先置位，避免 ensure 被误判为真实音轨 */
-        if (zms_live_ingest_ensure_aac_config(ch, 44100, 2) != ZN_OK) {
+        if (zcs_live_ingest_ensure_aac_config(ch, 44100, 2) != ZN_OK) {
             ch->mute_audio_active = 0;
             return;
         }
@@ -209,13 +209,13 @@ static void live_ingest_maybe_mute_audio(zms_live_ingest *ch, uint32_t dts_ms)
     /* 以视频时间轴为准，约每 23ms（1024/44100）补一帧静音 AAC */
     if (ch->mute_audio_idx < 0 || (int64_t)dts_ms - ch->mute_audio_idx >= 22) {
         ch->mute_audio_idx = (int64_t)dts_ms;
-        zms_live_ingest_inject_mute_aac(ch, dts_ms);
+        zcs_live_ingest_inject_mute_aac(ch, dts_ms);
     }
 }
 
 /* 带 buffer 的写入：buf 所有权在此转交。若写入失败必须 unref（否则泄漏），
  * 成功则由 GOP 队列接管。modify_stamp 开启时才复制 frame 改时间戳。 */
-zn_err_t live_ingest_write_frame_buf(zms_live_ingest *ch, zn_buf *buf, const zms_frame *frame)
+zn_err_t live_ingest_write_frame_buf(zcs_live_ingest *ch, zn_buf *buf, const zcs_frame *frame)
 {
     zn_err_t err;
 
@@ -223,43 +223,43 @@ zn_err_t live_ingest_write_frame_buf(zms_live_ingest *ch, zn_buf *buf, const zms
         return ZN_ERR_INVALID;
     }
     if (ch->opt.modify_stamp == 1) {
-        zms_frame fixed = *frame;
+        zcs_frame fixed = *frame;
         live_ingest_modify_stamp(ch, &fixed);
-        err = zms_gop_queue_write_buf(ch->source->gop_queue, buf, &fixed);
+        err = zcs_gop_queue_write_buf(ch->source->gop_queue, buf, &fixed);
     } else {
-        err = zms_gop_queue_write_buf(ch->source->gop_queue, buf, frame);
+        err = zcs_gop_queue_write_buf(ch->source->gop_queue, buf, frame);
     }
     if (err != ZN_OK) {
         zn_buf_unref(buf);
-        zms_media_stats_on_drop(ch->source);
+        zcs_media_stats_on_drop(ch->source);
     } else {
-        zms_media_stats_on_ingress(ch->source, frame->size);
-        zms_media_stats_on_frame(ch->source, frame->track == ZMS_TRACK_VIDEO);
-        if (frame->track == ZMS_TRACK_VIDEO) {
+        zcs_media_stats_on_ingress(ch->source, frame->size);
+        zcs_media_stats_on_frame(ch->source, frame->track == ZCS_TRACK_VIDEO);
+        if (frame->track == ZCS_TRACK_VIDEO) {
             live_ingest_maybe_mute_audio(ch, (uint32_t)frame->dts_ms);
         }
     }
     return err;
 }
 
-zms_live_ingest *zms_live_ingest_create_vhost(const char *vhost, const char *app,
-                                              const char *stream, const zms_protocol_opts *opts)
+zcs_live_ingest *zcs_live_ingest_create_vhost(const char *vhost, const char *app,
+                                              const char *stream, const zcs_protocol_opts *opts)
 {
     if (!app || !stream) {
         return NULL;
     }
 
-    zms_live_ingest *ch = (zms_live_ingest *)calloc(1, sizeof(*ch));
+    zcs_live_ingest *ch = (zcs_live_ingest *)calloc(1, sizeof(*ch));
     if (!ch) {
         return NULL;
     }
 
     {
-        zms_protocol_opts def;
-        const zms_protocol_opts *o = opts;
+        zcs_protocol_opts def;
+        const zcs_protocol_opts *o = opts;
 
         if (!o) {
-            zms_protocol_opts_default(&def);
+            zcs_protocol_opts_default(&def);
             o = &def;
         }
         ch->opt.modify_stamp = o->modify_stamp;
@@ -269,50 +269,50 @@ zms_live_ingest *zms_live_ingest_create_vhost(const char *vhost, const char *app
         zn_info("ingress: modify_stamp=%d (1=system time, 2=relative)", ch->opt.modify_stamp);
     }
 
-    ch->source = zms_media_source_register_ex(ZMS_SCHEMA_RTMP, vhost, app, stream);
+    ch->source = zcs_media_source_register_ex(ZCS_SCHEMA_RTMP, vhost, app, stream);
     if (!ch->source) {
         free(ch);
         return NULL;
     }
     ch->owns_source = 0;
-    zms_media_timeline_reset(&ch->tl);
+    zcs_media_timeline_reset(&ch->tl);
     return ch;
 }
 
-zms_live_ingest *zms_live_ingest_create(const char *app, const char *stream,
-                                        const zms_protocol_opts *opts)
+zcs_live_ingest *zcs_live_ingest_create(const char *app, const char *stream,
+                                        const zcs_protocol_opts *opts)
 {
-    return zms_live_ingest_create_vhost(ZMS_DEFAULT_VHOST, app, stream, opts);
+    return zcs_live_ingest_create_vhost(ZCS_DEFAULT_VHOST, app, stream, opts);
 }
 
-zms_live_ingest *zms_live_ingest_create_publish(const char *app, const char *stream_requested,
-                                                const zms_protocol_opts *opts)
+zcs_live_ingest *zcs_live_ingest_create_publish(const char *app, const char *stream_requested,
+                                                const zcs_protocol_opts *opts)
 {
-    return zms_live_ingest_create_publish_schema(ZMS_SCHEMA_RTMP, app, stream_requested, opts);
+    return zcs_live_ingest_create_publish_schema(ZCS_SCHEMA_RTMP, app, stream_requested, opts);
 }
 
-zms_live_ingest *zms_live_ingest_create_publish_schema_vhost(const char *schema,
+zcs_live_ingest *zcs_live_ingest_create_publish_schema_vhost(const char *schema,
                                                              const char *vhost, const char *app,
                                                              const char *stream_requested,
-                                                             const zms_protocol_opts *opts)
+                                                             const zcs_protocol_opts *opts)
 {
-    const char *reg_schema = schema && schema[0] ? schema : ZMS_SCHEMA_RTMP;
+    const char *reg_schema = schema && schema[0] ? schema : ZCS_SCHEMA_RTMP;
 
     if (!app || !stream_requested) {
         return NULL;
     }
 
-    zms_live_ingest *ch = (zms_live_ingest *)calloc(1, sizeof(*ch));
+    zcs_live_ingest *ch = (zcs_live_ingest *)calloc(1, sizeof(*ch));
     if (!ch) {
         return NULL;
     }
 
     {
-        zms_protocol_opts def;
-        const zms_protocol_opts *o = opts;
+        zcs_protocol_opts def;
+        const zcs_protocol_opts *o = opts;
 
         if (!o) {
-            zms_protocol_opts_default(&def);
+            zcs_protocol_opts_default(&def);
             o = &def;
         }
         ch->opt.modify_stamp = o->modify_stamp;
@@ -325,61 +325,61 @@ zms_live_ingest *zms_live_ingest_create_publish_schema_vhost(const char *schema,
     /* create_publish 系列用 register_publish_ex：声明本源是“推流端”，与纯
      * 播放侧的 register_ex 区分开，影响源的生命周期与 linger/去重语义。
      * schema 缺省回落到 RTMP（绝大多数推流是 RTMP）。 */
-    ch->source = zms_media_source_register_publish_ex(reg_schema, vhost, app, stream_requested);
+    ch->source = zcs_media_source_register_publish_ex(reg_schema, vhost, app, stream_requested);
     if (!ch->source) {
         free(ch);
         return NULL;
     }
     ch->owns_source = 0;
-    zms_media_timeline_reset(&ch->tl);
+    zcs_media_timeline_reset(&ch->tl);
     return ch;
 }
 
-zms_live_ingest *zms_live_ingest_create_publish_schema(const char *schema, const char *app,
+zcs_live_ingest *zcs_live_ingest_create_publish_schema(const char *schema, const char *app,
                                                        const char *stream_requested,
-                                                       const zms_protocol_opts *opts)
+                                                       const zcs_protocol_opts *opts)
 {
-    return zms_live_ingest_create_publish_schema_vhost(schema, ZMS_DEFAULT_VHOST, app,
+    return zcs_live_ingest_create_publish_schema_vhost(schema, ZCS_DEFAULT_VHOST, app,
                                                        stream_requested, opts);
 }
 
-zms_live_ingest *zms_live_ingest_create_publish_vhost(const char *vhost, const char *app,
+zcs_live_ingest *zcs_live_ingest_create_publish_vhost(const char *vhost, const char *app,
                                                       const char *stream_requested,
-                                                      const zms_protocol_opts *opts)
+                                                      const zcs_protocol_opts *opts)
 {
-    return zms_live_ingest_create_publish_schema_vhost(ZMS_SCHEMA_RTMP, vhost, app,
+    return zcs_live_ingest_create_publish_schema_vhost(ZCS_SCHEMA_RTMP, vhost, app,
                                                        stream_requested, opts);
 }
 
-zms_live_ingest *zms_live_ingest_bind(zms_media_source *src)
+zcs_live_ingest *zcs_live_ingest_bind(zcs_media_source *src)
 {
     if (!src || !src->gop_queue) {
         return NULL;
     }
-    zms_live_ingest *ch = (zms_live_ingest *)calloc(1, sizeof(*ch));
+    zcs_live_ingest *ch = (zcs_live_ingest *)calloc(1, sizeof(*ch));
     if (!ch) {
         return NULL;
     }
     ch->source = src;
     ch->owns_source = 0;
-    zms_protocol_opts_default(&ch->opt);
-    zms_media_timeline_reset(&ch->tl);
+    zcs_protocol_opts_default(&ch->opt);
+    zcs_media_timeline_reset(&ch->tl);
     return ch;
 }
 
-void zms_live_ingest_destroy(zms_live_ingest *ch)
+void zcs_live_ingest_destroy(zcs_live_ingest *ch)
 {
     if (!ch) {
         return;
     }
-    zms_live_ingest_h265_hevc_au_reset(ch);
-    zms_demux_pipeline_destroy(ch->rtmp_demux);
+    zcs_live_ingest_h265_hevc_au_reset(ch);
+    zcs_demux_pipeline_destroy(ch->rtmp_demux);
     ingest_slot_clear(ch, &ch->work_buf, &ch->work_cap);
     ingest_slot_clear(ch, &ch->large_buf, &ch->large_cap);
     free(ch);
 }
 
-void zms_live_ingest_set_poller(zms_live_ingest *ch, struct zn_poller *poller)
+void zcs_live_ingest_set_poller(zcs_live_ingest *ch, struct zn_poller *poller)
 {
     if (!ch) {
         return;
@@ -387,7 +387,7 @@ void zms_live_ingest_set_poller(zms_live_ingest *ch, struct zn_poller *poller)
     ch->io_poller = poller;
 }
 
-zms_media_source *zms_live_ingest_source(zms_live_ingest *ch)
+zcs_media_source *zcs_live_ingest_source(zcs_live_ingest *ch)
 {
     return ch ? ch->source : NULL;
 }
@@ -395,13 +395,13 @@ zms_media_source *zms_live_ingest_source(zms_live_ingest *ch)
 /* 推流端断开/重连时清空上游状态（下游源元数据保留，由 reset 另行处理）。
  * 必须重置时间轴、origin、last_* 记忆与 demux，否则重连后新流会沿用上一
  * 条流的 raw→pts 记忆，导致时间戳错乱。 */
-void zms_live_ingest_reset_upstream(zms_live_ingest *ch)
+void zcs_live_ingest_reset_upstream(zcs_live_ingest *ch)
 {
     if (!ch) {
         return;
     }
-    zms_live_ingest_h265_hevc_au_reset(ch);
-    zms_demux_pipeline_destroy(ch->rtmp_demux);
+    zcs_live_ingest_h265_hevc_au_reset(ch);
+    zcs_demux_pipeline_destroy(ch->rtmp_demux);
     ch->rtmp_demux = NULL;
     ch->have_video_cfg = 0;
     ch->have_audio_cfg = 0;
@@ -415,19 +415,19 @@ void zms_live_ingest_reset_upstream(zms_live_ingest *ch)
     ch->rtmp_frame_got = 0;
     ch->tl_last_v_gop_norm = 0;
     ch->tl_last_v_gop_valid = 0;
-    zms_media_timeline_reset(&ch->tl);
+    zcs_media_timeline_reset(&ch->tl);
 }
 
-void zms_live_ingest_reset(zms_live_ingest *ch)
+void zcs_live_ingest_reset(zcs_live_ingest *ch)
 {
     if (!ch || !ch->source) {
         return;
     }
-    zms_live_ingest_reset_upstream(ch);
-    zms_media_source_clear(ch->source);
+    zcs_live_ingest_reset_upstream(ch);
+    zcs_media_source_clear(ch->source);
 }
 
-void zms_live_ingest_mark_real_audio(zms_live_ingest *ch)
+void zcs_live_ingest_mark_real_audio(zcs_live_ingest *ch)
 {
     if (ch) {
         ch->real_audio = 1;
@@ -435,28 +435,28 @@ void zms_live_ingest_mark_real_audio(zms_live_ingest *ch)
     }
 }
 
-void zms_live_ingest_set_audio_codec(zms_live_ingest *ch, zms_codec_id codec, uint32_t sample_rate)
+void zcs_live_ingest_set_audio_codec(zcs_live_ingest *ch, zcs_codec_id codec, uint32_t sample_rate)
 {
     if (ch) {
-        zms_media_timeline_set_audio(&ch->tl, codec, sample_rate);
+        zcs_media_timeline_set_audio(&ch->tl, codec, sample_rate);
     }
 }
 
-void zms_live_ingest_set_rtp_clocks(zms_live_ingest *ch, uint32_t video_clock_hz,
-                                    zms_codec_id audio_codec, uint32_t audio_clock_hz)
+void zcs_live_ingest_set_rtp_clocks(zcs_live_ingest *ch, uint32_t video_clock_hz,
+                                    zcs_codec_id audio_codec, uint32_t audio_clock_hz)
 {
     if (!ch) {
         return;
     }
-    zms_media_timeline_set_video(&ch->tl, ZMS_CODEC_H264, video_clock_hz);
-    if (audio_codec != ZMS_CODEC_INVALID) {
-        zms_media_timeline_set_audio(&ch->tl, audio_codec, audio_clock_hz);
+    zcs_media_timeline_set_video(&ch->tl, ZCS_CODEC_H264, video_clock_hz);
+    if (audio_codec != ZCS_CODEC_INVALID) {
+        zcs_media_timeline_set_audio(&ch->tl, audio_codec, audio_clock_hz);
     }
     ch->last_v_valid = 0;
     ch->last_a_valid = 0;
 }
 
-void zms_live_ingest_set_stamp_max_delta(zms_live_ingest *ch, uint32_t max_delta_ms)
+void zcs_live_ingest_set_stamp_max_delta(zcs_live_ingest *ch, uint32_t max_delta_ms)
 {
     if (!ch || max_delta_ms == 0) {
         return;
@@ -465,17 +465,17 @@ void zms_live_ingest_set_stamp_max_delta(zms_live_ingest *ch, uint32_t max_delta
     ch->tl.ast.max_delta_ms = max_delta_ms;
 }
 
-void zms_live_ingest_set_stamp_av_clamp(zms_live_ingest *ch, int enabled)
+void zcs_live_ingest_set_stamp_av_clamp(zcs_live_ingest *ch, int enabled)
 {
     if (!ch) {
         return;
     }
-    zms_media_timeline_set_av_clamp(&ch->tl, enabled);
+    zcs_media_timeline_set_av_clamp(&ch->tl, enabled);
     ch->last_v_valid = 0;
     ch->last_a_valid = 0;
 }
 
-void zms_live_ingest_set_timeline_linear_ms(zms_live_ingest *ch, int on)
+void zcs_live_ingest_set_timeline_linear_ms(zcs_live_ingest *ch, int on)
 {
     if (!ch) {
         return;
@@ -489,7 +489,7 @@ void zms_live_ingest_set_timeline_linear_ms(zms_live_ingest *ch, int on)
     ch->tl_last_v_gop_valid = 0;
 }
 
-void zms_live_ingest_set_defer_gop_vcfg(zms_live_ingest *ch, int on)
+void zcs_live_ingest_set_defer_gop_vcfg(zcs_live_ingest *ch, int on)
 {
     if (!ch) {
         return;
@@ -499,9 +499,9 @@ void zms_live_ingest_set_defer_gop_vcfg(zms_live_ingest *ch, int on)
     ch->video_cfg_len = 0;
 }
 
-zn_err_t zms_live_ingest_input_frame(zms_live_ingest *ch, const zms_frame *frame)
+zn_err_t zcs_live_ingest_input_frame(zcs_live_ingest *ch, const zcs_frame *frame)
 {
-    return zms_live_ingest_codec_input_dispatch(ch, frame);
+    return zcs_live_ingest_codec_input_dispatch(ch, frame);
 }
 
 /*
@@ -512,10 +512,10 @@ zn_err_t zms_live_ingest_input_frame(zms_live_ingest *ch, const zms_frame *frame
  * 头，而内部统一用 raw AAC(ASC) 存储，这里就地转 raw 并 memmove 回 buf 头部。
  * rtmp_frame_got 置位用于调用方判断“这一 tag 是否真的产出了帧”。
  */
-static void ingest_rtmp_demux_on_frame(const zms_frame *frame, void *user)
+static void ingest_rtmp_demux_on_frame(const zcs_frame *frame, void *user)
 {
-    zms_live_ingest *ch = (zms_live_ingest *)user;
-    zms_frame out;
+    zcs_live_ingest *ch = (zcs_live_ingest *)user;
+    zcs_frame out;
     zn_buf *buf;
     uint8_t *dst;
 
@@ -525,7 +525,7 @@ static void ingest_rtmp_demux_on_frame(const zms_frame *frame, void *user)
     }
 
     ch->rtmp_frame_got = 1;
-    buf = zms_gop_queue_alloc_write(ch->source->gop_queue, frame->size);
+    buf = zcs_gop_queue_alloc_write(ch->source->gop_queue, frame->size);
     if (!buf) {
         return;
     }
@@ -533,7 +533,7 @@ static void ingest_rtmp_demux_on_frame(const zms_frame *frame, void *user)
     memcpy(dst, frame->data, frame->size);
     zn_buf_set_len(buf, frame->size);
 
-    zms_frame_init(&out);
+    zcs_frame_init(&out);
     out.data = dst;
     out.size = frame->size;
     out.codec = frame->codec;
@@ -541,22 +541,22 @@ static void ingest_rtmp_demux_on_frame(const zms_frame *frame, void *user)
     out.keyframe = frame->keyframe;
     out.owned = 0;
 
-    if (frame->track == ZMS_TRACK_VIDEO) {
+    if (frame->track == ZCS_TRACK_VIDEO) {
         uint32_t ts = live_ingest_video_pts(ch, ch->rtmp_ingress.raw_tag_dts_ms);
         out.dts_ms = out.pts_ms = ts;
-        if (frame->codec == ZMS_CODEC_H264) {
-            zms_live_ingest_h264_annexb_frame_flags(dst, frame->size, &out.config_frame,
+        if (frame->codec == ZCS_CODEC_H264) {
+            zcs_live_ingest_h264_annexb_frame_flags(dst, frame->size, &out.config_frame,
                                                     &out.drop_able);
         }
         ch->source->has_video = 1;
-    } else if (frame->track == ZMS_TRACK_AUDIO) {
+    } else if (frame->track == ZCS_TRACK_AUDIO) {
         uint32_t ts = live_ingest_audio_pts(ch, ch->rtmp_ingress.raw_tag_dts_ms);
         const uint8_t *raw = dst;
         size_t raw_len = frame->size;
 
         out.dts_ms = out.pts_ms = ts;
-        if (frame->codec == ZMS_CODEC_AAC &&
-            zms_aac_es_to_raw(dst, frame->size, &raw, &raw_len) == ZN_OK && raw != dst) {
+        if (frame->codec == ZCS_CODEC_AAC &&
+            zcs_aac_es_to_raw(dst, frame->size, &raw, &raw_len) == ZN_OK && raw != dst) {
             memmove(dst, raw, raw_len);
             out.size = raw_len;
             zn_buf_set_len(buf, raw_len);
@@ -571,21 +571,21 @@ static void ingest_rtmp_demux_on_frame(const zms_frame *frame, void *user)
     (void)live_ingest_write_frame_buf(ch, buf, &out);
 }
 
-static void ingest_ensure_rtmp_demux(zms_live_ingest *ch)
+static void ingest_ensure_rtmp_demux(zcs_live_ingest *ch)
 {
-    zms_demux_pipeline_opts cfg;
+    zcs_demux_pipeline_opts cfg;
 
     if (!ch || ch->rtmp_demux) {
         return;
     }
     memset(&cfg, 0, sizeof(cfg));
-    cfg.container = ZMS_CONTAINER_FLV_TAG;
+    cfg.container = ZCS_CONTAINER_FLV_TAG;
     cfg.on_frame = ingest_rtmp_demux_on_frame;
     cfg.user = ch;
-    ch->rtmp_demux = zms_demux_pipeline_create(&cfg);
+    ch->rtmp_demux = zcs_demux_pipeline_create(&cfg);
 }
 
-zms_demux_pipeline *zms_live_ingest_rtmp_demux_create(zms_live_ingest *ch)
+zcs_demux_pipeline *zcs_live_ingest_rtmp_demux_create(zcs_live_ingest *ch)
 {
     if (!ch) {
         return NULL;
@@ -594,14 +594,14 @@ zms_demux_pipeline *zms_live_ingest_rtmp_demux_create(zms_live_ingest *ch)
     return ch->rtmp_demux;
 }
 
-void zms_live_ingest_rtmp_demux_release(zms_live_ingest *ch)
+void zcs_live_ingest_rtmp_demux_release(zcs_live_ingest *ch)
 {
     if (ch) {
         ch->rtmp_demux = NULL;
     }
 }
 
-static zn_err_t ingest_rtmp_feed_tag(zms_live_ingest *ch, uint8_t type_id, uint32_t tag_dts_ms,
+static zn_err_t ingest_rtmp_feed_tag(zcs_live_ingest *ch, uint8_t type_id, uint32_t tag_dts_ms,
                                       const void *body, size_t body_len, uint8_t msg_type)
 {
     zn_err_t err;
@@ -623,82 +623,82 @@ static zn_err_t ingest_rtmp_feed_tag(zms_live_ingest *ch, uint8_t type_id, uint3
     ch->rtmp_ingress.msg_type = msg_type;
     ch->rtmp_frame_got = 0;
 
-    err = zms_demux_pipeline_input_flv_tag(ch->rtmp_demux, 0, type_id, (const uint8_t *)body,
+    err = zcs_demux_pipeline_input_flv_tag(ch->rtmp_demux, 0, type_id, (const uint8_t *)body,
                                            body_len, tag_dts_ms);
     ch->rtmp_ingress.active = 0;
     return err;
 }
 
-zn_err_t zms_live_ingest_input_rtmp_video(zms_live_ingest *ch, uint32_t tag_dts_ms,
+zn_err_t zcs_live_ingest_input_rtmp_video(zcs_live_ingest *ch, uint32_t tag_dts_ms,
                                            const void *body, size_t body_len)
 {
-    zms_flv_tag_packet_kind vpkt;
+    zcs_flv_tag_packet_kind vpkt;
 
     if (!ch || !body || body_len < 2) {
         return ZN_ERR_INVALID;
     }
     const uint8_t *p = (const uint8_t *)body;
 
-    zms_codec_id vc = zms_flv_tag_video_codec(p, body_len);
+    zcs_codec_id vc = zcs_flv_tag_video_codec(p, body_len);
     /* 探测不出 codec（tag 头畸形/首帧前）时退回源已记录的 codec；若源也没有，
      * 只能判不支持。这是为了容忍部分推流端首个 raw 帧码率字段不规范的情况。 */
-    if (vc != ZMS_CODEC_H264 && vc != ZMS_CODEC_H265 && vc != ZMS_CODEC_H266 &&
-        vc != ZMS_CODEC_AV1 && vc != ZMS_CODEC_VP8 && vc != ZMS_CODEC_VP9) {
-        if (ch->have_video_cfg && ch->source->video.codec != ZMS_CODEC_INVALID) {
+    if (vc != ZCS_CODEC_H264 && vc != ZCS_CODEC_H265 && vc != ZCS_CODEC_H266 &&
+        vc != ZCS_CODEC_AV1 && vc != ZCS_CODEC_VP8 && vc != ZCS_CODEC_VP9) {
+        if (ch->have_video_cfg && ch->source->video.codec != ZCS_CODEC_INVALID) {
             vc = ch->source->video.codec;
         } else {
-            zms_log_warn_throttle("ingress:unsupported_rtmp_video", ZMS_LOG_THROTTLE_WARN_MS,
+            zcs_log_warn_throttle("ingress:unsupported_rtmp_video", ZCS_LOG_THROTTLE_WARN_MS,
                                   "[ingress] unsupported_rtmp_video len=%u first=0x%02x",
                                   (unsigned)body_len, p[0]);
             return ZN_ERR_NOT_IMPL;
         }
     }
 
-    vpkt = zms_flv_tag_video_packet_kind(p, body_len);
-    if (vpkt == ZMS_FLV_TAG_PKT_INVALID) {
-        zms_log_warn_throttle("ingress:bad_rtmp_video_hdr", ZMS_LOG_THROTTLE_WARN_MS,
+    vpkt = zcs_flv_tag_video_packet_kind(p, body_len);
+    if (vpkt == ZCS_FLV_TAG_PKT_INVALID) {
+        zcs_log_warn_throttle("ingress:bad_rtmp_video_hdr", ZCS_LOG_THROTTLE_WARN_MS,
                               "[ingress] bad_rtmp_video_hdr len=%u first=0x%02x",
                               (unsigned)body_len, p[0]);
         return ZN_ERR_INVALID;
     }
 
-    if (vpkt == ZMS_FLV_TAG_PKT_SEQ_HEADER) {
-        zms_codec_id ac = ZMS_CODEC_INVALID;
-        if (ch->source->has_audio && ch->source->audio.codec != ZMS_CODEC_INVALID) {
+    if (vpkt == ZCS_FLV_TAG_PKT_SEQ_HEADER) {
+        zcs_codec_id ac = ZCS_CODEC_INVALID;
+        if (ch->source->has_audio && ch->source->audio.codec != ZCS_CODEC_INVALID) {
             ac = ch->source->audio.codec;
         }
         /* 在真正接纳配置前做能力校验：把“即将建立的音视频组合”交给会话
          * 能力表判定，不支持的组合尽早拒绝，避免建好一半管线才发现播不了。 */
-        if (zms_session_capability_check(ZMS_PROTO_CAP_RTMP_PUBLISH, vc, ac, 1,
-                                         ch->source->has_audio && ac != ZMS_CODEC_INVALID) !=
+        if (zcs_session_capability_check(ZCS_PROTO_CAP_RTMP_PUBLISH, vc, ac, 1,
+                                         ch->source->has_audio && ac != ZCS_CODEC_INVALID) !=
             ZN_OK) {
-            zms_session_capability_log_reject("rtmp-publish", ch->source,
-                                              ZMS_PROTO_CAP_RTMP_PUBLISH);
+            zcs_session_capability_log_reject("rtmp-publish", ch->source,
+                                              ZCS_PROTO_CAP_RTMP_PUBLISH);
             return ZN_ERR_NOT_IMPL;
         }
         ch->have_video_cfg = 1;
         ch->source->has_video = 1;
         ch->source->video.codec = vc;
         live_ingest_set_video_config(ch, body, body_len);
-        if (vc == ZMS_CODEC_H264) {
-            (void)zms_video_track_from_avc(&ch->source->video, p, body_len);
+        if (vc == ZCS_CODEC_H264) {
+            (void)zcs_video_track_from_avc(&ch->source->video, p, body_len);
         } else {
             ch->source->video.ready = 1;
         }
-        zn_debug("[ingress] track_video codec=%s cfg_len=%u", zms_codec_name(vc),
+        zn_debug("[ingress] track_video codec=%s cfg_len=%u", zcs_codec_name(vc),
                   (unsigned)body_len);
-        (void)ingest_rtmp_feed_tag(ch, 9, tag_dts_ms, p, body_len, ZMS_RTMP_MSG_VIDEO);
+        (void)ingest_rtmp_feed_tag(ch, 9, tag_dts_ms, p, body_len, ZCS_RTMP_MSG_VIDEO);
         return ZN_OK;
     }
 
-    if (vpkt != ZMS_FLV_TAG_PKT_RAW) {
+    if (vpkt != ZCS_FLV_TAG_PKT_RAW) {
         return ZN_OK;
     }
 
     {
         zn_err_t err;
 
-        err = ingest_rtmp_feed_tag(ch, 9, tag_dts_ms, p, body_len, ZMS_RTMP_MSG_VIDEO);
+        err = ingest_rtmp_feed_tag(ch, 9, tag_dts_ms, p, body_len, ZCS_RTMP_MSG_VIDEO);
         /* rtmp_frame_got 表示 demux 确实产出了帧。若没产出但也没报错，视为
          * 正常（例如 demux 内部缓存阶段/首帧探测），返回 OK，避免调用方把
          * 这种常态误判为失败而中断推流。 */
@@ -706,7 +706,7 @@ zn_err_t zms_live_ingest_input_rtmp_video(zms_live_ingest *ch, uint32_t tag_dts_
             return ZN_OK;
         }
         if (err != ZN_OK) {
-            zms_log_warn_throttle("ingress:rtmp_demux_fail", ZMS_LOG_THROTTLE_WARN_MS,
+            zcs_log_warn_throttle("ingress:rtmp_demux_fail", ZCS_LOG_THROTTLE_WARN_MS,
                                   "[ingress] rtmp_demux_fail len=%u first=0x%02x pkt=%d",
                                   (unsigned)body_len, p[0], (int)vpkt);
             return err;
@@ -728,10 +728,10 @@ static int ingest_aac_seq_header_valid(const uint8_t *body, size_t body_len, int
     if (!body || body_len < 4) {
         return 0;
     }
-    if (zms_flv_tag_aac_seq_header_asc(body, body_len, &asc, &asc_len) != ZN_OK) {
+    if (zcs_flv_tag_aac_seq_header_asc(body, body_len, &asc, &asc_len) != ZN_OK) {
         return 0;
     }
-    if (asc_len < 2 || !zms_aac_parse_asc(asc, asc_len, &sr, &ch_n)) {
+    if (asc_len < 2 || !zcs_aac_parse_asc(asc, asc_len, &sr, &ch_n)) {
         return 0;
     }
     if (hdr_len) {
@@ -740,21 +740,21 @@ static int ingest_aac_seq_header_valid(const uint8_t *body, size_t body_len, int
     return 1;
 }
 
-zn_err_t zms_live_ingest_input_rtmp_audio(zms_live_ingest *ch, uint32_t tag_dts_ms,
+zn_err_t zcs_live_ingest_input_rtmp_audio(zcs_live_ingest *ch, uint32_t tag_dts_ms,
                                            const void *body, size_t body_len)
 {
-    zms_codec_id acodec;
+    zcs_codec_id acodec;
 
     if (!ch || !body || body_len < 2) {
         return ZN_ERR_INVALID;
     }
     const uint8_t *p = (const uint8_t *)body;
-    acodec = zms_flv_tag_audio_codec(p, body_len);
+    acodec = zcs_flv_tag_audio_codec(p, body_len);
     /* Opus 走 RTMP 的 seq header 形态当前不支持：能力表会拒绝，避免把这
      * 类流误接入后下游无法解码。G711 同理在下方拒绝。 */
-    if (acodec == ZMS_CODEC_OPUS &&
-        zms_flv_tag_audio_packet_kind(p, body_len) == ZMS_FLV_TAG_PKT_SEQ_HEADER) {
-        zms_session_capability_log_reject("rtmp-publish", ch->source, ZMS_PROTO_CAP_RTMP_PUBLISH);
+    if (acodec == ZCS_CODEC_OPUS &&
+        zcs_flv_tag_audio_packet_kind(p, body_len) == ZCS_FLV_TAG_PKT_SEQ_HEADER) {
+        zcs_session_capability_log_reject("rtmp-publish", ch->source, ZCS_PROTO_CAP_RTMP_PUBLISH);
         return ZN_ERR_NOT_IMPL;
     }
     if (ingest_aac_seq_header_valid(p, body_len, NULL)) {
@@ -763,40 +763,40 @@ zn_err_t zms_live_ingest_input_rtmp_audio(zms_live_ingest *ch, uint32_t tag_dts_
          * 转 ADTS 需要这里定下的参数。最后把 ASC 也喂给 demux，保证 profile
          * 一致。 */
         if (!ch->have_audio_cfg) {
-            zms_codec_id vc = ZMS_CODEC_INVALID;
-            if (ch->source->has_video && ch->source->video.codec != ZMS_CODEC_INVALID) {
+            zcs_codec_id vc = ZCS_CODEC_INVALID;
+            if (ch->source->has_video && ch->source->video.codec != ZCS_CODEC_INVALID) {
                 vc = ch->source->video.codec;
             }
-            if (zms_session_capability_check(ZMS_PROTO_CAP_RTMP_PUBLISH, vc, ZMS_CODEC_AAC,
-                                             ch->source->has_video && vc != ZMS_CODEC_INVALID,
+            if (zcs_session_capability_check(ZCS_PROTO_CAP_RTMP_PUBLISH, vc, ZCS_CODEC_AAC,
+                                             ch->source->has_video && vc != ZCS_CODEC_INVALID,
                                              1) != ZN_OK) {
-                zms_session_capability_log_reject("rtmp-publish", ch->source,
-                                                  ZMS_PROTO_CAP_RTMP_PUBLISH);
+                zcs_session_capability_log_reject("rtmp-publish", ch->source,
+                                                  ZCS_PROTO_CAP_RTMP_PUBLISH);
                 return ZN_ERR_NOT_IMPL;
             }
             live_ingest_set_audio_config(ch, body, body_len);
             ch->have_audio_cfg = 1;
             ch->source->has_audio = 1;
-            (void)zms_audio_track_from_rtmp(&ch->source->audio, p, body_len);
-            zms_media_timeline_set_audio(&ch->tl, ZMS_CODEC_AAC,
+            (void)zcs_audio_track_from_rtmp(&ch->source->audio, p, body_len);
+            zcs_media_timeline_set_audio(&ch->tl, ZCS_CODEC_AAC,
                                          ch->source->audio.sample_rate > 0
                                              ? (uint32_t)ch->source->audio.sample_rate
                                              : 44100);
             zn_debug("[ingress] track_audio codec=AAC cfg_len=%u", (unsigned)body_len);
             /* 让 flv_demuxer 也加载 ASC；否则后续 raw AAC 帧转 ADTS 时 profile=0。 */
-            (void)ingest_rtmp_feed_tag(ch, 8, tag_dts_ms, p, body_len, ZMS_RTMP_MSG_AUDIO);
+            (void)ingest_rtmp_feed_tag(ch, 8, tag_dts_ms, p, body_len, ZCS_RTMP_MSG_AUDIO);
         }
         return ZN_OK;
     }
-    if (acodec == ZMS_CODEC_G711A || acodec == ZMS_CODEC_G711U) {
-        zms_session_capability_log_reject("rtmp-publish", ch->source, ZMS_PROTO_CAP_RTMP_PUBLISH);
+    if (acodec == ZCS_CODEC_G711A || acodec == ZCS_CODEC_G711U) {
+        zcs_session_capability_log_reject("rtmp-publish", ch->source, ZCS_PROTO_CAP_RTMP_PUBLISH);
         return ZN_ERR_NOT_IMPL;
     }
 
     {
         zn_err_t err;
 
-        err = ingest_rtmp_feed_tag(ch, 8, tag_dts_ms, p, body_len, ZMS_RTMP_MSG_AUDIO);
+        err = ingest_rtmp_feed_tag(ch, 8, tag_dts_ms, p, body_len, ZCS_RTMP_MSG_AUDIO);
         if (ch->rtmp_frame_got) {
             return ZN_OK;
         }

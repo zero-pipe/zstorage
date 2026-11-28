@@ -13,19 +13,19 @@
  *   Range: npt=100-50            ← 倒序区间（应取起点 100）
  *   Range: npt=-                 ← 非法，应拒绝
  */
-#include "zms/egress/rtp/rtp_play_pump.h"
-#include "zms_test.h"
+#include "zcs/egress/rtp/rtp_play_pump.h"
+#include "zcs_test.h"
 
 /* 断言：解析成功且毫秒值符合期望。 */
 static void expect_ms(const char *hdr, uint64_t want_ms)
 {
     uint64_t ms = 0;
     int now = 0;
-    int ok = zms_rtsp_parse_range_npt_ms(hdr, &ms, &now);
+    int ok = zcs_rtsp_parse_range_npt_ms(hdr, &ms, &now);
 
     CHECK_EQ_INT(ok, 1);
     if (ms != want_ms) {
-        ZMS_TEST_FAIL_("Range \"%s\" 解析为 %llu ms，期望 %llu ms", hdr ? hdr : "(null)",
+        ZCS_TEST_FAIL_("Range \"%s\" 解析为 %llu ms，期望 %llu ms", hdr ? hdr : "(null)",
                        (unsigned long long)ms, (unsigned long long)want_ms);
     }
 }
@@ -35,10 +35,10 @@ static void expect_reject(const char *hdr)
 {
     uint64_t ms = 12345;
     int now = 0;
-    int ok = zms_rtsp_parse_range_npt_ms(hdr, &ms, &now);
+    int ok = zcs_rtsp_parse_range_npt_ms(hdr, &ms, &now);
 
     if (ok != 0) {
-        ZMS_TEST_FAIL_("Range \"%s\" 应被拒绝，实际返回 ok=%d ms=%llu", hdr ? hdr : "(null)", ok,
+        ZCS_TEST_FAIL_("Range \"%s\" 应被拒绝，实际返回 ok=%d ms=%llu", hdr ? hdr : "(null)", ok,
                        (unsigned long long)ms);
     }
 }
@@ -75,7 +75,7 @@ static void test_now(void)
     int now = 0;
 
     /* npt=now-：直播起播，out_now 置位，ms 无意义 */
-    CHECK_EQ_INT(zms_rtsp_parse_range_npt_ms("npt=now-", &ms, &now), 1);
+    CHECK_EQ_INT(zcs_rtsp_parse_range_npt_ms("npt=now-", &ms, &now), 1);
     CHECK_EQ_INT(now, 1);
     CHECK_EQ_U32(ms, 0);
 }
@@ -89,7 +89,7 @@ static void test_case_insensitive(void)
         uint64_t ms = 0;
         int now = 0;
 
-        CHECK_EQ_INT(zms_rtsp_parse_range_npt_ms("NPT=NOW-", &ms, &now), 1);
+        CHECK_EQ_INT(zcs_rtsp_parse_range_npt_ms("NPT=NOW-", &ms, &now), 1);
         CHECK_EQ_INT(now, 1);
     }
 }
@@ -128,7 +128,7 @@ static void test_reject_invalid(void)
 static void test_out_ms_required(void)
 {
     /* out_ms 为 NULL 直接返回 0（防御，不崩） */
-    CHECK_EQ_INT(zms_rtsp_parse_range_npt_ms("npt=10-", NULL, NULL), 0);
+    CHECK_EQ_INT(zcs_rtsp_parse_range_npt_ms("npt=10-", NULL, NULL), 0);
 }
 
 static void test_overflow_safe(void)
@@ -138,24 +138,24 @@ static void test_overflow_safe(void)
     uint64_t ms = 0;
     int now = 0;
 
-    (void)zms_rtsp_parse_range_npt_ms("npt=99999999999999999999-", &ms, &now);
+    (void)zcs_rtsp_parse_range_npt_ms("npt=99999999999999999999-", &ms, &now);
     CHECK(ms > 0);
 }
 
 static void test_scale(void)
 {
     /* 合法倍速 */
-    CHECK(zms_rtsp_parse_play_scale("2.0", 1.0) == 2.0);
-    CHECK(zms_rtsp_parse_play_scale("0.5", 1.0) == 0.5);
-    CHECK(zms_rtsp_parse_play_scale("16", 1.0) == 16.0);
+    CHECK(zcs_rtsp_parse_play_scale("2.0", 1.0) == 2.0);
+    CHECK(zcs_rtsp_parse_play_scale("0.5", 1.0) == 0.5);
+    CHECK(zcs_rtsp_parse_play_scale("16", 1.0) == 16.0);
 
     /* 非法：保持传入的当前值（不能变成 0，否则播放停滞） */
-    CHECK(zms_rtsp_parse_play_scale("0", 1.0) == 1.0);
-    CHECK(zms_rtsp_parse_play_scale("-1", 1.0) == 1.0);
-    CHECK(zms_rtsp_parse_play_scale("99", 1.0) == 1.0);
-    CHECK(zms_rtsp_parse_play_scale("abc", 1.0) == 1.0);
-    CHECK(zms_rtsp_parse_play_scale(NULL, 2.0) == 2.0);
-    CHECK(zms_rtsp_parse_play_scale("", 2.0) == 2.0);
+    CHECK(zcs_rtsp_parse_play_scale("0", 1.0) == 1.0);
+    CHECK(zcs_rtsp_parse_play_scale("-1", 1.0) == 1.0);
+    CHECK(zcs_rtsp_parse_play_scale("99", 1.0) == 1.0);
+    CHECK(zcs_rtsp_parse_play_scale("abc", 1.0) == 1.0);
+    CHECK(zcs_rtsp_parse_play_scale(NULL, 2.0) == 2.0);
+    CHECK(zcs_rtsp_parse_play_scale("", 2.0) == 2.0);
 }
 
 int main(void)
@@ -172,5 +172,5 @@ int main(void)
     RUN_TEST_COUNTED(test_out_ms_required);
     RUN_TEST_COUNTED(test_overflow_safe);
     RUN_TEST_COUNTED(test_scale);
-    ZMS_TEST_SUMMARY("test_rtsp_range");
+    ZCS_TEST_SUMMARY("test_rtsp_range");
 }

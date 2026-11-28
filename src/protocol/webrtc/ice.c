@@ -3,16 +3,16 @@
  * @brief WebRTC ICE：候选、连通性检查与发送。
  *
  * 本文件有两个编译分支：
- *   - ZMS_WEBRTC_USE_ZICE：完整 ICE（zice/STUN agent），支持 host/srflx/relay 候选、
+ *   - ZCS_WEBRTC_USE_ZICE：完整 ICE（zice/STUN agent），支持 host/srflx/relay 候选、
  *     连通性检查与 TURN。用于公网/复杂 NAT。
  *   - 否则走“lite ICE”：无 zice，仅靠 host 候选 + 首个 UDP 包学习 peer 地址，
  *     适合 LAN/直连 WHEP。两个分支导出同一套符号，接口一致。
  *
- * 并发约定：ICE 定时器通过 zms_webrtc_ice_timer_poller 绑定到会话所属 poller，
+ * 并发约定：ICE 定时器通过 zcs_webrtc_ice_timer_poller 绑定到会话所属 poller，
  * 所有回调都在该 poller 线程执行；本文件用一张全局 agent→poller 表把 agent
  * 反查回 poller（zice 回调只给了 agent/checklist 指针）。
  */
-#if defined(ZMS_WEBRTC_USE_ZICE) && ZMS_WEBRTC_USE_ZICE
+#if defined(ZCS_WEBRTC_USE_ZICE) && ZCS_WEBRTC_USE_ZICE
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -33,9 +33,9 @@
 #include "protocol/webrtc/ice_internal.h"
 #include "protocol/webrtc/ice_host.h"
 #include "protocol/webrtc/media_internal.h"
-#include "zms/session/webrtc/webrtc_server.h"
-#include "zms/media/media_limits.h"
-#include "zms/media/wire/rtp_packet.h"
+#include "zcs/session/webrtc/webrtc_server.h"
+#include "zcs/media/media_limits.h"
+#include "zcs/media/wire/rtp_packet.h"
 #include "zice/ice-agent.h"
 #include "zice/stun-agent.h"
 #include "zb/os/socket.h"
@@ -51,10 +51,10 @@ typedef struct {
 } webrtc_ice_agent_pol;
 
 /* agent→poller 反查表：zice 的连通性检查回调只拿到 agent/checklist 指针，但定时器
- * 必须挂在正确的 poller 上运行。这张全局表（有上限 ZMS_WEBRTC_ICE_AGENT_MAX）就是
+ * 必须挂在正确的 poller 上运行。这张全局表（有上限 ZCS_WEBRTC_ICE_AGENT_MAX）就是
  * 那座桥。注册满时只告警不崩——对应会话会退化为无定时投递。数组访问无锁，因为
  * 注册/注销都在会话 poller 线程、且不同会话的 agent 互不重叠（见文件头并发约定）。 */
-static webrtc_ice_agent_pol g_ice_agent_pol[ZMS_WEBRTC_ICE_AGENT_MAX];
+static webrtc_ice_agent_pol g_ice_agent_pol[ZCS_WEBRTC_ICE_AGENT_MAX];
 static int g_ice_agent_pol_n;
 
 static void webrtc_ice_agent_pol_register(struct ice_agent_t *agent, zn_poller *pol)
@@ -70,10 +70,10 @@ static void webrtc_ice_agent_pol_register(struct ice_agent_t *agent, zn_poller *
             return;
         }
     }
-    if (g_ice_agent_pol_n < (int)ZMS_WEBRTC_ICE_AGENT_MAX) {
+    if (g_ice_agent_pol_n < (int)ZCS_WEBRTC_ICE_AGENT_MAX) {
         g_ice_agent_pol[g_ice_agent_pol_n++] = (webrtc_ice_agent_pol){agent, pol};
     } else {
-        zn_warn("[webrtc] ICE agent poller map full (max=%u)", (unsigned)ZMS_WEBRTC_ICE_AGENT_MAX);
+        zn_warn("[webrtc] ICE agent poller map full (max=%u)", (unsigned)ZCS_WEBRTC_ICE_AGENT_MAX);
     }
 }
 
@@ -133,7 +133,7 @@ static struct ice_agent_t *webrtc_ice_agent_from_checklist_ptr(void *checklist)
     return l->ice;
 }
 
-zn_poller *zms_webrtc_ice_timer_poller(void *param)
+zn_poller *zcs_webrtc_ice_timer_poller(void *param)
 {
     struct ice_agent_t *agent;
 
@@ -153,8 +153,8 @@ zn_poller *zms_webrtc_ice_timer_poller(void *param)
     return NULL;
 }
 
-struct zms_webrtc_ice {
-    zms_webrtc_ice_host *host;
+struct zcs_webrtc_ice {
+    zcs_webrtc_ice_host *host;
     struct ice_agent_t *agent;
     struct sockaddr_storage local_addr;
     socklen_t local_len;
@@ -218,7 +218,7 @@ static int webrtc_ice_parse_server_url(const char *url, struct sockaddr_storage 
     return webrtc_ice_sockaddr_from_hostport(host, (uint16_t)port, out, out_len);
 }
 
-static void webrtc_ice_peer_from_sockaddr(zms_webrtc_ice_host *h, const struct sockaddr *sa)
+static void webrtc_ice_peer_from_sockaddr(zcs_webrtc_ice_host *h, const struct sockaddr *sa)
 {
     char ip[ZB_SOCKET_ADDRLEN];
     u_short port;
@@ -239,7 +239,7 @@ static void webrtc_ice_peer_from_sockaddr(zms_webrtc_ice_host *h, const struct s
 static int webrtc_ice_onsend(void *param, int protocol, const struct sockaddr *local,
                              const struct sockaddr *remote, const void *data, int bytes)
 {
-    zms_webrtc_ice_host *h = (zms_webrtc_ice_host *)param;
+    zcs_webrtc_ice_host *h = (zcs_webrtc_ice_host *)param;
     char ip[ZB_SOCKET_ADDRLEN];
     u_short port;
 
@@ -262,7 +262,7 @@ static int webrtc_ice_onsend(void *param, int protocol, const struct sockaddr *l
 static void webrtc_ice_ondata(void *param, uint8_t stream, uint16_t component, const void *data,
                               int bytes)
 {
-    zms_webrtc_ice_host *h = (zms_webrtc_ice_host *)param;
+    zcs_webrtc_ice_host *h = (zcs_webrtc_ice_host *)param;
     struct ice_candidate_t rc;
 
     (void)stream;
@@ -287,7 +287,7 @@ static void webrtc_ice_ondata(void *param, uint8_t stream, uint16_t component, c
  */
 static void webrtc_ice_onconnected(void *param, uint64_t flags, uint64_t mask)
 {
-    zms_webrtc_ice_host *h = (zms_webrtc_ice_host *)param;
+    zcs_webrtc_ice_host *h = (zcs_webrtc_ice_host *)param;
     struct ice_candidate_t rc;
 
     (void)mask;
@@ -313,7 +313,7 @@ static void webrtc_ice_onconnected(void *param, uint64_t flags, uint64_t mask)
 
 static void webrtc_ice_ongather(void *param, int code)
 {
-    zms_webrtc_ice_host *h = (zms_webrtc_ice_host *)param;
+    zcs_webrtc_ice_host *h = (zcs_webrtc_ice_host *)param;
     if (h) {
         char cand[512];
         size_t n;
@@ -321,7 +321,7 @@ static void webrtc_ice_ongather(void *param, int code)
         if (h->gather_done < h->gather_expected) {
             ++h->gather_done;
         }
-        n = h->ctx ? zms_webrtc_ice_sdp_candidates(h->ctx, cand, sizeof(cand)) : 0;
+        n = h->ctx ? zcs_webrtc_ice_sdp_candidates(h->ctx, cand, sizeof(cand)) : 0;
         zn_info("[webrtc] ICE gather done id=%s code=%d (%d/%d) extra_candidates=%zu",
                  h->id ? h->id : "?", code, h->gather_done, h->gather_expected, n);
     }
@@ -460,7 +460,7 @@ static int webrtc_ice_parse_offer_candidates(struct ice_agent_t *agent, const ch
     return count;
 }
 
-static int webrtc_ice_add_local_host(struct zms_webrtc_ice *ctx, const char *host, uint16_t port)
+static int webrtc_ice_add_local_host(struct zcs_webrtc_ice *ctx, const char *host, uint16_t port)
 {
     struct ice_candidate_t c;
     socklen_t len;
@@ -486,15 +486,15 @@ static int webrtc_ice_add_local_host(struct zms_webrtc_ice *ctx, const char *hos
 
 /* 创建 agent。server 端默认开启 ICE-lite（不主动做连通检查，只被动应答，省资源，
  * 与浏览器做标准 ICE 正好互补）；client 端（WHEP/推流端主动连）则走完整检查。 */
-struct zms_webrtc_ice *zms_webrtc_ice_create(zms_webrtc_ice_host *host)
+struct zcs_webrtc_ice *zcs_webrtc_ice_create(zcs_webrtc_ice_host *host)
 {
-    struct zms_webrtc_ice *ctx;
+    struct zcs_webrtc_ice *ctx;
     struct ice_agent_handler_t handler;
 
     if (!host) {
         return NULL;
     }
-    ctx = (struct zms_webrtc_ice *)calloc(1, sizeof(*ctx));
+    ctx = (struct zcs_webrtc_ice *)calloc(1, sizeof(*ctx));
     if (!ctx) {
         return NULL;
     }
@@ -517,7 +517,7 @@ struct zms_webrtc_ice *zms_webrtc_ice_create(zms_webrtc_ice_host *host)
     return ctx;
 }
 
-void zms_webrtc_ice_destroy(struct zms_webrtc_ice *ice)
+void zcs_webrtc_ice_destroy(struct zcs_webrtc_ice *ice)
 {
     if (!ice) {
         return;
@@ -539,10 +539,10 @@ void zms_webrtc_ice_destroy(struct zms_webrtc_ice *ice)
  * gather_done 由 ongather 回调累加——上层据此判断候选收集是否结束（配齐再发 SDP）。
  * 解析失败/不支持的服务器也要把 gather_done 加一，否则 never 达 expected，SDP 永远发不出去。
  */
-static void webrtc_ice_gather_servers(struct zms_webrtc_ice *ice)
+static void webrtc_ice_gather_servers(struct zcs_webrtc_ice *ice)
 {
-    zms_webrtc_ice_server servers[2];
-    size_t n = zms_webrtc_server_ice_servers(servers, sizeof(servers) / sizeof(servers[0]));
+    zcs_webrtc_ice_server servers[2];
+    size_t n = zcs_webrtc_server_ice_servers(servers, sizeof(servers) / sizeof(servers[0]));
     size_t i;
 
     if (ice->host) {
@@ -582,7 +582,7 @@ static void webrtc_ice_gather_servers(struct zms_webrtc_ice *ice)
     }
 }
 
-int zms_webrtc_ice_setup(struct zms_webrtc_ice *ice, const char *offer, size_t offer_len,
+int zcs_webrtc_ice_setup(struct zcs_webrtc_ice *ice, const char *offer, size_t offer_len,
                          const char *local_ufrag, const char *local_pwd, const char *remote_ufrag,
                          const char *remote_pwd, const char *advertise_host, uint16_t local_port)
 {
@@ -614,7 +614,7 @@ int zms_webrtc_ice_setup(struct zms_webrtc_ice *ice, const char *offer, size_t o
     return 0;
 }
 
-int zms_webrtc_ice_prepare_client(struct zms_webrtc_ice *ice, const char *local_ufrag,
+int zcs_webrtc_ice_prepare_client(struct zcs_webrtc_ice *ice, const char *local_ufrag,
                                   const char *local_pwd, const char *advertise_host,
                                   uint16_t local_port)
 {
@@ -633,7 +633,7 @@ int zms_webrtc_ice_prepare_client(struct zms_webrtc_ice *ice, const char *local_
     return 0;
 }
 
-int zms_webrtc_ice_connect_client(struct zms_webrtc_ice *ice, const char *answer,
+int zcs_webrtc_ice_connect_client(struct zcs_webrtc_ice *ice, const char *answer,
                                   size_t answer_len, const char *remote_ufrag,
                                   const char *remote_pwd)
 {
@@ -652,7 +652,7 @@ int zms_webrtc_ice_connect_client(struct zms_webrtc_ice *ice, const char *answer
     return 0;
 }
 
-int zms_webrtc_ice_add_remote_sdp(struct zms_webrtc_ice *ice, const char *sdp, size_t len)
+int zcs_webrtc_ice_add_remote_sdp(struct zcs_webrtc_ice *ice, const char *sdp, size_t len)
 {
     if (!ice || !ice->agent || !sdp || len == 0) {
         return -1;
@@ -693,7 +693,7 @@ static int webrtc_ice_sdp_candidate_visit(const struct ice_candidate_t *c, void 
     return 0;
 }
 
-size_t zms_webrtc_ice_sdp_candidates(struct zms_webrtc_ice *ice, char *out, size_t cap)
+size_t zcs_webrtc_ice_sdp_candidates(struct zcs_webrtc_ice *ice, char *out, size_t cap)
 {
     struct webrtc_ice_sdp_ctx ctx;
 
@@ -714,7 +714,7 @@ size_t zms_webrtc_ice_sdp_candidates(struct zms_webrtc_ice *ice, char *out, size
  * 走媒体路径（webrtc_ice_ondata）；只有真正的 STUN 消息才交给 ice_agent_input 做
  * 连通性检查。local_len==0 表示本地候选还没建立，此时 STUN 无从处理，直接丢弃。
  */
-void zms_webrtc_ice_on_udp(struct zms_webrtc_ice *ice, const char *peer_ip, uint16_t peer_port,
+void zcs_webrtc_ice_on_udp(struct zcs_webrtc_ice *ice, const char *peer_ip, uint16_t peer_port,
                            const void *data, size_t len)
 {
     struct sockaddr_storage remote;
@@ -730,8 +730,8 @@ void zms_webrtc_ice_on_udp(struct zms_webrtc_ice *ice, const char *peer_ip, uint
         }
     }
     /* zice stun_agent 将 DTLS（content-type 204）当 STUN 丢弃；mux 到媒体路径。 */
-    if (zms_webrtc_packet_is_dtls(pkt, len) || zms_webrtc_packet_is_rtp(pkt, len) ||
-        zms_rtp_is_rtcp(pkt, len)) {
+    if (zcs_webrtc_packet_is_dtls(pkt, len) || zcs_webrtc_packet_is_rtp(pkt, len) ||
+        zcs_rtp_is_rtcp(pkt, len)) {
         webrtc_ice_ondata(ice->host, 0, 1, data, (int)len);
         return;
     }
@@ -746,7 +746,7 @@ void zms_webrtc_ice_on_udp(struct zms_webrtc_ice *ice, const char *peer_ip, uint
     }
 }
 
-int zms_webrtc_ice_uses_relay(struct zms_webrtc_ice *ice)
+int zcs_webrtc_ice_uses_relay(struct zcs_webrtc_ice *ice)
 {
     struct ice_candidate_t local;
 
@@ -767,13 +767,13 @@ int zms_webrtc_ice_uses_relay(struct zms_webrtc_ice *ice)
  *      已连接后走 zice 有 index bug，且媒体突发不该再绕 STUN 路径；
  *   3) 尚未连接：先试 ice_agent_send（可能经候选），再回退直发已知 peer。
  */
-int zms_webrtc_ice_send(struct zms_webrtc_ice *ice, const void *data, size_t len)
+int zcs_webrtc_ice_send(struct zcs_webrtc_ice *ice, const void *data, size_t len)
 {
     if (!ice || !ice->agent || !data || len == 0) {
         return -1;
     }
     /* relay 候选：媒体必须经 TURN channel/data 发送，不能直接发 peer。 */
-    if (zms_webrtc_ice_uses_relay(ice)) {
+    if (zcs_webrtc_ice_uses_relay(ice)) {
         return ice_agent_send(ice->agent, 0, 1, data, (int)len) == 0 ? 0 : -1;
     }
     if (ice->connected && ice->host && ice->host->peer_known && ice->host->udp) {
@@ -796,12 +796,12 @@ int zms_webrtc_ice_send(struct zms_webrtc_ice *ice, const void *data, size_t len
     return -1;
 }
 
-int zms_webrtc_ice_connected(const struct zms_webrtc_ice *ice)
+int zcs_webrtc_ice_connected(const struct zcs_webrtc_ice *ice)
 {
     return ice && ice->connected;
 }
 
-#else /* !ZMS_WEBRTC_USE_ZICE */
+#else /* !ZCS_WEBRTC_USE_ZICE */
 
 #include "protocol/webrtc/ice_internal.h"
 #include "protocol/webrtc/media_internal.h"
@@ -811,26 +811,26 @@ int zms_webrtc_ice_connected(const struct zms_webrtc_ice *ice)
 #include <string.h>
 
 /** LAN / host-candidate WHEP：无 zice；peer 来自首 UDP，SDP 已带 host candidate。 */
-struct zms_webrtc_ice {
-    zms_webrtc_ice_host *host;
+struct zcs_webrtc_ice {
+    zcs_webrtc_ice_host *host;
     int connected;
 };
 
-void zms_webrtc_ice_port_init(zn_poller *poller)
+void zcs_webrtc_ice_port_init(zn_poller *poller)
 {
     (void)poller;
 }
 
-void zms_webrtc_ice_port_fini(void) {}
+void zcs_webrtc_ice_port_fini(void) {}
 
-struct zms_webrtc_ice *zms_webrtc_ice_create(zms_webrtc_ice_host *host)
+struct zcs_webrtc_ice *zcs_webrtc_ice_create(zcs_webrtc_ice_host *host)
 {
-    struct zms_webrtc_ice *ice;
+    struct zcs_webrtc_ice *ice;
 
     if (!host) {
         return NULL;
     }
-    ice = (struct zms_webrtc_ice *)calloc(1, sizeof(*ice));
+    ice = (struct zcs_webrtc_ice *)calloc(1, sizeof(*ice));
     if (ice) {
         ice->host = host;
         host->ctx = ice;
@@ -838,7 +838,7 @@ struct zms_webrtc_ice *zms_webrtc_ice_create(zms_webrtc_ice_host *host)
     return ice;
 }
 
-void zms_webrtc_ice_destroy(struct zms_webrtc_ice *ice)
+void zcs_webrtc_ice_destroy(struct zcs_webrtc_ice *ice)
 {
     if (!ice) {
         return;
@@ -849,7 +849,7 @@ void zms_webrtc_ice_destroy(struct zms_webrtc_ice *ice)
     free(ice);
 }
 
-int zms_webrtc_ice_setup(struct zms_webrtc_ice *ice, const char *offer, size_t offer_len,
+int zcs_webrtc_ice_setup(struct zcs_webrtc_ice *ice, const char *offer, size_t offer_len,
                          const char *local_ufrag, const char *local_pwd, const char *remote_ufrag,
                          const char *remote_pwd, const char *advertise_host, uint16_t local_port)
 {
@@ -868,7 +868,7 @@ int zms_webrtc_ice_setup(struct zms_webrtc_ice *ice, const char *offer, size_t o
     return 0;
 }
 
-int zms_webrtc_ice_prepare_client(struct zms_webrtc_ice *ice, const char *local_ufrag,
+int zcs_webrtc_ice_prepare_client(struct zcs_webrtc_ice *ice, const char *local_ufrag,
                                   const char *local_pwd, const char *advertise_host,
                                   uint16_t local_port)
 {
@@ -880,7 +880,7 @@ int zms_webrtc_ice_prepare_client(struct zms_webrtc_ice *ice, const char *local_
     return -1;
 }
 
-int zms_webrtc_ice_connect_client(struct zms_webrtc_ice *ice, const char *answer,
+int zcs_webrtc_ice_connect_client(struct zcs_webrtc_ice *ice, const char *answer,
                                   size_t answer_len, const char *remote_ufrag,
                                   const char *remote_pwd)
 {
@@ -895,8 +895,8 @@ int zms_webrtc_ice_connect_client(struct zms_webrtc_ice *ice, const char *answer
 /* lite 分支的“连通”判定：收到首个 UDP 包即认为连通，并把来源地址固化为 peer。
  * 不做 STUN 检查、不维护候选表——LAN/直连场景对端就是发第一个包的那台机器。
  * 只在首次固化为 connected 时回调 on_connected，语义与 zice 分支保持一致。 */
-static void webrtc_lite_ice_peer(zms_webrtc_ice_host *h, const char *peer_ip, uint16_t peer_port,
-                                 struct zms_webrtc_ice *ice)
+static void webrtc_lite_ice_peer(zcs_webrtc_ice_host *h, const char *peer_ip, uint16_t peer_port,
+                                 struct zcs_webrtc_ice *ice)
 {
     if (!h || !peer_ip || !peer_ip[0]) {
         return;
@@ -914,10 +914,10 @@ static void webrtc_lite_ice_peer(zms_webrtc_ice_host *h, const char *peer_ip, ui
     }
 }
 
-void zms_webrtc_ice_on_udp(struct zms_webrtc_ice *ice, const char *peer_ip, uint16_t peer_port,
+void zcs_webrtc_ice_on_udp(struct zcs_webrtc_ice *ice, const char *peer_ip, uint16_t peer_port,
                            const void *data, size_t len)
 {
-    zms_webrtc_ice_host *h;
+    zcs_webrtc_ice_host *h;
     const uint8_t *pkt = (const uint8_t *)data;
 
     if (!ice || !ice->host || !pkt || len == 0) {
@@ -930,9 +930,9 @@ void zms_webrtc_ice_on_udp(struct zms_webrtc_ice *ice, const char *peer_ip, uint
     }
 }
 
-int zms_webrtc_ice_send(struct zms_webrtc_ice *ice, const void *data, size_t len)
+int zcs_webrtc_ice_send(struct zcs_webrtc_ice *ice, const void *data, size_t len)
 {
-    zms_webrtc_ice_host *h;
+    zcs_webrtc_ice_host *h;
 
     if (!ice || !data || len == 0) {
         return -1;
@@ -944,15 +944,15 @@ int zms_webrtc_ice_send(struct zms_webrtc_ice *ice, const void *data, size_t len
     return zn_udp_server_sendto(h->udp, h->peer_ip, h->peer_port, data, len) == ZN_OK ? 0 : -1;
 }
 
-int zms_webrtc_ice_connected(const struct zms_webrtc_ice *ice)
+int zcs_webrtc_ice_connected(const struct zcs_webrtc_ice *ice)
 {
     return ice && ice->connected;
 }
 
-zn_poller *zms_webrtc_ice_timer_poller(void *param)
+zn_poller *zcs_webrtc_ice_timer_poller(void *param)
 {
     (void)param;
     return NULL;
 }
 
-#endif /* ZMS_WEBRTC_USE_ZICE */
+#endif /* ZCS_WEBRTC_USE_ZICE */

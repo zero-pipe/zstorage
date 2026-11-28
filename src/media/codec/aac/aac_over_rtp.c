@@ -2,8 +2,8 @@
  * @file aac_over_rtp.c
  * @brief AAC ES 校验/遍历与 raw 规范化（RTP 用）。
  */
-#include "zms/media/codec/aac/aac_over_rtp.h"
-#include "zms/media/clock.h"
+#include "zcs/media/codec/aac/aac_over_rtp.h"
+#include "zcs/media/clock.h"
 #include "zm/transport/rtp.h"
 #include <stdlib.h>
 #include <string.h>
@@ -39,7 +39,7 @@ static size_t adts_frame_length(const uint8_t *p, size_t left)
 }
 
 /** PES ADTS 帧完整覆盖 payload（CC gap 专用，比 foreach 探针更严） */
-int zms_aac_es_strict_valid(const uint8_t *es, size_t len)
+int zcs_aac_es_strict_valid(const uint8_t *es, size_t len)
 {
     size_t off = 0;
 
@@ -57,7 +57,7 @@ int zms_aac_es_strict_valid(const uint8_t *es, size_t len)
     return off == len;
 }
 
-zn_err_t zms_aac_es_foreach_frame(const uint8_t *es, size_t len, zms_aac_au_cb cb, void *user)
+zn_err_t zcs_aac_es_foreach_frame(const uint8_t *es, size_t len, zcs_aac_au_cb cb, void *user)
 {
     if (!es || len == 0 || !cb) {
         return ZN_ERR_INVALID;
@@ -86,7 +86,7 @@ zn_err_t zms_aac_es_foreach_frame(const uint8_t *es, size_t len, zms_aac_au_cb c
     return cb(es, len, user) == 0 ? ZN_OK : ZN_ERR_INVALID;
 }
 
-zn_err_t zms_aac_es_to_raw(const uint8_t *es, size_t len, const uint8_t **raw, size_t *raw_len)
+zn_err_t zcs_aac_es_to_raw(const uint8_t *es, size_t len, const uint8_t **raw, size_t *raw_len)
 {
     if (!es || len == 0 || !raw || !raw_len) {
         return ZN_ERR_INVALID;

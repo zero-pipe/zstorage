@@ -2,9 +2,9 @@
  * @file srtp.c
  * @brief WebRTC SRTP/SRTCP 包变换。
  */
-#include "zms/media/media_limits.h"
-#include "zms/media/wire/srtp.h"
-#include "zms/media/wire/rtp_packet.h"
+#include "zcs/media/media_limits.h"
+#include "zcs/media/wire/srtp.h"
+#include "zcs/media/wire/rtp_packet.h"
 #include "zn/util/log.h"
 #include "zn/platform.h"
 #include <stdlib.h>
@@ -13,17 +13,17 @@
 #if defined(_WIN32)
 #include <windows.h>
 #endif
-#if defined(ZMS_HAVE_WEBRTC_DTLS) && ZMS_HAVE_WEBRTC_DTLS
+#if defined(ZCS_HAVE_WEBRTC_DTLS) && ZCS_HAVE_WEBRTC_DTLS
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
-struct zms_webrtc_srtp {
-    uint8_t enc_key[ZMS_WEBRTC_SRTP_KEY_LEN];
+struct zcs_webrtc_srtp {
+    uint8_t enc_key[ZCS_WEBRTC_SRTP_KEY_LEN];
     uint8_t auth_key[20];
-    uint8_t session_salt[ZMS_WEBRTC_SRTP_SALT_LEN];
+    uint8_t session_salt[ZCS_WEBRTC_SRTP_SALT_LEN];
     /* RFC 3711 §4.3.2：SRTCP 使用 label 3/4/5 派生独立密钥。 */
-    uint8_t rtcp_enc_key[ZMS_WEBRTC_SRTP_KEY_LEN];
+    uint8_t rtcp_enc_key[ZCS_WEBRTC_SRTP_KEY_LEN];
     uint8_t rtcp_auth_key[20];
-    uint8_t rtcp_session_salt[ZMS_WEBRTC_SRTP_SALT_LEN];
+    uint8_t rtcp_session_salt[ZCS_WEBRTC_SRTP_SALT_LEN];
     uint8_t *auth_send_buf;
     uint8_t *auth_recv_buf;
     size_t auth_buf_cap;
@@ -51,7 +51,7 @@ static void srtp_kdf(const uint8_t *master_key, const uint8_t *master_salt, uint
     size_t off = 0;
     int n;
     memset(iv, 0, sizeof(iv));
-    memcpy(iv, master_salt, ZMS_WEBRTC_SRTP_SALT_LEN);
+    memcpy(iv, master_salt, ZCS_WEBRTC_SRTP_SALT_LEN);
     iv[7] ^= label;
     ctx = EVP_CIPHER_CTX_new();
     if (!ctx) {
@@ -87,7 +87,7 @@ static void srtp_kdf(const uint8_t *master_key, const uint8_t *master_salt, uint
  *
  * 首次调用（!ready）只记录起点、ROC 归零，避免上来就误判回绕。
  */
-static void srtp_seq_update(struct zms_webrtc_srtp *s, uint16_t seq)
+static void srtp_seq_update(struct zcs_webrtc_srtp *s, uint16_t seq)
 {
     if (!s->ready) {
         s->last_seq = seq;
@@ -101,12 +101,12 @@ static void srtp_seq_update(struct zms_webrtc_srtp *s, uint16_t seq)
     s->last_seq = seq;
 }
 
-static uint32_t srtp_index(const struct zms_webrtc_srtp *s, uint16_t seq)
+static uint32_t srtp_index(const struct zcs_webrtc_srtp *s, uint16_t seq)
 {
     return (s->roc << 16) | seq;
 }
 
-static int srtp_aes_ecb_init_key(struct zms_webrtc_srtp *s, const uint8_t *key)
+static int srtp_aes_ecb_init_key(struct zcs_webrtc_srtp *s, const uint8_t *key)
 {
     if (!s || !key) {
         return -1;
@@ -124,7 +124,7 @@ static int srtp_aes_ecb_init_key(struct zms_webrtc_srtp *s, const uint8_t *key)
     return 0;
 }
 
-static int srtp_aes_ecb_init(struct zms_webrtc_srtp *s)
+static int srtp_aes_ecb_init(struct zcs_webrtc_srtp *s)
 {
     return srtp_aes_ecb_init_key(s, s ? s->enc_key : NULL);
 }
@@ -137,7 +137,7 @@ static int srtp_aes_ecb_init(struct zms_webrtc_srtp *s)
  * 末 2 字节的块计数在每条报文内递增——这样同一报文的不同 16 字节块用不同
  * keystream，同一 seq 重放也不会复用。
  */
-static int srtp_aes_icm_crypt(struct zms_webrtc_srtp *s, uint32_t ssrc, uint32_t index,
+static int srtp_aes_icm_crypt(struct zcs_webrtc_srtp *s, uint32_t ssrc, uint32_t index,
                               uint8_t *data, size_t len)
 {
     uint8_t counter[16];
@@ -163,7 +163,7 @@ static int srtp_aes_icm_crypt(struct zms_webrtc_srtp *s, uint32_t ssrc, uint32_t
     counter[11] = (uint8_t)(roc);
     counter[12] = (uint8_t)(seq >> 8);
     counter[13] = (uint8_t)(seq);
-    for (i = 0; i < ZMS_WEBRTC_SRTP_SALT_LEN; ++i) {
+    for (i = 0; i < ZCS_WEBRTC_SRTP_SALT_LEN; ++i) {
         counter[i] ^= s->session_salt[i];
     }
     while (pos < len) {
@@ -187,7 +187,7 @@ static int srtp_aes_icm_crypt(struct zms_webrtc_srtp *s, uint32_t ssrc, uint32_t
  * 发送和接收共用同一套派生（init_recv 直接复用），因为 DTLS 协商的是一对
  * 对称主密钥，方向区分由各端各自的 key/salt 承担。
  */
-int zms_webrtc_srtp_init_send(zms_webrtc_srtp *ctx, const uint8_t *key, const uint8_t *salt)
+int zcs_webrtc_srtp_init_send(zcs_webrtc_srtp *ctx, const uint8_t *key, const uint8_t *salt)
 {
     if (!ctx || !key || !salt) {
         return -1;
@@ -202,12 +202,12 @@ int zms_webrtc_srtp_init_send(zms_webrtc_srtp *ctx, const uint8_t *key, const ui
     return srtp_aes_ecb_init(ctx);
 }
 
-zms_webrtc_srtp *zms_webrtc_srtp_create(void)
+zcs_webrtc_srtp *zcs_webrtc_srtp_create(void)
 {
-    return (zms_webrtc_srtp *)calloc(1, sizeof(zms_webrtc_srtp));
+    return (zcs_webrtc_srtp *)calloc(1, sizeof(zcs_webrtc_srtp));
 }
 
-void zms_webrtc_srtp_destroy(zms_webrtc_srtp *ctx)
+void zcs_webrtc_srtp_destroy(zcs_webrtc_srtp *ctx)
 {
     if (!ctx) {
         return;
@@ -219,9 +219,9 @@ void zms_webrtc_srtp_destroy(zms_webrtc_srtp *ctx)
     free(ctx);
 }
 
-void zms_webrtc_srtp_bind_scratch(zms_webrtc_srtp *ctx, uint8_t *buf, size_t cap)
+void zcs_webrtc_srtp_bind_scratch(zcs_webrtc_srtp *ctx, uint8_t *buf, size_t cap)
 {
-    if (!ctx || !buf || cap < ZMS_WEBRTC_PLAY_CRYPT_BYTES) {
+    if (!ctx || !buf || cap < ZCS_WEBRTC_PLAY_CRYPT_BYTES) {
         return;
     }
     ctx->auth_send_buf = buf;
@@ -231,14 +231,14 @@ void zms_webrtc_srtp_bind_scratch(zms_webrtc_srtp *ctx, uint8_t *buf, size_t cap
 /* RFC 3550 头 + CSRC + 扩展：SRTP 仅加密/认证其后字节。 */
 static size_t srtp_plain_rtp_prefix_len(const uint8_t *rtp, size_t len)
 {
-    size_t off = zms_rtp_payload_offset(rtp, len);
+    size_t off = zcs_rtp_payload_offset(rtp, len);
     return off > 0 ? off : 0;
 }
 
 static void srtp_diag(const char *step, size_t len, size_t hdr_len, size_t body_len,
-                      const struct zms_webrtc_srtp *ctx)
+                      const struct zcs_webrtc_srtp *ctx)
 {
-#if defined(ZMS_WEBRTC_SRTP_DIAG)
+#if defined(ZCS_WEBRTC_SRTP_DIAG)
     static unsigned n;
     if (n >= 24u) {
         return;
@@ -257,7 +257,7 @@ static void srtp_diag(const char *step, size_t len, size_t hdr_len, size_t body_
 }
 /* OpenSSL HMAC 写出完整摘要（SHA-1 为 20 字节）；SRTP 仅用前 10 字节。 */
 static int srtp_hmac_tag(const uint8_t *auth_key, size_t auth_key_len, const uint8_t *data,
-                         size_t data_len, uint8_t out_tag[ZMS_WEBRTC_SRTP_TAG_LEN])
+                         size_t data_len, uint8_t out_tag[ZCS_WEBRTC_SRTP_TAG_LEN])
 {
     unsigned int digest_len = EVP_MAX_MD_SIZE;
     uint8_t digest[EVP_MAX_MD_SIZE];
@@ -265,10 +265,10 @@ static int srtp_hmac_tag(const uint8_t *auth_key, size_t auth_key_len, const uin
         return -1;
     }
     if (!HMAC(EVP_sha1(), auth_key, (int)auth_key_len, data, data_len, digest, &digest_len) ||
-        digest_len < ZMS_WEBRTC_SRTP_TAG_LEN) {
+        digest_len < ZCS_WEBRTC_SRTP_TAG_LEN) {
         return -1;
     }
-    memcpy(out_tag, digest, ZMS_WEBRTC_SRTP_TAG_LEN);
+    memcpy(out_tag, digest, ZCS_WEBRTC_SRTP_TAG_LEN);
     return 0;
 }
 
@@ -281,19 +281,19 @@ static int srtp_hmac_tag(const uint8_t *auth_key, size_t auth_key_len, const uin
  *
  * cap 是调用方缓冲上限：加密不改变长度，但追加 10 字节 tag 会，故先检查。
  */
-static int srtp_protect_impl(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io, size_t cap)
+static int srtp_protect_impl(zcs_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io, size_t cap)
 {
     uint16_t seq;
     uint32_t ssrc;
     uint32_t index;
     size_t hdr_len;
     size_t body_len;
-    uint8_t tag[ZMS_WEBRTC_SRTP_TAG_LEN];
+    uint8_t tag[ZCS_WEBRTC_SRTP_TAG_LEN];
     uint32_t roc;
     if (!ctx || !rtp || !len_io || *len_io < 12) {
         return -1;
     }
-    if (*len_io + ZMS_WEBRTC_SRTP_TAG_LEN > cap) {
+    if (*len_io + ZCS_WEBRTC_SRTP_TAG_LEN > cap) {
         return -1;
     }
     hdr_len = srtp_plain_rtp_prefix_len(rtp, *len_io);
@@ -331,8 +331,8 @@ static int srtp_protect_impl(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io,
         return -1;
     }
     srtp_diag("hmac_ok", *len_io, hdr_len, body_len, ctx);
-    memcpy(rtp + *len_io, tag, ZMS_WEBRTC_SRTP_TAG_LEN);
-    *len_io += ZMS_WEBRTC_SRTP_TAG_LEN;
+    memcpy(rtp + *len_io, tag, ZCS_WEBRTC_SRTP_TAG_LEN);
+    *len_io += ZCS_WEBRTC_SRTP_TAG_LEN;
     srtp_diag("done", *len_io, hdr_len, body_len, ctx);
     return 0;
 }
@@ -344,7 +344,7 @@ static int srtp_protect_impl(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io,
  * 崩掉整个进程；这里把访问违例转成 -1 并打诊断日志，让上层按“该包发送失败”
  * 处理而不是静默丢失整条连接。属于最后一道防线，不替代正常的长度校验。
  */
-int zms_webrtc_srtp_protect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io, size_t cap)
+int zcs_webrtc_srtp_protect(zcs_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io, size_t cap)
 {
 #if defined(_WIN32)
     __try {
@@ -359,9 +359,9 @@ int zms_webrtc_srtp_protect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io, 
 #endif
 }
 
-int zms_webrtc_srtp_init_recv(zms_webrtc_srtp *ctx, const uint8_t *key, const uint8_t *salt)
+int zcs_webrtc_srtp_init_recv(zcs_webrtc_srtp *ctx, const uint8_t *key, const uint8_t *salt)
 {
-    return zms_webrtc_srtp_init_send(ctx, key, salt);
+    return zcs_webrtc_srtp_init_send(ctx, key, salt);
 }
 
 /*
@@ -369,7 +369,7 @@ int zms_webrtc_srtp_init_recv(zms_webrtc_srtp *ctx, const uint8_t *key, const ui
  * 认证失败直接丢弃，绝不把未认证的密文解密后交给上层——否则等于给了
  * 攻击者一个“解密 oracle”。因此 HMAC 校验通过后才做 ICM 解密。
  */
-int zms_webrtc_srtp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io)
+int zcs_webrtc_srtp_unprotect(zcs_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io)
 {
     uint16_t seq;
     uint32_t ssrc;
@@ -377,13 +377,13 @@ int zms_webrtc_srtp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io
     size_t hdr_len;
     size_t body_len;
     size_t pkt_len;
-    uint8_t tag[ZMS_WEBRTC_SRTP_TAG_LEN];
-    uint8_t recv_tag[ZMS_WEBRTC_SRTP_TAG_LEN];
+    uint8_t tag[ZCS_WEBRTC_SRTP_TAG_LEN];
+    uint8_t recv_tag[ZCS_WEBRTC_SRTP_TAG_LEN];
     uint32_t roc;
-    if (!ctx || !rtp || !len_io || *len_io < 12 + ZMS_WEBRTC_SRTP_TAG_LEN) {
+    if (!ctx || !rtp || !len_io || *len_io < 12 + ZCS_WEBRTC_SRTP_TAG_LEN) {
         return -1;
     }
-    pkt_len = *len_io - ZMS_WEBRTC_SRTP_TAG_LEN;
+    pkt_len = *len_io - ZCS_WEBRTC_SRTP_TAG_LEN;
     hdr_len = srtp_plain_rtp_prefix_len(rtp, pkt_len);
     if (hdr_len == 0) {
         return -1;
@@ -398,7 +398,7 @@ int zms_webrtc_srtp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io
         return -1;
     }
     /* 接收暂存区可能与报文同一块内存（会话 io_buf）；先保存 tag，避免写 ROC 时覆盖。 */
-    memcpy(recv_tag, rtp + pkt_len, ZMS_WEBRTC_SRTP_TAG_LEN);
+    memcpy(recv_tag, rtp + pkt_len, ZCS_WEBRTC_SRTP_TAG_LEN);
     memcpy(ctx->auth_recv_buf, rtp, pkt_len);
     ctx->auth_recv_buf[pkt_len + 0] = (uint8_t)(roc >> 24);
     ctx->auth_recv_buf[pkt_len + 1] = (uint8_t)(roc >> 16);
@@ -406,7 +406,7 @@ int zms_webrtc_srtp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io
     ctx->auth_recv_buf[pkt_len + 3] = (uint8_t)(roc);
     if (srtp_hmac_tag(ctx->auth_key, sizeof(ctx->auth_key), ctx->auth_recv_buf, pkt_len + 4, tag) !=
             0 ||
-        memcmp(tag, recv_tag, ZMS_WEBRTC_SRTP_TAG_LEN) != 0) {
+        memcmp(tag, recv_tag, ZCS_WEBRTC_SRTP_TAG_LEN) != 0) {
         return -1;
     }
     if (body_len > 0 && srtp_aes_icm_crypt(ctx, ssrc, index, rtp + hdr_len, body_len) != 0) {
@@ -416,7 +416,7 @@ int zms_webrtc_srtp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io
     return 0;
 }
 
-static int srtcp_aes_icm_crypt(struct zms_webrtc_srtp *s, uint32_t ssrc, uint32_t srtcp_index,
+static int srtcp_aes_icm_crypt(struct zcs_webrtc_srtp *s, uint32_t ssrc, uint32_t srtcp_index,
                                uint8_t *data, size_t len)
 {
     uint8_t counter[16];
@@ -445,7 +445,7 @@ static int srtcp_aes_icm_crypt(struct zms_webrtc_srtp *s, uint32_t ssrc, uint32_
     counter[13] = (uint8_t)(iv >> 16);
     counter[14] = (uint8_t)(iv >> 8);
     counter[15] = (uint8_t)(iv);
-    for (i = 0; i < ZMS_WEBRTC_SRTP_SALT_LEN; ++i) {
+    for (i = 0; i < ZCS_WEBRTC_SRTP_SALT_LEN; ++i) {
         counter[i] ^= s->rtcp_session_salt[i];
     }
     while (pos < len) {
@@ -464,7 +464,7 @@ static int srtcp_aes_icm_crypt(struct zms_webrtc_srtp *s, uint32_t ssrc, uint32_
 /** RFC 3711 SRTCP：明文 RTCP + 4 字节 index + 10 字节 auth tag。 */
 /* 与 SRTP 的差别：SRTCP 的 RTCP 头 8 字节保持明文（含 SSRC），只加密其后；
  * index 高 bit 是 E（加密）标志，接收端凭它判断 payload 是否被加密过。 */
-int zms_webrtc_srtcp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_io)
+int zcs_webrtc_srtcp_unprotect(zcs_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_io)
 {
     size_t total;
     size_t plain_len;
@@ -472,12 +472,12 @@ int zms_webrtc_srtcp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_
     uint32_t ssrc;
     uint32_t index_word;
     uint32_t srtcp_index;
-    uint8_t tag[ZMS_WEBRTC_SRTP_TAG_LEN];
-    if (!ctx || !rtcp || !len_io || *len_io < 8 + 4 + ZMS_WEBRTC_SRTP_TAG_LEN) {
+    uint8_t tag[ZCS_WEBRTC_SRTP_TAG_LEN];
+    if (!ctx || !rtcp || !len_io || *len_io < 8 + 4 + ZCS_WEBRTC_SRTP_TAG_LEN) {
         return -1;
     }
     total = *len_io;
-    plain_len = total - 4 - ZMS_WEBRTC_SRTP_TAG_LEN;
+    plain_len = total - 4 - ZCS_WEBRTC_SRTP_TAG_LEN;
     if (plain_len < 8) {
         return -1;
     }
@@ -489,7 +489,7 @@ int zms_webrtc_srtcp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_
         ((uint32_t)rtcp[4] << 24) | ((uint32_t)rtcp[5] << 16) | ((uint32_t)rtcp[6] << 8) | rtcp[7];
     if (srtp_hmac_tag(ctx->rtcp_auth_key, sizeof(ctx->rtcp_auth_key), rtcp, plain_len + 4, tag) !=
             0 ||
-        memcmp(tag, rtcp + plain_len + 4, ZMS_WEBRTC_SRTP_TAG_LEN) != 0) {
+        memcmp(tag, rtcp + plain_len + 4, ZCS_WEBRTC_SRTP_TAG_LEN) != 0) {
         return -1;
     }
     if (enc_len > 0 && srtcp_aes_icm_crypt(ctx, ssrc, srtcp_index, rtcp + 8, enc_len) != 0) {
@@ -499,18 +499,18 @@ int zms_webrtc_srtcp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_
     return 0;
 }
 
-int zms_webrtc_srtcp_protect(zms_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_io, size_t cap)
+int zcs_webrtc_srtcp_protect(zcs_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_io, size_t cap)
 {
     size_t plain_len;
     size_t enc_len;
     uint32_t ssrc;
     uint32_t index_word;
-    uint8_t tag[ZMS_WEBRTC_SRTP_TAG_LEN];
+    uint8_t tag[ZCS_WEBRTC_SRTP_TAG_LEN];
     if (!ctx || !rtcp || !len_io || *len_io < 8) {
         return -1;
     }
     plain_len = *len_io;
-    if (plain_len + 4 + ZMS_WEBRTC_SRTP_TAG_LEN > cap) {
+    if (plain_len + 4 + ZCS_WEBRTC_SRTP_TAG_LEN > cap) {
         return -1;
     }
     enc_len = plain_len - 8;
@@ -529,33 +529,33 @@ int zms_webrtc_srtcp_protect(zms_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_io
         0) {
         return -1;
     }
-    memcpy(rtcp + plain_len + 4, tag, ZMS_WEBRTC_SRTP_TAG_LEN);
-    *len_io = plain_len + 4 + ZMS_WEBRTC_SRTP_TAG_LEN;
+    memcpy(rtcp + plain_len + 4, tag, ZCS_WEBRTC_SRTP_TAG_LEN);
+    *len_io = plain_len + 4 + ZCS_WEBRTC_SRTP_TAG_LEN;
     return 0;
 }
-#else  /* !ZMS_HAVE_WEBRTC_DTLS */
-struct zms_webrtc_srtp {
+#else  /* !ZCS_HAVE_WEBRTC_DTLS */
+struct zcs_webrtc_srtp {
     int dummy;
 };
 
-zms_webrtc_srtp *zms_webrtc_srtp_create(void)
+zcs_webrtc_srtp *zcs_webrtc_srtp_create(void)
 {
     return NULL;
 }
 
-void zms_webrtc_srtp_destroy(zms_webrtc_srtp *ctx)
+void zcs_webrtc_srtp_destroy(zcs_webrtc_srtp *ctx)
 {
     free(ctx);
 }
 
-void zms_webrtc_srtp_bind_scratch(zms_webrtc_srtp *ctx, uint8_t *buf, size_t cap)
+void zcs_webrtc_srtp_bind_scratch(zcs_webrtc_srtp *ctx, uint8_t *buf, size_t cap)
 {
     (void)ctx;
     (void)buf;
     (void)cap;
 }
 
-int zms_webrtc_srtp_init_send(zms_webrtc_srtp *ctx, const uint8_t *key, const uint8_t *salt)
+int zcs_webrtc_srtp_init_send(zcs_webrtc_srtp *ctx, const uint8_t *key, const uint8_t *salt)
 {
     (void)ctx;
     (void)key;
@@ -563,7 +563,7 @@ int zms_webrtc_srtp_init_send(zms_webrtc_srtp *ctx, const uint8_t *key, const ui
     return -1;
 }
 
-int zms_webrtc_srtp_protect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io, size_t cap)
+int zcs_webrtc_srtp_protect(zcs_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io, size_t cap)
 {
     (void)ctx;
     (void)rtp;
@@ -572,7 +572,7 @@ int zms_webrtc_srtp_protect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io, 
     return -1;
 }
 
-int zms_webrtc_srtp_init_recv(zms_webrtc_srtp *ctx, const uint8_t *key, const uint8_t *salt)
+int zcs_webrtc_srtp_init_recv(zcs_webrtc_srtp *ctx, const uint8_t *key, const uint8_t *salt)
 {
     (void)ctx;
     (void)key;
@@ -580,7 +580,7 @@ int zms_webrtc_srtp_init_recv(zms_webrtc_srtp *ctx, const uint8_t *key, const ui
     return -1;
 }
 
-int zms_webrtc_srtp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io)
+int zcs_webrtc_srtp_unprotect(zcs_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io)
 {
     (void)ctx;
     (void)rtp;
@@ -588,7 +588,7 @@ int zms_webrtc_srtp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtp, size_t *len_io
     return -1;
 }
 
-int zms_webrtc_srtcp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_io)
+int zcs_webrtc_srtcp_unprotect(zcs_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_io)
 {
     (void)ctx;
     (void)rtcp;
@@ -596,7 +596,7 @@ int zms_webrtc_srtcp_unprotect(zms_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_
     return -1;
 }
 
-int zms_webrtc_srtcp_protect(zms_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_io, size_t cap)
+int zcs_webrtc_srtcp_protect(zcs_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_io, size_t cap)
 {
     (void)ctx;
     (void)rtcp;
@@ -604,4 +604,4 @@ int zms_webrtc_srtcp_protect(zms_webrtc_srtp *ctx, uint8_t *rtcp, size_t *len_io
     (void)cap;
     return -1;
 }
-#endif /* ZMS_HAVE_WEBRTC_DTLS */
+#endif /* ZCS_HAVE_WEBRTC_DTLS */

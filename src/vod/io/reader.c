@@ -2,25 +2,25 @@
  * @file reader.c
  * @brief VOD 统一 reader（预填与 poller 绑定）。
  */
-#include "zms/vod/io/reader.h"
-#include "zms/vod/io/file_reader.h"
-#include "zms/media/container/flv/flv_index.h"
+#include "zcs/vod/io/reader.h"
+#include "zcs/vod/io/file_reader.h"
+#include "zcs/media/container/flv/flv_index.h"
 #include <stdlib.h>
 #include <string.h>
 
-struct zms_vod_reader {
-    zms_vod_file_reader *impl;
+struct zcs_vod_reader {
+    zcs_vod_file_reader *impl;
 };
 
-zms_vod_reader *zms_vod_reader_open(const zms_vod_reader_opts *opts)
+zcs_vod_reader *zcs_vod_reader_open(const zcs_vod_reader_opts *opts)
 {
-    zms_vod_file_reader_opts mp4_opts;
-    zms_vod_reader *r;
+    zcs_vod_file_reader_opts mp4_opts;
+    zcs_vod_reader *r;
 
     if (!opts) {
         return NULL;
     }
-    r = (zms_vod_reader *)calloc(1, sizeof(*r));
+    r = (zcs_vod_reader *)calloc(1, sizeof(*r));
     if (!r) {
         return NULL;
     }
@@ -34,7 +34,7 @@ zms_vod_reader *zms_vod_reader_open(const zms_vod_reader_opts *opts)
     mp4_opts.loop = opts->loop;
     mp4_opts.fifo_high_water = opts->fifo_high_water;
     mp4_opts.owner_ctx = r;
-    r->impl = zms_vod_file_reader_open(&mp4_opts);
+    r->impl = zcs_vod_file_reader_open(&mp4_opts);
     if (!r->impl) {
         free(r);
         return NULL;
@@ -42,76 +42,76 @@ zms_vod_reader *zms_vod_reader_open(const zms_vod_reader_opts *opts)
     return r;
 }
 
-void zms_vod_reader_close(zms_vod_reader *r)
+void zcs_vod_reader_close(zcs_vod_reader *r)
 {
     if (!r) {
         return;
     }
-    zms_vod_file_reader_close(r->impl);
+    zcs_vod_file_reader_close(r->impl);
     free(r);
 }
 
-void zms_vod_reader_bind_poller(zms_vod_reader *r, zn_poller *poller)
+void zcs_vod_reader_bind_poller(zcs_vod_reader *r, zn_poller *poller)
 {
     if (r) {
-        zms_vod_file_reader_bind_poller(r->impl, poller);
+        zcs_vod_file_reader_bind_poller(r->impl, poller);
     }
 }
 
-void zms_vod_reader_bind_poller_lite(zms_vod_reader *r, zn_poller *poller)
+void zcs_vod_reader_bind_poller_lite(zcs_vod_reader *r, zn_poller *poller)
 {
     if (r) {
-        zms_vod_file_reader_bind_poller_lite(r->impl, poller);
+        zcs_vod_file_reader_bind_poller_lite(r->impl, poller);
     }
 }
 
-void zms_vod_reader_prefill(zms_vod_reader *r)
+void zcs_vod_reader_prefill(zcs_vod_reader *r)
 {
     if (r) {
-        zms_vod_file_reader_prefill(r->impl);
+        zcs_vod_file_reader_prefill(r->impl);
     }
 }
 
-void zms_vod_reader_prepare_play(zms_vod_reader *r)
+void zcs_vod_reader_prepare_play(zcs_vod_reader *r)
 {
     if (r) {
-        zms_vod_file_reader_prepare_play(r->impl);
+        zcs_vod_file_reader_prepare_play(r->impl);
     }
 }
 
-uint64_t zms_vod_reader_seek_ms(zms_vod_reader *r, uint64_t ms)
+uint64_t zcs_vod_reader_seek_ms(zcs_vod_reader *r, uint64_t ms)
 {
-    return r ? zms_vod_file_reader_seek_ms(r->impl, ms) : 0;
+    return r ? zcs_vod_file_reader_seek_ms(r->impl, ms) : 0;
 }
 
-zms_media_source *zms_vod_reader_source(zms_vod_reader *r)
+zcs_media_source *zcs_vod_reader_source(zcs_vod_reader *r)
 {
-    return r ? zms_vod_file_reader_source(r->impl) : NULL;
+    return r ? zcs_vod_file_reader_source(r->impl) : NULL;
 }
 
-const char *zms_vod_reader_file_path(const zms_vod_reader *r)
+const char *zcs_vod_reader_file_path(const zcs_vod_reader *r)
 {
-    return r ? zms_vod_file_reader_file_path(r->impl) : NULL;
+    return r ? zcs_vod_file_reader_file_path(r->impl) : NULL;
 }
 
-uint64_t zms_vod_reader_duration_ms(const zms_vod_reader *r)
+uint64_t zcs_vod_reader_duration_ms(const zcs_vod_reader *r)
 {
-    return r ? zms_vod_file_reader_duration_ms(r->impl) : 0;
+    return r ? zcs_vod_file_reader_duration_ms(r->impl) : 0;
 }
 
-const zms_vod_flv_index *zms_vod_reader_flv_index(zms_vod_reader *r)
+const zcs_vod_flv_index *zcs_vod_reader_flv_index(zcs_vod_reader *r)
 {
-    return r ? zms_vod_file_reader_flv_index(r->impl) : NULL;
+    return r ? zcs_vod_file_reader_flv_index(r->impl) : NULL;
 }
 
-void zms_vod_reader_set_pump_hold(zms_vod_reader *r, int hold)
+void zcs_vod_reader_set_pump_hold(zcs_vod_reader *r, int hold)
 {
     if (r) {
-        zms_vod_file_reader_set_pump_hold(r->impl, hold);
+        zcs_vod_file_reader_set_pump_hold(r->impl, hold);
     }
 }
 
-int zms_vod_reader_pump(zms_vod_reader *r)
+int zcs_vod_reader_pump(zcs_vod_reader *r)
 {
-    return r ? zms_vod_file_reader_pump(r->impl) : 0;
+    return r ? zcs_vod_file_reader_pump(r->impl) : 0;
 }

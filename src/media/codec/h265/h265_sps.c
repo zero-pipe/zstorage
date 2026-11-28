@@ -5,7 +5,7 @@
  * 参考 HEVC 规范 7.3.2.2 的 SPS 语法，跳过 profile_tier_level，
  * 读取 pic_width/height_in_luma_samples 与 conformance window。
  */
-#include "zms/media/codec/h265/h265_sps.h"
+#include "zcs/media/codec/h265/h265_sps.h"
 #include <string.h>
 
 typedef struct {
@@ -107,7 +107,7 @@ static int profile_tier_level_bytes(const uint8_t *p, size_t bytes, uint8_t max_
     return bytes >= n ? (int)n : -1;
 }
 
-int zms_h265_sps_parse(const uint8_t *sps, size_t len, zms_h265_sps_info *info)
+int zcs_h265_sps_parse(const uint8_t *sps, size_t len, zcs_h265_sps_info *info)
 {
     uint8_t rbsp[512];
     size_t n;

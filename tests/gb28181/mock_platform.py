@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """GB28181 本地模拟平台（UDP/TCP SIP + RTP/PS 收流）。
 
-验证 ZMS 设备端：
+验证 ZCS 设备端：
   REGISTER(Digest) -> Catalog/DeviceInfo/DeviceStatus/RecordInfo ->
   INVITE(UDP / TCP 主被动) -> ACK -> 收 RTP/PS -> BYE
 

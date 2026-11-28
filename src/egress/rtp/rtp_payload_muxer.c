@@ -3,7 +3,7 @@
  * @brief RTSP RTP 输出：把编码帧按 RTP 负载打包。
  *
  * 只负责 RTP payload 打包；时间线由宿主 (play clock) 通过
- * rtp_payload_muxer_sync_timeline 提供，SSRC/seq/RTCP 调度留在 ZMS 会话层。
+ * rtp_payload_muxer_sync_timeline 提供，SSRC/seq/RTCP 调度留在 ZCS 会话层。
  * 打包器本身由 ZM 的 zm_rtp_writer 提供。
  */
 #include "egress/rtp/rtp_payload_muxer.h"

@@ -29,30 +29,30 @@ static void derive_media_xaddr(const char *device_xaddr, char *out, size_t cap)
 }
 
 /** 调用一次 SOAP，返回 malloc 的响应体（失败 NULL） */
-static char *onvif_call_body(zms_onvif_client *c, const char *xaddr, const char *body)
+static char *onvif_call_body(zcs_onvif_client *c, const char *xaddr, const char *body)
 {
     char *resp = NULL;
-    if (zms_onvif_call(c, xaddr, body, &resp) != 0) {
+    if (zcs_onvif_call(c, xaddr, body, &resp) != 0) {
         return NULL;
     }
     return resp;
 }
 
-static void read_device_information(zms_onvif_client *c)
+static void read_device_information(zcs_onvif_client *c)
 {
     char *body = onvif_call_body(c, c->dev.xaddr, "<tds:GetDeviceInformation/>");
     if (!body) {
         return;
     }
-    (void)zms_xml_text(body, "Manufacturer", c->dev.manufacturer, sizeof(c->dev.manufacturer));
-    (void)zms_xml_text(body, "Model", c->dev.model, sizeof(c->dev.model));
-    (void)zms_xml_text(body, "FirmwareVersion", c->dev.firmware, sizeof(c->dev.firmware));
-    (void)zms_xml_text(body, "SerialNumber", c->dev.serial, sizeof(c->dev.serial));
-    (void)zms_xml_text(body, "HardwareId", c->dev.hardware, sizeof(c->dev.hardware));
+    (void)zcs_xml_text(body, "Manufacturer", c->dev.manufacturer, sizeof(c->dev.manufacturer));
+    (void)zcs_xml_text(body, "Model", c->dev.model, sizeof(c->dev.model));
+    (void)zcs_xml_text(body, "FirmwareVersion", c->dev.firmware, sizeof(c->dev.firmware));
+    (void)zcs_xml_text(body, "SerialNumber", c->dev.serial, sizeof(c->dev.serial));
+    (void)zcs_xml_text(body, "HardwareId", c->dev.hardware, sizeof(c->dev.hardware));
     free(body);
 }
 
-static void read_capabilities(zms_onvif_client *c)
+static void read_capabilities(zcs_onvif_client *c)
 {
     char *body = onvif_call_body(
         c, c->dev.xaddr,
@@ -62,32 +62,32 @@ static void read_capabilities(zms_onvif_client *c)
         return;
     }
     {
-        const char *media = zms_xml_find(body, "Media");
+        const char *media = zcs_xml_find(body, "Media");
         if (media) {
-            (void)zms_xml_text(media, "XAddr", c->dev.media_xaddr, sizeof(c->dev.media_xaddr));
+            (void)zcs_xml_text(media, "XAddr", c->dev.media_xaddr, sizeof(c->dev.media_xaddr));
         }
         if (c->dev.media_xaddr[0] == '\0') {
             derive_media_xaddr(c->dev.xaddr, c->dev.media_xaddr, sizeof(c->dev.media_xaddr));
         }
         {
-            const char *ptz = zms_xml_find(body, "PTZ");
+            const char *ptz = zcs_xml_find(body, "PTZ");
             if (ptz) {
-                (void)zms_xml_text(ptz, "XAddr", c->dev.ptz_xaddr, sizeof(c->dev.ptz_xaddr));
+                (void)zcs_xml_text(ptz, "XAddr", c->dev.ptz_xaddr, sizeof(c->dev.ptz_xaddr));
             }
         }
     }
     free(body);
 }
 
-zms_onvif_client *zms_onvif_connect(const char *device_xaddr, const char *user, const char *pass,
+zcs_onvif_client *zcs_onvif_connect(const char *device_xaddr, const char *user, const char *pass,
                                     int timeout_ms)
 {
-    zms_onvif_client *c;
+    zcs_onvif_client *c;
 
     if (!device_xaddr || !device_xaddr[0]) {
         return NULL;
     }
-    c = (zms_onvif_client *)calloc(1, sizeof(*c));
+    c = (zcs_onvif_client *)calloc(1, sizeof(*c));
     if (!c) {
         return NULL;
     }
@@ -108,7 +108,7 @@ zms_onvif_client *zms_onvif_connect(const char *device_xaddr, const char *user, 
     return c;
 }
 
-int zms_onvif_refresh(zms_onvif_client *c, zms_onvif_device *out)
+int zcs_onvif_refresh(zcs_onvif_client *c, zcs_onvif_device *out)
 {
     if (!c) {
         return -1;
@@ -121,7 +121,7 @@ int zms_onvif_refresh(zms_onvif_client *c, zms_onvif_device *out)
     return c->dev.media_xaddr[0] ? 0 : -1;
 }
 
-static int get_stream_uri(zms_onvif_client *c, const char *token, char *uri, size_t cap)
+static int get_stream_uri(zcs_onvif_client *c, const char *token, char *uri, size_t cap)
 {
     char body[512];
     char *resp;
@@ -145,12 +145,12 @@ static int get_stream_uri(zms_onvif_client *c, const char *token, char *uri, siz
     if (!resp) {
         return -1;
     }
-    rc = zms_xml_text(resp, "Uri", uri, cap);
+    rc = zcs_xml_text(resp, "Uri", uri, cap);
     free(resp);
     return rc;
 }
 
-int zms_onvif_get_profiles(zms_onvif_client *c, zms_onvif_profile *out, size_t cap, size_t *count)
+int zcs_onvif_get_profiles(zcs_onvif_client *c, zcs_onvif_profile *out, size_t cap, size_t *count)
 {
     char *body;
     const char *cur;
@@ -169,11 +169,11 @@ int zms_onvif_get_profiles(zms_onvif_client *c, zms_onvif_profile *out, size_t c
 
     cur = body;
     while (n < cap) {
-        const char *tag = zms_xml_find_tag_start(cur, NULL, "Profiles");
+        const char *tag = zcs_xml_find_tag_start(cur, NULL, "Profiles");
         const char *block;
         const char *next;
         const char *block_end;
-        zms_onvif_profile *p;
+        zcs_onvif_profile *p;
 
         if (!tag) {
             break;
@@ -183,29 +183,29 @@ int zms_onvif_get_profiles(zms_onvif_client *c, zms_onvif_profile *out, size_t c
             break;
         }
         ++block;
-        next = zms_xml_find_tag_start(block, NULL, "Profiles");
+        next = zcs_xml_find_tag_start(block, NULL, "Profiles");
         block_end = next;
 
         p = &out[n];
         memset(p, 0, sizeof(*p));
-        (void)zms_xml_attr(tag, "Profiles", "token", p->token, sizeof(p->token));
-        (void)zms_xml_text_between(block, block_end, "Name", p->name, sizeof(p->name));
-        (void)zms_xml_text_between(block, block_end, "Encoding", p->encoding, sizeof(p->encoding));
+        (void)zcs_xml_attr(tag, "Profiles", "token", p->token, sizeof(p->token));
+        (void)zcs_xml_text_between(block, block_end, "Name", p->name, sizeof(p->name));
+        (void)zcs_xml_text_between(block, block_end, "Encoding", p->encoding, sizeof(p->encoding));
         {
-            const char *res = zms_xml_find_between(block, block_end, "Resolution");
+            const char *res = zcs_xml_find_between(block, block_end, "Resolution");
             if (res) {
                 char tmp[32];
-                if (zms_xml_text_between(res, block_end, "Width", tmp, sizeof(tmp)) == 0) {
+                if (zcs_xml_text_between(res, block_end, "Width", tmp, sizeof(tmp)) == 0) {
                     p->width = atoi(tmp);
                 }
-                if (zms_xml_text_between(res, block_end, "Height", tmp, sizeof(tmp)) == 0) {
+                if (zcs_xml_text_between(res, block_end, "Height", tmp, sizeof(tmp)) == 0) {
                     p->height = atoi(tmp);
                 }
             }
         }
         {
             char tmp[32];
-            if (zms_xml_text_between(block, block_end, "FrameRateLimit", tmp, sizeof(tmp)) == 0) {
+            if (zcs_xml_text_between(block, block_end, "FrameRateLimit", tmp, sizeof(tmp)) == 0) {
                 p->fps = (int)(atof(tmp) + 0.5);
             }
         }
@@ -225,12 +225,12 @@ int zms_onvif_get_profiles(zms_onvif_client *c, zms_onvif_profile *out, size_t c
     return n > 0 ? 0 : -1;
 }
 
-const zms_onvif_device *zms_onvif_device_info(const zms_onvif_client *c)
+const zcs_onvif_device *zcs_onvif_device_info(const zcs_onvif_client *c)
 {
     return c ? &c->dev : NULL;
 }
 
-int zms_onvif_ptz_move(zms_onvif_client *c, const char *profile_token, float pan, float tilt,
+int zcs_onvif_ptz_move(zcs_onvif_client *c, const char *profile_token, float pan, float tilt,
                        float zoom)
 {
     char body[512];
@@ -258,7 +258,7 @@ int zms_onvif_ptz_move(zms_onvif_client *c, const char *profile_token, float pan
     return 0;
 }
 
-int zms_onvif_ptz_stop(zms_onvif_client *c, const char *profile_token)
+int zcs_onvif_ptz_stop(zcs_onvif_client *c, const char *profile_token)
 {
     char body[256];
     char *resp;
@@ -282,7 +282,7 @@ int zms_onvif_ptz_stop(zms_onvif_client *c, const char *profile_token)
     return 0;
 }
 
-void zms_onvif_close(zms_onvif_client *c)
+void zcs_onvif_close(zcs_onvif_client *c)
 {
     free(c);
 }
@@ -310,7 +310,7 @@ static int uri_put_encoded(char **w, const char *end, const char *s)
     return 0;
 }
 
-int zms_onvif_uri_with_auth(const char *uri, const char *user, const char *pass, char *out,
+int zcs_onvif_uri_with_auth(const char *uri, const char *user, const char *pass, char *out,
                             size_t cap)
 {
     const char *scheme_end;

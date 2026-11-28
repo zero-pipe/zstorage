@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Generate small deterministic media fixtures for ZMS tests.
+# Generate small deterministic media fixtures for ZCS tests.
 # Requires ffmpeg (with libx264 + aac). H.265 / AV1 are optional.
 #
 #   ./generate.sh

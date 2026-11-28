@@ -2,22 +2,22 @@
  * @file message_framer.c
  * @brief HTTP 消息边界组帧（头 + Content-Length/chunked）。
  */
-#include "zms/protocol/http/message_framer.h"
+#include "zcs/protocol/http/message_framer.h"
 #include "zn/util/byte_buf.h"
 #include <stdlib.h>
 #include <string.h>
 
-#define ZMS_HTTP_DEFAULT_MAX_CACHE (4U * 1024U * 1024U)
+#define ZCS_HTTP_DEFAULT_MAX_CACHE (4U * 1024U * 1024U)
 
-struct zms_http_message_framer {
-    zms_http_message_framer_opts opts;
+struct zcs_http_message_framer {
+    zcs_http_message_framer_opts opts;
     zn_byte_buf *remain;
     intptr_t content_len;
     size_t remain_data_size;
     size_t max_cache_size;
 };
 
-const char *zms_http_message_search_tail(const char *data, size_t len)
+const char *zcs_http_message_search_tail(const char *data, size_t len)
 {
     for (size_t i = 0; i + 3 < len; ++i) {
         if (data[i] == '\r' && data[i + 1] == '\n' && data[i + 2] == '\r' && data[i + 3] == '\n') {
@@ -27,17 +27,17 @@ const char *zms_http_message_search_tail(const char *data, size_t len)
     return NULL;
 }
 
-static const char *search_packet_tail(zms_http_message_framer *s, const char *data, size_t len)
+static const char *search_packet_tail(zcs_http_message_framer *s, const char *data, size_t len)
 {
     if (s->opts.on_search_tail) {
         return s->opts.on_search_tail(data, len, s->opts.user);
     }
-    return zms_http_message_search_tail(data, len);
+    return zcs_http_message_search_tail(data, len);
 }
 
-zms_http_message_framer *zms_http_message_framer_create(const zms_http_message_framer_opts *opts)
+zcs_http_message_framer *zcs_http_message_framer_create(const zcs_http_message_framer_opts *opts)
 {
-    zms_http_message_framer *s = (zms_http_message_framer *)calloc(1, sizeof(*s));
+    zcs_http_message_framer *s = (zcs_http_message_framer *)calloc(1, sizeof(*s));
     if (!s) {
         return NULL;
     }
@@ -45,7 +45,7 @@ zms_http_message_framer *zms_http_message_framer_create(const zms_http_message_f
         s->opts = *opts;
     }
     s->max_cache_size =
-        s->opts.max_cache_size ? s->opts.max_cache_size : ZMS_HTTP_DEFAULT_MAX_CACHE;
+        s->opts.max_cache_size ? s->opts.max_cache_size : ZCS_HTTP_DEFAULT_MAX_CACHE;
     s->remain = zn_byte_buf_create(0);
     if (!s->remain) {
         free(s);
@@ -54,7 +54,7 @@ zms_http_message_framer *zms_http_message_framer_create(const zms_http_message_f
     return s;
 }
 
-void zms_http_message_framer_destroy(zms_http_message_framer *s)
+void zcs_http_message_framer_destroy(zcs_http_message_framer *s)
 {
     if (!s) {
         return;
@@ -63,7 +63,7 @@ void zms_http_message_framer_destroy(zms_http_message_framer *s)
     free(s);
 }
 
-void zms_http_message_framer_reset(zms_http_message_framer *s)
+void zcs_http_message_framer_reset(zcs_http_message_framer *s)
 {
     if (!s) {
         return;
@@ -73,12 +73,12 @@ void zms_http_message_framer_reset(zms_http_message_framer *s)
     zn_byte_buf_clear(s->remain);
 }
 
-size_t zms_http_message_framer_remain_size(const zms_http_message_framer *s)
+size_t zcs_http_message_framer_remain_size(const zcs_http_message_framer *s)
 {
     return s ? s->remain_data_size : 0;
 }
 
-zn_err_t zms_http_message_framer_input(zms_http_message_framer *s, const void *data, size_t len)
+zn_err_t zcs_http_message_framer_input(zcs_http_message_framer *s, const void *data, size_t len)
 {
     if (!s || !data || len == 0) {
         return ZN_ERR_INVALID;
@@ -86,7 +86,7 @@ zn_err_t zms_http_message_framer_input(zms_http_message_framer *s, const void *d
 
     size_t cached = zn_byte_buf_size(s->remain);
     if (cached + len > s->max_cache_size) {
-        zms_http_message_framer_reset(s);
+        zcs_http_message_framer_reset(s);
         return ZN_ERR_BUFFER_TOO_SMALL;
     }
 

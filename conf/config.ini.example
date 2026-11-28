@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# ZMS 媒体服务器配置
+# ZCS 媒体服务器配置
 #
 # 语法：INI 子集。[section] 分节，key=value 赋值；# 与 ; 开头为注释。
 #   值按「原样文本」解析，不做行内注释剥离 —— 不要把注释写在值的同一行。
@@ -23,7 +23,7 @@
 [general]
 # ── 进程与日志 ─────────────────────────────────────────────────────────────
 # 日志文件（相对进程工作目录）；路径含目录时需目录已存在
-log_file=zms_media_server.log
+log_file=zcs_media_server.log
 # 日志级别：trace / debug / info / warn / error（数字 0-3 亦可）。
 #   生产用 info；排查问题临时调 debug，量很大不要长期开
 log_level=info
@@ -75,9 +75,9 @@ stream_none_reader_delay_ms=20000
 
 
 [auth]
-# 推流/播放鉴权：业务侧（web 后台）签发 token，ZMS 本地验签。
+# 推流/播放鉴权：业务侧（web 后台）签发 token，ZCS 本地验签。
 #   enable=1 时推/拉流 URL 必须带 token 参数；未注入验签实现则一律拒绝（fail-closed）。
-#   验签实现由集成方通过 zms_auth_set_verifier() 注入，本文件只提供参数名与密钥占位。
+#   验签实现由集成方通过 zcs_auth_set_verifier() 注入，本文件只提供参数名与密钥占位。
 # 0=关闭（默认，内网/测试）；1=开启（公网必须）
 enable=0
 # URL 查询参数名，如 ?token=xxx
@@ -106,7 +106,7 @@ on_server_started=http://127.0.0.1:18080/index/hook/on_server_started
 on_server_keepalive=http://127.0.0.1:18080/index/hook/on_server_keepalive
 keepalive_interval_sec=30
 on_record_mp4=http://127.0.0.1:18080/index/hook/on_record_mp4
-# 云存储节点自注册/心跳（与取流 ZMS 节点分离，平台落独立表登记存储节点）。
+# 云存储节点自注册/心跳（与取流 ZCS 节点分离，平台落独立表登记存储节点）。
 # 留空=不当存储节点上报。载荷含 type=zstorage、容量/已用。
 on_storage_started=http://127.0.0.1:18080/index/hook/on_storage_started
 on_storage_keepalive=http://127.0.0.1:18080/index/hook/on_storage_keepalive
@@ -153,7 +153,7 @@ port=8080
 sslport=0
 
 [srt]
-# SRT 端口（推流/播放）。需要构建时开启 ZMS_ENABLE_SRT
+# SRT 端口（推流/播放）。需要构建时开启 ZCS_ENABLE_SRT
 port=9000
 # 对端空闲超时（秒）
 timeoutSec=5
@@ -166,7 +166,7 @@ passPhrase=
 
 
 [webrtc]
-# WebRTC 需要构建时开启 ZMS_ENABLE_WEBRTC（否则本节的配置会被忽略，
+# WebRTC 需要构建时开启 ZCS_ENABLE_WEBRTC（否则本节的配置会被忽略，
 #   启动日志会提示 "enable_srt/enable_webrtc but binary built without ..."）
 # 1=启用 WebRTC（WHEP 播放 / WHIP 推流 / 信令客户端）
 enable=1
@@ -389,7 +389,7 @@ enable=0
 # 1 = 作为 ONVIF 设备端（WS-Discovery + /onvif/* 服务），可被 NVR/VMS 发现
 server_enable=0
 # 设备端在发现响应里显示的名称
-server_name=ZMS
+server_name=ZCS
 # 设备端 UUID；空=按启动时间自动生成 urn:uuid:...
 server_uuid=
 # 设备端对外呈现的流：vhost（空=默认 vhost）/ app
@@ -422,9 +422,9 @@ platform_port=5060
 # ── 本机设备身份 ──────────────────────────────────────────────────────────
 # 20 位设备编码（第 11-13 位须为 132，如 34020000001320000001）
 device_id=34020000001320000001
-device_name=ZMS-IPC
+device_name=ZCS-IPC
 manufacturer=Zero
-model=ZMS
+model=ZCS
 firmware=0.5.0
 # Digest 用户名（空=使用 device_id）/ 密码 —— 必须与平台侧登记一致
 username=

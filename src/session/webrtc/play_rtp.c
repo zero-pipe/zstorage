@@ -22,20 +22,20 @@
 #include "protocol/webrtc/media_gateway.h"
 #include "protocol/webrtc/media_internal.h"
 #include "session/webrtc/session_internal.h"
-#include "zms/session/webrtc/webrtc_server.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/egress/pipeline/egress_pipeline.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/core/gop/queue.h"
-#include "zms/media/media_limits.h"
-#include "zms/core/stream/hub.h"
-#include "zms/egress/pacing/egress_clock.h"
-#include "zms/media/wire/rtcp.h"
-#include "zms/media/wire/rtp_packet.h"
-#include "zms/media/wire/srtp.h"
-#include "zms/egress/pacing/egress_live_policy.h"
-#include "zms/egress/rtp/rtp_muxer.h"
-#include "zms/egress/rtp/rtp_play_pump.h"
+#include "zcs/session/webrtc/webrtc_server.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/egress/pipeline/egress_pipeline.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/media/media_limits.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/egress/pacing/egress_clock.h"
+#include "zcs/media/wire/rtcp.h"
+#include "zcs/media/wire/rtp_packet.h"
+#include "zcs/media/wire/srtp.h"
+#include "zcs/egress/pacing/egress_live_policy.h"
+#include "zcs/egress/rtp/rtp_muxer.h"
+#include "zcs/egress/rtp/rtp_play_pump.h"
 #include "protocol/webrtc/ice_internal.h"
 #include "zn/net/udp_server.h"
 #include "zn/util/buf.h"
@@ -54,22 +54,22 @@
 #include <arpa/inet.h>
 #endif
 /** 关键帧请求最小间隔，避免 PLI/NACK miss 抖动放大。 */
-#define ZMS_WEBRTC_PLI_MIN_INTERVAL_MS 800u
+#define ZCS_WEBRTC_PLI_MIN_INTERVAL_MS 800u
 /** TWCC 驱动的发送 pacer：默认不限制，仅平滑 I 帧突发；丢包后 AIMD 降速。 */
-#define ZMS_WEBRTC_PACER_DEFAULT_BPS 20000000u
-#define ZMS_WEBRTC_PACER_MIN_BPS 2000000u
-#define ZMS_WEBRTC_PACER_MAX_BPS 20000000u
-#define ZMS_WEBRTC_PACER_BURST_MS 50u
+#define ZCS_WEBRTC_PACER_DEFAULT_BPS 20000000u
+#define ZCS_WEBRTC_PACER_MIN_BPS 2000000u
+#define ZCS_WEBRTC_PACER_MAX_BPS 20000000u
+#define ZCS_WEBRTC_PACER_BURST_MS 50u
 
 static int webrtc_h264_payload_is_key(const uint8_t *payload, size_t len);
 
-static void webrtc_play_rtp_q_reset(zms_webrtc_session *s)
+static void webrtc_play_rtp_q_reset(zcs_webrtc_session *s)
 {
     size_t i;
     if (!s || !s->rt.q) {
         return;
     }
-    for (i = 0; i < ZMS_WEBRTC_PLAY_RTPQ_CAP; ++i) {
+    for (i = 0; i < ZCS_WEBRTC_PLAY_RTPQ_CAP; ++i) {
         if (s->rt.q[i].buf) {
             zn_buf_unref(s->rt.q[i].buf);
         }
@@ -81,7 +81,7 @@ static void webrtc_play_rtp_q_reset(zms_webrtc_session *s)
     s->rt.q_bytes = 0;
 }
 
-int webrtc_play_rtp_q_ensure(zms_webrtc_session *s)
+int webrtc_play_rtp_q_ensure(zcs_webrtc_session *s)
 {
     if (!s) {
         return -1;
@@ -90,11 +90,11 @@ int webrtc_play_rtp_q_ensure(zms_webrtc_session *s)
         return 0;
     }
     s->rt.q =
-        (zms_webrtc_play_rtp_slot *)calloc(ZMS_WEBRTC_PLAY_RTPQ_CAP, sizeof(*s->rt.q));
+        (zcs_webrtc_play_rtp_slot *)calloc(ZCS_WEBRTC_PLAY_RTPQ_CAP, sizeof(*s->rt.q));
     return s->rt.q ? 0 : -1;
 }
 
-size_t webrtc_play_rtp_q_clear(zms_webrtc_session *s)
+size_t webrtc_play_rtp_q_clear(zcs_webrtc_session *s)
 {
     size_t dropped_bytes = 0;
     unsigned dropped_pkts = 0;
@@ -104,8 +104,8 @@ size_t webrtc_play_rtp_q_clear(zms_webrtc_session *s)
         return 0;
     }
     for (i = 0; i < s->rt.q_n; ++i) {
-        zms_webrtc_play_rtp_slot *slot =
-            &s->rt.q[(s->rt.q_r + i) % ZMS_WEBRTC_PLAY_RTPQ_CAP];
+        zcs_webrtc_play_rtp_slot *slot =
+            &s->rt.q[(s->rt.q_r + i) % ZCS_WEBRTC_PLAY_RTPQ_CAP];
 
         if (slot->buf) {
             dropped_bytes += zn_buf_len(slot->buf);
@@ -126,7 +126,7 @@ size_t webrtc_play_rtp_q_clear(zms_webrtc_session *s)
     return dropped_bytes;
 }
 
-void webrtc_play_rtp_q_free(zms_webrtc_session *s)
+void webrtc_play_rtp_q_free(zcs_webrtc_session *s)
 {
     if (!s) {
         return;
@@ -161,17 +161,17 @@ void webrtc_play_rtp_q_free(zms_webrtc_session *s)
  *
  * 返回 1 表示该包被丢弃（调用方应跳过入队）。
  */
-static int webrtc_play_adapt_drop(zms_webrtc_session *s, const uint8_t *rtp, size_t len)
+static int webrtc_play_adapt_drop(zcs_webrtc_session *s, const uint8_t *rtp, size_t len)
 {
-    zms_rtp_packet pkt;
+    zcs_rtp_packet pkt;
     int key = 0;
     int marker;
     uint64_t now;
 
-    if (!s || s->rt.send_bps == 0 || s->video_codec != ZMS_CODEC_H264 || !rtp || len < 12) {
+    if (!s || s->rt.send_bps == 0 || s->video_codec != ZCS_CODEC_H264 || !rtp || len < 12) {
         return 0;
     }
-    if (zms_rtp_parse(rtp, len, &pkt) != ZN_OK) {
+    if (zcs_rtp_parse(rtp, len, &pkt) != ZN_OK) {
         return 0;
     }
     key = webrtc_h264_payload_is_key(pkt.payload, pkt.payload_size);
@@ -251,19 +251,19 @@ static int webrtc_play_adapt_drop(zms_webrtc_session *s, const uint8_t *rtp, siz
 /* 入队一个待发 RTP 包。视频先过帧级自适应（可能直接丢）。队列满（包数/字节任一
  * 超限）时丢最旧——保证队列长度有界、延迟不无限增长，且丢最旧对播放连续性冲击最小。
  * drop 日志按百包节流，避免丢包风暴刷屏。 */
-int webrtc_play_rtp_q_push(zms_webrtc_session *s, zms_rtp_mux_track track,
+int webrtc_play_rtp_q_push(zcs_webrtc_session *s, zcs_rtp_mux_track track,
                                   const uint8_t *rtp, size_t len)
 {
-    zms_webrtc_play_rtp_slot *slot;
+    zcs_webrtc_play_rtp_slot *slot;
     zn_buf *buf;
     void *dst;
     uint64_t drop_bytes = 0;
     uint64_t drop_pkts = 0;
     uint64_t drops_before;
-    if (!s || !rtp || len < 12 || len > ZMS_WEBRTC_PLAY_RTP_SLOT_MAX || !s->poller) {
+    if (!s || !rtp || len < 12 || len > ZCS_WEBRTC_PLAY_RTP_SLOT_MAX || !s->poller) {
         return -1;
     }
-    if (track == ZMS_RTP_MUX_TRACK_VIDEO && webrtc_play_adapt_drop(s, rtp, len)) {
+    if (track == ZCS_RTP_MUX_TRACK_VIDEO && webrtc_play_adapt_drop(s, rtp, len)) {
         return -1;
     }
     if (webrtc_play_rtp_q_ensure(s) != 0) {
@@ -273,9 +273,9 @@ int webrtc_play_rtp_q_push(zms_webrtc_session *s, zms_rtp_mux_track track,
     drops_before = s->rt.q_dropped_pkts;
     /* 包数/字节双上限：慢消费者只丢自己的队列，不反压 hub。 */
     while (s->rt.q_n > 0 &&
-           (s->rt.q_n >= ZMS_WEBRTC_PLAY_RTPQ_CAP ||
-            s->rt.q_bytes + len > ZMS_WEBRTC_PLAY_RTPQ_BYTES)) {
-        zms_webrtc_play_rtp_slot *drop = &s->rt.q[s->rt.q_r % ZMS_WEBRTC_PLAY_RTPQ_CAP];
+           (s->rt.q_n >= ZCS_WEBRTC_PLAY_RTPQ_CAP ||
+            s->rt.q_bytes + len > ZCS_WEBRTC_PLAY_RTPQ_BYTES)) {
+        zcs_webrtc_play_rtp_slot *drop = &s->rt.q[s->rt.q_r % ZCS_WEBRTC_PLAY_RTPQ_CAP];
         size_t drop_len = drop->buf ? zn_buf_len(drop->buf) : 0;
 
         if (drop->buf) {
@@ -289,7 +289,7 @@ int webrtc_play_rtp_q_push(zms_webrtc_session *s, zms_rtp_mux_track track,
         }
         drop_bytes += drop_len;
         ++drop_pkts;
-        s->rt.q_r = (s->rt.q_r + 1) % ZMS_WEBRTC_PLAY_RTPQ_CAP;
+        s->rt.q_r = (s->rt.q_r + 1) % ZCS_WEBRTC_PLAY_RTPQ_CAP;
         --s->rt.q_n;
     }
     if (drop_pkts > 0) {
@@ -310,7 +310,7 @@ int webrtc_play_rtp_q_push(zms_webrtc_session *s, zms_rtp_mux_track track,
     dst = (void *)zn_buf_data(buf);
     memcpy(dst, rtp, len);
     zn_buf_set_len(buf, len);
-    slot = &s->rt.q[s->rt.q_w % ZMS_WEBRTC_PLAY_RTPQ_CAP];
+    slot = &s->rt.q[s->rt.q_w % ZCS_WEBRTC_PLAY_RTPQ_CAP];
     if (slot->buf) {
         size_t old_len = zn_buf_len(slot->buf);
 
@@ -324,7 +324,7 @@ int webrtc_play_rtp_q_push(zms_webrtc_session *s, zms_rtp_mux_track track,
     slot->track = (uint8_t)track;
     slot->buf = buf;
     slot->enq_ms = zn_monotonic_ms();
-    s->rt.q_w = (s->rt.q_w + 1) % ZMS_WEBRTC_PLAY_RTPQ_CAP;
+    s->rt.q_w = (s->rt.q_w + 1) % ZCS_WEBRTC_PLAY_RTPQ_CAP;
     ++s->rt.q_n;
     s->rt.q_bytes += len;
     if (s->rt.q_bytes > s->rt.q_bytes_max) {
@@ -333,14 +333,14 @@ int webrtc_play_rtp_q_push(zms_webrtc_session *s, zms_rtp_mux_track track,
     return 0;
 }
 
-void webrtc_play_nack_cache_free(zms_webrtc_session *s)
+void webrtc_play_nack_cache_free(zcs_webrtc_session *s)
 {
     unsigned i;
 
     if (!s || !s->rt.nack) {
         return;
     }
-    for (i = 0; i < ZMS_WEBRTC_NACK_CACHE_PKTS; ++i) {
+    for (i = 0; i < ZCS_WEBRTC_NACK_CACHE_PKTS; ++i) {
         if (s->rt.nack[i].buf) {
             zn_buf_unref(s->rt.nack[i].buf);
             s->rt.nack[i].buf = NULL;
@@ -354,7 +354,7 @@ void webrtc_play_nack_cache_free(zms_webrtc_session *s)
     s->rt.nack_bytes = 0;
 }
 
-static int webrtc_play_nack_cache_ensure(zms_webrtc_session *s)
+static int webrtc_play_nack_cache_ensure(zcs_webrtc_session *s)
 {
     if (!s) {
         return -1;
@@ -362,7 +362,7 @@ static int webrtc_play_nack_cache_ensure(zms_webrtc_session *s)
     if (s->rt.nack) {
         return 0;
     }
-    s->rt.nack = (zms_webrtc_nack_slot *)calloc(ZMS_WEBRTC_NACK_CACHE_PKTS,
+    s->rt.nack = (zcs_webrtc_nack_slot *)calloc(ZCS_WEBRTC_NACK_CACHE_PKTS,
                                                    sizeof(*s->rt.nack));
     return s->rt.nack ? 0 : -1;
 }
@@ -370,20 +370,20 @@ static int webrtc_play_nack_cache_ensure(zms_webrtc_session *s)
 /* 把已发送（加密前的明文）视频包按 seq 存进 NACK 缓存环。同样受包数/字节双上限，
  * 超限丢最旧——缓存只为“最近丢失”重传服务，太老的包重传意义不大。存 seq 是为
  * 了 NACK 到来时能 O(n) 线性匹配（n 很小，不值得上哈希）。 */
-static void webrtc_play_nack_cache_store(zms_webrtc_session *s, const uint8_t *rtp, size_t len)
+static void webrtc_play_nack_cache_store(zcs_webrtc_session *s, const uint8_t *rtp, size_t len)
 {
-    zms_webrtc_nack_slot *slot;
+    zcs_webrtc_nack_slot *slot;
     zn_buf *buf;
     uint16_t seq;
 
-    if (!s || !rtp || len < 12 || len > ZMS_WEBRTC_PLAY_RTP_SLOT_MAX || !s->poller ||
+    if (!s || !rtp || len < 12 || len > ZCS_WEBRTC_PLAY_RTP_SLOT_MAX || !s->poller ||
         webrtc_play_nack_cache_ensure(s) != 0) {
         return;
     }
     while (s->rt.nack_n > 0 &&
-           (s->rt.nack_n >= ZMS_WEBRTC_NACK_CACHE_PKTS ||
-            s->rt.nack_bytes + len > ZMS_WEBRTC_NACK_CACHE_BYTES)) {
-        zms_webrtc_nack_slot *drop = &s->rt.nack[s->rt.nack_r % ZMS_WEBRTC_NACK_CACHE_PKTS];
+           (s->rt.nack_n >= ZCS_WEBRTC_NACK_CACHE_PKTS ||
+            s->rt.nack_bytes + len > ZCS_WEBRTC_NACK_CACHE_BYTES)) {
+        zcs_webrtc_nack_slot *drop = &s->rt.nack[s->rt.nack_r % ZCS_WEBRTC_NACK_CACHE_PKTS];
         size_t drop_len = drop->buf ? zn_buf_len(drop->buf) : 0;
 
         if (drop->buf) {
@@ -395,7 +395,7 @@ static void webrtc_play_nack_cache_store(zms_webrtc_session *s, const uint8_t *r
         } else {
             s->rt.nack_bytes = 0;
         }
-        s->rt.nack_r = (s->rt.nack_r + 1) % ZMS_WEBRTC_NACK_CACHE_PKTS;
+        s->rt.nack_r = (s->rt.nack_r + 1) % ZCS_WEBRTC_NACK_CACHE_PKTS;
         --s->rt.nack_n;
     }
     buf = zn_buf_alloc_local(s->poller, len);
@@ -405,7 +405,7 @@ static void webrtc_play_nack_cache_store(zms_webrtc_session *s, const uint8_t *r
     memcpy((void *)zn_buf_data(buf), rtp, len);
     zn_buf_set_len(buf, len);
     seq = (uint16_t)(((uint16_t)rtp[2] << 8) | rtp[3]);
-    slot = &s->rt.nack[s->rt.nack_w % ZMS_WEBRTC_NACK_CACHE_PKTS];
+    slot = &s->rt.nack[s->rt.nack_w % ZCS_WEBRTC_NACK_CACHE_PKTS];
     if (slot->buf) {
         size_t old_len = zn_buf_len(slot->buf);
 
@@ -418,7 +418,7 @@ static void webrtc_play_nack_cache_store(zms_webrtc_session *s, const uint8_t *r
     }
     slot->seq = seq;
     slot->buf = buf;
-    s->rt.nack_w = (s->rt.nack_w + 1) % ZMS_WEBRTC_NACK_CACHE_PKTS;
+    s->rt.nack_w = (s->rt.nack_w + 1) % ZCS_WEBRTC_NACK_CACHE_PKTS;
     ++s->rt.nack_n;
     s->rt.nack_bytes += len;
 }
@@ -426,7 +426,7 @@ static void webrtc_play_nack_cache_store(zms_webrtc_session *s, const uint8_t *r
 /* NACK 重传：按 seq 在缓存里找明文包，重发一次（不计入新缓存）。找不到就记 miss，
  * 客户端会因此在 RR/TWCC 反馈里体现丢包。重传走 send_rtp_item 但 cache_plain=0，
  * 避免把重传包再塞一遍缓存。 */
-int webrtc_play_nack_retransmit(zms_webrtc_session *s, uint16_t seq)
+int webrtc_play_nack_retransmit(zcs_webrtc_session *s, uint16_t seq)
 {
     unsigned i;
 
@@ -437,13 +437,13 @@ int webrtc_play_nack_retransmit(zms_webrtc_session *s, uint16_t seq)
         return -1;
     }
     for (i = 0; i < s->rt.nack_n; ++i) {
-        zms_webrtc_nack_slot *slot = &s->rt.nack[(s->rt.nack_r + i) % ZMS_WEBRTC_NACK_CACHE_PKTS];
+        zcs_webrtc_nack_slot *slot = &s->rt.nack[(s->rt.nack_r + i) % ZCS_WEBRTC_NACK_CACHE_PKTS];
 
         if (slot->seq != seq || !slot->buf) {
             continue;
         }
         ++s->rt.nack_hits;
-        if (webrtc_play_send_rtp_item(s, (uint8_t)ZMS_RTP_MUX_TRACK_VIDEO,
+        if (webrtc_play_send_rtp_item(s, (uint8_t)ZCS_RTP_MUX_TRACK_VIDEO,
                                       (const uint8_t *)zn_buf_data(slot->buf),
                                       zn_buf_len(slot->buf), 0) == 0) {
             ++s->rt.nack_retransmits;
@@ -466,29 +466,29 @@ int webrtc_play_nack_retransmit(zms_webrtc_session *s, uint16_t seq)
  * plain_copy 放在 io_buf 尾部预留的空间里，条件是包够小放得下；放不下就跳过 NACK
  * 缓存（不影响发送本身）。
  */
-static int webrtc_play_send_rtp_item_impl(zms_webrtc_session *s, uint8_t track, const uint8_t *rtp,
+static int webrtc_play_send_rtp_item_impl(zcs_webrtc_session *s, uint8_t track, const uint8_t *rtp,
                                           size_t len, int cache_plain)
 {
-    struct zms_webrtc_srtp *srtp;
-    zms_webrtc_gateway_ingest_cfg gw;
+    struct zcs_webrtc_srtp *srtp;
+    zcs_webrtc_gateway_ingest_cfg gw;
     size_t out_len;
     size_t cap;
     size_t plain_len = len;
-    int is_video = track == (uint8_t)ZMS_RTP_MUX_TRACK_VIDEO;
+    int is_video = track == (uint8_t)ZCS_RTP_MUX_TRACK_VIDEO;
     uint8_t *plain_copy;
-    if (!s || !rtp || len < 12 || !s->io_buf || s->io_cap < ZMS_WEBRTC_PLAY_CRYPT_BYTES ||
-        len + ZMS_WEBRTC_SRTP_TAG_LEN > s->io_cap) {
+    if (!s || !rtp || len < 12 || !s->io_buf || s->io_cap < ZCS_WEBRTC_PLAY_CRYPT_BYTES ||
+        len + ZCS_WEBRTC_SRTP_TAG_LEN > s->io_cap) {
         return -1;
     }
     cap = s->io_cap;
     srtp = is_video ? s->video_srtp : s->audio_srtp;
     memcpy(s->io_buf, rtp, len);
     webrtc_play_gateway_cfg(s, &gw);
-    zms_webrtc_gateway_remap_pt_egress(s->io_buf, len, &gw, is_video);
+    zcs_webrtc_gateway_remap_pt_egress(s->io_buf, len, &gw, is_video);
     if (is_video && s->rt.twcc_ext_id > 0 &&
-        len + 8u <= ZMS_WEBRTC_PLAY_RTP_SLOT_MAX) {
+        len + 8u <= ZCS_WEBRTC_PLAY_RTP_SLOT_MAX) {
         size_t ext_len = 0;
-        if (zms_webrtc_rtp_add_twcc_ext(s->io_buf, len, ZMS_WEBRTC_PLAY_RTP_SLOT_MAX,
+        if (zcs_webrtc_rtp_add_twcc_ext(s->io_buf, len, ZCS_WEBRTC_PLAY_RTP_SLOT_MAX,
                                         s->rt.twcc_ext_id, s->rt.twcc_seq++, &ext_len) > 0) {
             len = ext_len;
         }
@@ -498,37 +498,37 @@ static int webrtc_play_send_rtp_item_impl(zms_webrtc_session *s, uint8_t track, 
         webrtc_play_diag(s, "send_pre", "srtp null");
         return -1;
     }
-    plain_copy = s->io_buf + ZMS_WEBRTC_PLAY_RTP_SLOT_MAX;
-    if (len + ZMS_WEBRTC_SRTP_TAG_LEN <= cap && len <= ZMS_WEBRTC_PLAY_RTP_SLOT_MAX &&
+    plain_copy = s->io_buf + ZCS_WEBRTC_PLAY_RTP_SLOT_MAX;
+    if (len + ZCS_WEBRTC_SRTP_TAG_LEN <= cap && len <= ZCS_WEBRTC_PLAY_RTP_SLOT_MAX &&
         plain_copy + len <= s->io_buf + cap) {
         memcpy(plain_copy, s->io_buf, len);
     }
-    if (zms_webrtc_srtp_protect(srtp, s->io_buf, &out_len, cap) != 0) {
+    if (zcs_webrtc_srtp_protect(srtp, s->io_buf, &out_len, cap) != 0) {
         static unsigned fail_log;
         if (fail_log < 8) {
             ++fail_log;
             zn_warn("[webrtc] srtp protect fail id=%s track=%u pt=%u len=%zu", s->id,
-                     (unsigned)track, (unsigned)zms_rtp_payload_type(s->io_buf, len), len);
+                     (unsigned)track, (unsigned)zcs_rtp_payload_type(s->io_buf, len), len);
         }
         return -1;
     }
-#if defined(ZMS_HAVE_WEBRTC_DTLS) && ZMS_HAVE_WEBRTC_DTLS
-    if (is_video && len <= ZMS_WEBRTC_PLAY_RTP_SLOT_MAX && len + ZMS_WEBRTC_SRTP_TAG_LEN <= cap) {
+#if defined(ZCS_HAVE_WEBRTC_DTLS) && ZCS_HAVE_WEBRTC_DTLS
+    if (is_video && len <= ZCS_WEBRTC_PLAY_RTP_SLOT_MAX && len + ZCS_WEBRTC_SRTP_TAG_LEN <= cap) {
         webrtc_play_srtp_roundtrip_check(s, plain_copy, len, out_len);
     }
 #endif
-    if (zms_webrtc_session_send_udp(s, s->io_buf, out_len) != 0) {
+    if (zcs_webrtc_session_send_udp(s, s->io_buf, out_len) != 0) {
         return -1;
     }
     if (is_video && cache_plain) {
         webrtc_play_nack_cache_store(s, rtp, plain_len);
     }
     if (is_video) {
-        const uint8_t *plain = len <= ZMS_WEBRTC_PLAY_RTP_SLOT_MAX ? plain_copy : s->io_buf;
+        const uint8_t *plain = len <= ZCS_WEBRTC_PLAY_RTP_SLOT_MAX ? plain_copy : s->io_buf;
         if (s->play_out_logged < 8) {
             ++s->play_out_logged;
             zn_info("[webrtc] play srtp out id=%s pt=%u seq=%u ssrc=%u len=%zu->%zu peer=%s:%u",
-                     s->id, (unsigned)zms_rtp_payload_type(plain, len),
+                     s->id, (unsigned)zcs_rtp_payload_type(plain, len),
                      (unsigned)(((uint16_t)plain[2] << 8) | plain[3]),
                      (unsigned)(((uint32_t)plain[8] << 24) | ((uint32_t)plain[9] << 16) |
                                 ((uint32_t)plain[10] << 8) | plain[11]),
@@ -541,7 +541,7 @@ static int webrtc_play_send_rtp_item_impl(zms_webrtc_session *s, uint8_t track, 
 /* 发送包的外壳：Windows 上用 __try/__except 兜住访问违例（历史上的 0xc0000005
  * 崩溃，通常来自底层 SRTP/缓冲区越界），把硬崩降级为一次发送失败 + 告警，避免整个
  * 进程挂掉。其它平台直接调用。 */
-int webrtc_play_send_rtp_item(zms_webrtc_session *s, uint8_t track, const uint8_t *rtp,
+int webrtc_play_send_rtp_item(zcs_webrtc_session *s, uint8_t track, const uint8_t *rtp,
                                      size_t len, int cache_plain)
 {
 #if defined(_WIN32)
@@ -560,7 +560,7 @@ int webrtc_play_send_rtp_item(zms_webrtc_session *s, uint8_t track, const uint8_
 /* 令牌桶节流。桶容量 = 码率 × BURST_MS（至少容纳一个包，保证超大帧也能发），
  * 按经过时间补充令牌。令牌不足返回 0，调用方保留队列下次再发——这就是“平滑 I 帧
  * 突发、但绝不丢包”的 pacer。send_bps==0 表示不限速（直接放行）。 */
-static int webrtc_play_pace_allow(zms_webrtc_session *s, size_t bytes)
+static int webrtc_play_pace_allow(zcs_webrtc_session *s, size_t bytes)
 {
     uint64_t now_ms;
     uint64_t cap;
@@ -570,7 +570,7 @@ static int webrtc_play_pace_allow(zms_webrtc_session *s, size_t bytes)
         return 1;
     }
     now_ms = zn_monotonic_ms();
-    cap = (uint64_t)s->rt.send_bps / 8000u * ZMS_WEBRTC_PACER_BURST_MS;
+    cap = (uint64_t)s->rt.send_bps / 8000u * ZCS_WEBRTC_PACER_BURST_MS;
     if (cap < bytes) {
         cap = bytes;
     }
@@ -596,14 +596,14 @@ static int webrtc_play_pace_allow(zms_webrtc_session *s, size_t bytes)
 /* 出队发送最多 max_send 个包。每个包先过 pacer：令牌不足就 break 保留队列；令牌
  * 足够才真正 send，并更新“包在队列里停留时长”的 EWMA（adapt_wait_ewma_ms，供丢帧
  * 判据用）。有发出则顺手尝试启动 RTCP（首个发送后触发 SR/RR 节奏）。 */
-unsigned webrtc_play_rtp_q_flush(zms_webrtc_session *s, unsigned max_send)
+unsigned webrtc_play_rtp_q_flush(zcs_webrtc_session *s, unsigned max_send)
 {
     unsigned sent = 0;
     if (!s || !s->rt.q) {
         return 0;
     }
     while (max_send > 0 && s->rt.q_n > 0) {
-        zms_webrtc_play_rtp_slot *slot = &s->rt.q[s->rt.q_r % ZMS_WEBRTC_PLAY_RTPQ_CAP];
+        zcs_webrtc_play_rtp_slot *slot = &s->rt.q[s->rt.q_r % ZCS_WEBRTC_PLAY_RTPQ_CAP];
         size_t slot_len = slot->buf ? zn_buf_len(slot->buf) : 0;
 
         if (slot->buf && !webrtc_play_pace_allow(s, slot_len)) {
@@ -627,7 +627,7 @@ unsigned webrtc_play_rtp_q_flush(zms_webrtc_session *s, unsigned max_send)
             zn_buf_unref(slot->buf);
             slot->buf = NULL;
         }
-        s->rt.q_r = (s->rt.q_r + 1) % ZMS_WEBRTC_PLAY_RTPQ_CAP;
+        s->rt.q_r = (s->rt.q_r + 1) % ZCS_WEBRTC_PLAY_RTPQ_CAP;
         --s->rt.q_n;
         --max_send;
     }

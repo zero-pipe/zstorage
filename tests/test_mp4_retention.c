@@ -3,8 +3,8 @@
  * @brief 录制磁盘治理：总量上限时按最旧删除、未超限不动、无上限不动。
  *        直接构造目录与文件，不依赖真实录制器。
  */
-#include "zms/egress/recorder/egress_mp4_recorder.h"
-#include "zms/ops/config/config.h"
+#include "zcs/egress/recorder/egress_mp4_recorder.h"
+#include "zcs/ops/config/config.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -76,7 +76,7 @@ static int setup_tree(void)
 
 int main(void)
 {
-    zms_record_config rec;
+    zcs_record_config rec;
 
     if (setup_tree() != 0) {
         printf("test_mp4_retention: skipped (non-POSIX)\n");
@@ -87,20 +87,20 @@ int main(void)
     memset(&rec, 0, sizeof(rec));
     snprintf(rec.root, sizeof(rec.root), "%s", TEST_ROOT);
     rec.max_total_mb = 0;
-    zms_mp4_recorder_configure(&rec);
-    CHECK(zms_mp4_recorder_enforce_retention() == 0);
+    zcs_mp4_recorder_configure(&rec);
+    CHECK(zcs_mp4_recorder_enforce_retention() == 0);
 
     /* 2) 上限 3MB：总量 6MB，应删到 <=3MB（删掉至少一半文件）。 */
     rec.max_total_mb = 3;
-    zms_mp4_recorder_configure(&rec);
+    zcs_mp4_recorder_configure(&rec);
     {
-        int removed = zms_mp4_recorder_enforce_retention();
+        int removed = zcs_mp4_recorder_enforce_retention();
 
         CHECK(removed >= 3); /* 需删至少 3 个 1MB 文件才能到 3MB 以内 */
     }
 
     /* 3) 再跑一次：已经在上限内，不应再删。 */
-    CHECK(zms_mp4_recorder_enforce_retention() == 0);
+    CHECK(zcs_mp4_recorder_enforce_retention() == 0);
 
     wipe_tree();
     printf("test_mp4_retention: ok\n");

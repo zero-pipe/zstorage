@@ -2,34 +2,34 @@
  * @file log_throttle.c
  * @brief 按 key 的进程内日志节流。
  */
-#include "zms/util/log_throttle.h"
+#include "zcs/util/log_throttle.h"
 #include "zn/platform.h"
 #include "zn/util/log.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
-#define ZMS_LOG_THROTTLE_MAX 48
-#define ZMS_LOG_THROTTLE_KEY_MAX 96
-#define ZMS_LOG_THROTTLE_MSG_MAX 4096
+#define ZCS_LOG_THROTTLE_MAX 48
+#define ZCS_LOG_THROTTLE_KEY_MAX 96
+#define ZCS_LOG_THROTTLE_MSG_MAX 4096
 
 typedef struct {
-    char key[ZMS_LOG_THROTTLE_KEY_MAX];
+    char key[ZCS_LOG_THROTTLE_KEY_MAX];
     uint64_t last_emit_ms;
     unsigned suppressed;
-} zms_log_throttle_slot;
+} zcs_log_throttle_slot;
 
-static zms_log_throttle_slot g_throttle[ZMS_LOG_THROTTLE_MAX];
+static zcs_log_throttle_slot g_throttle[ZCS_LOG_THROTTLE_MAX];
 
-static zms_log_throttle_slot *throttle_slot(const char *key, int create)
+static zcs_log_throttle_slot *throttle_slot(const char *key, int create)
 {
-    zms_log_throttle_slot *free_slot = NULL;
+    zcs_log_throttle_slot *free_slot = NULL;
     size_t i;
 
     if (!key || !key[0]) {
         return NULL;
     }
-    for (i = 0; i < ZMS_LOG_THROTTLE_MAX; ++i) {
+    for (i = 0; i < ZCS_LOG_THROTTLE_MAX; ++i) {
         if (g_throttle[i].key[0] == '\0') {
             if (!free_slot) {
                 free_slot = &g_throttle[i];
@@ -51,9 +51,9 @@ static zms_log_throttle_slot *throttle_slot(const char *key, int create)
 static void log_throttle_emit(zn_log_level_t level, const char *key, uint64_t interval_ms,
                               const char *fmt, va_list ap)
 {
-    zms_log_throttle_slot *sl;
+    zcs_log_throttle_slot *sl;
     uint64_t now;
-    char msg[ZMS_LOG_THROTTLE_MSG_MAX];
+    char msg[ZCS_LOG_THROTTLE_MSG_MAX];
     int n;
 
     sl = throttle_slot(key, 1);
@@ -81,7 +81,7 @@ static void log_throttle_emit(zn_log_level_t level, const char *key, uint64_t in
     zn_log_write(level, __FILE__, __LINE__, "%s", msg);
 }
 
-void zms_log_warn_throttle(const char *key, uint64_t interval_ms, const char *fmt, ...)
+void zcs_log_warn_throttle(const char *key, uint64_t interval_ms, const char *fmt, ...)
 {
     va_list ap;
 
@@ -90,7 +90,7 @@ void zms_log_warn_throttle(const char *key, uint64_t interval_ms, const char *fm
     va_end(ap);
 }
 
-void zms_log_debug_throttle(const char *key, uint64_t interval_ms, const char *fmt, ...)
+void zcs_log_debug_throttle(const char *key, uint64_t interval_ms, const char *fmt, ...)
 {
     va_list ap;
 

@@ -2,7 +2,7 @@
  * @file rtp_packet.c
  * @brief RTP 头解析/构造与 payload 偏移。
  */
-#include "zms/media/wire/rtp_packet.h"
+#include "zcs/media/wire/rtp_packet.h"
 #include <string.h>
 
 static uint16_t be16(const uint8_t *p)
@@ -15,9 +15,9 @@ static uint32_t be32(const uint8_t *p)
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
 }
 
-zn_err_t zms_rtp_parse(const uint8_t *data, size_t len, zms_rtp_packet *out)
+zn_err_t zcs_rtp_parse(const uint8_t *data, size_t len, zcs_rtp_packet *out)
 {
-    if (!data || !out || len < ZMS_RTP_HDR_SIZE) {
+    if (!data || !out || len < ZCS_RTP_HDR_SIZE) {
         return ZN_ERR_INVALID;
     }
 
@@ -42,7 +42,7 @@ zn_err_t zms_rtp_parse(const uint8_t *data, size_t len, zms_rtp_packet *out)
         return ZN_ERR_INVALID;
     }
 
-    size_t off = ZMS_RTP_HDR_SIZE + (size_t)out->hdr.csrc_count * 4;
+    size_t off = ZCS_RTP_HDR_SIZE + (size_t)out->hdr.csrc_count * 4;
     if (off > len) {
         return ZN_ERR_INVALID;
     }
@@ -71,16 +71,16 @@ zn_err_t zms_rtp_parse(const uint8_t *data, size_t len, zms_rtp_packet *out)
     return ZN_OK;
 }
 
-size_t zms_rtp_payload_offset(const uint8_t *data, size_t len)
+size_t zcs_rtp_payload_offset(const uint8_t *data, size_t len)
 {
-    zms_rtp_packet pkt;
-    if (zms_rtp_parse(data, len, &pkt) != ZN_OK) {
+    zcs_rtp_packet pkt;
+    if (zcs_rtp_parse(data, len, &pkt) != ZN_OK) {
         return 0;
     }
     return (size_t)(pkt.payload - data);
 }
 
-uint8_t zms_rtp_payload_type(const uint8_t *data, size_t len)
+uint8_t zcs_rtp_payload_type(const uint8_t *data, size_t len)
 {
     if (!data || len < 2) {
         return 0;
@@ -88,7 +88,7 @@ uint8_t zms_rtp_payload_type(const uint8_t *data, size_t len)
     return (uint8_t)(data[1] & 0x7f);
 }
 
-void zms_rtp_set_payload_type(uint8_t *data, size_t len, uint8_t pt)
+void zcs_rtp_set_payload_type(uint8_t *data, size_t len, uint8_t pt)
 {
     if (!data || len < 2) {
         return;
@@ -96,7 +96,7 @@ void zms_rtp_set_payload_type(uint8_t *data, size_t len, uint8_t pt)
     data[1] = (uint8_t)((data[1] & 0x80) | (pt & 0x7f));
 }
 
-int zms_rtp_is_rtcp(const uint8_t *data, size_t len)
+int zcs_rtp_is_rtcp(const uint8_t *data, size_t len)
 {
     uint8_t pt;
 
@@ -106,14 +106,14 @@ int zms_rtp_is_rtcp(const uint8_t *data, size_t len)
     if ((data[0] & 0xc0) != 0x80) {
         return 0;
     }
-    pt = zms_rtp_payload_type(data, len);
+    pt = zcs_rtp_payload_type(data, len);
     return pt >= 192 && pt <= 223;
 }
 
-size_t zms_rtsp_interleaved_write(uint8_t *out, size_t cap, uint8_t channel, const void *payload,
+size_t zcs_rtsp_interleaved_write(uint8_t *out, size_t cap, uint8_t channel, const void *payload,
                                   size_t len)
 {
-    if (!out || cap < ZMS_RTSP_INTERLEAVED_HDR + len) {
+    if (!out || cap < ZCS_RTSP_INTERLEAVED_HDR + len) {
         return 0;
     }
     out[0] = '$';
@@ -123,24 +123,24 @@ size_t zms_rtsp_interleaved_write(uint8_t *out, size_t cap, uint8_t channel, con
     if (payload && len) {
         memcpy(out + 4, payload, len);
     }
-    return ZMS_RTSP_INTERLEAVED_HDR + len;
+    return ZCS_RTSP_INTERLEAVED_HDR + len;
 }
 
-zn_err_t zms_rtsp_interleaved_read(const uint8_t *data, size_t len, uint8_t *channel,
+zn_err_t zcs_rtsp_interleaved_read(const uint8_t *data, size_t len, uint8_t *channel,
                                     const uint8_t **payload, size_t *payload_len)
 {
-    if (!data || len < ZMS_RTSP_INTERLEAVED_HDR || data[0] != '$') {
+    if (!data || len < ZCS_RTSP_INTERLEAVED_HDR || data[0] != '$') {
         return ZN_ERR_INVALID;
     }
     uint16_t plen = (uint16_t)((data[2] << 8) | data[3]);
-    if (len < ZMS_RTSP_INTERLEAVED_HDR + plen) {
+    if (len < ZCS_RTSP_INTERLEAVED_HDR + plen) {
         return ZN_ERR_AGAIN;
     }
     if (channel) {
         *channel = data[1];
     }
     if (payload) {
-        *payload = data + ZMS_RTSP_INTERLEAVED_HDR;
+        *payload = data + ZCS_RTSP_INTERLEAVED_HDR;
     }
     if (payload_len) {
         *payload_len = plen;
@@ -148,12 +148,12 @@ zn_err_t zms_rtsp_interleaved_read(const uint8_t *data, size_t len, uint8_t *cha
     return ZN_OK;
 }
 
-uint32_t zms_rtp90_ts_to_ms(uint32_t rtp_ts)
+uint32_t zcs_rtp90_ts_to_ms(uint32_t rtp_ts)
 {
     return rtp_ts / 90u;
 }
 
-uint32_t zms_rtp90_ms_to_ts(uint32_t ms)
+uint32_t zcs_rtp90_ms_to_ts(uint32_t ms)
 {
     return ms * 90u;
 }

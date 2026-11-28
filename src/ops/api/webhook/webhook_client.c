@@ -3,17 +3,17 @@
  * @brief webhook 事件通知：非阻塞 HTTP POST，全部在主 poller 上完成。
  *
  * 线程模型（见 docs/stream-pipeline.md）：
- *   - 任何线程都可以调用 zms_webhook_on_*：消息先打包成堆上任务，
+ *   - 任何线程都可以调用 zcs_webhook_on_*：消息先打包成堆上任务，
  *     用 zn_poller_async 投递到主 poller；
  *   - 主 poller 上用 zn_tcp_client 做非阻塞连接/收发，超时用 zn_poller_do_delay；
  *   - 不做 DNS：所有钩子主机名在 init 阶段解析一次并缓存为 IP；
  *   - 不使用线程池、不调用阻塞 socket API。
  */
-#include "zms/ops/api/webhook/webhook_client.h"
-#include "zms/ops/api/json/media_json.h"
-#include "zms/core/stream/hub.h"
-#include "zms/egress/recorder/egress_zs_recorder.h"
-#include "zms/version.h"
+#include "zcs/ops/api/webhook/webhook_client.h"
+#include "zcs/ops/api/json/media_json.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/egress/recorder/egress_zs_recorder.h"
+#include "zcs/version.h"
 #include "zn/net/tcp_client.h"
 #include "zn/platform.h"
 #include "zn/poller/poller.h"
@@ -37,35 +37,35 @@
 #endif
 
 /** 通知 JSON 体上限（堆上分配，不占栈）。 */
-#define ZMS_HOOK_BODY_MAX 8192
+#define ZCS_HOOK_BODY_MAX 8192
 /** 通知响应上限：回调只需判断 code/close，1KB 足够。 */
-#define ZMS_HOOK_RESP_MAX 1024
+#define ZCS_HOOK_RESP_MAX 1024
 /** 钩子 URL 主机数上限（通常全部指向同一个后台）。 */
-#define ZMS_HOOK_HOST_MAX 8
+#define ZCS_HOOK_HOST_MAX 8
 
 static zn_poller *g_poller;
-static zms_hook_config g_hook;
+static zcs_hook_config g_hook;
 static int g_webhook_initialized;
 static uint64_t g_hook_index;
 static char g_play_host[64];
 static unsigned g_play_http_port;
 
 /* 心跳/续注册：保存注册所需的配置与端口，定时重发完整注册体。 */
-static const zms_config *g_kp_cfg;
-static zms_media_server_ports g_kp_ports;
+static const zcs_config *g_kp_cfg;
+static zcs_media_server_ports g_kp_ports;
 static int g_kp_enabled;
 static zn_poller_timer *g_kp_timer;
-/* 存储节点心跳独立状态（可与 ZMS 节点心跳并行，各自定时器与开关）。 */
+/* 存储节点心跳独立状态（可与 ZCS 节点心跳并行，各自定时器与开关）。 */
 static int g_kp_storage_enabled;
 static zn_poller_timer *g_kp_storage_timer;
 
 /** init 阶段解析好的「主机名 → IP」，poller 上只按表连接。 */
-typedef struct zms_hook_host {
+typedef struct zcs_hook_host {
     char host[256];
     char ip[64];
-} zms_hook_host;
+} zcs_hook_host;
 
-static zms_hook_host g_hosts[ZMS_HOOK_HOST_MAX];
+static zcs_hook_host g_hosts[ZCS_HOOK_HOST_MAX];
 static int g_host_count;
 
 /* 前置声明：定义在文件后部的 JSON 转义（多处在拼包时先于其定义使用）。 */
@@ -87,7 +87,7 @@ static int json_append_common(char *body, size_t cap, size_t *len, const char *p
 
 static int schema_allowed(const char *schema)
 {
-    char buf[ZMS_CFG_SCHEMA_FILTER_MAX];
+    char buf[ZCS_CFG_SCHEMA_FILTER_MAX];
 
     if (!schema || !schema[0]) {
         return 0;
@@ -120,7 +120,7 @@ static int schema_allowed(const char *schema)
  * on_stream_changed 体。regist=1 时内嵌完整流信息（与 webapi 同构），
  * 需要一块临时缓冲拼 JSON，因此从堆上取，避免 poller 线程 4KB 以上栈帧。
  */
-static int build_stream_changed_regist(zms_media_source *src, int regist, char *body, size_t cap)
+static int build_stream_changed_regist(zcs_media_source *src, int regist, char *body, size_t cap)
 {
     size_t len = 0;
     int n;
@@ -129,17 +129,17 @@ static int build_stream_changed_regist(zms_media_source *src, int regist, char *
         return -1;
     }
     if (regist) {
-        char *item = (char *)malloc(ZMS_HOOK_BODY_MAX);
-        zms_json_buf jb;
+        char *item = (char *)malloc(ZCS_HOOK_BODY_MAX);
+        zcs_json_buf jb;
         int first = 1;
 
         if (!item) {
             return -1;
         }
         jb.buf = item;
-        jb.cap = ZMS_HOOK_BODY_MAX;
+        jb.cap = ZCS_HOOK_BODY_MAX;
         jb.len = 0;
-        if (zms_json_append_media_item(&jb, src, &first, NULL) != 0 || jb.len < 2) {
+        if (zcs_json_append_media_item(&jb, src, &first, NULL) != 0 || jb.len < 2) {
             free(item);
             return -1;
         }
@@ -169,7 +169,7 @@ static int build_stream_changed_regist(zms_media_source *src, int regist, char *
     return 0;
 }
 
-static int build_tuple_body(const zms_media_tuple *t, const char *player_schema, char *body,
+static int build_tuple_body(const zcs_media_tuple *t, const char *player_schema, char *body,
                             size_t cap)
 {
     const char *proto;
@@ -200,38 +200,38 @@ static int build_tuple_body(const zms_media_tuple *t, const char *player_schema,
 
 /* ── 非阻塞 HTTP POST ────────────────────────────────────────────────────── */
 
-typedef struct zms_hook_req zms_hook_req;
+typedef struct zcs_hook_req zcs_hook_req;
 
-struct zms_hook_req {
+struct zcs_hook_req {
     zn_poller *io;
     zn_tcp_client *cli;
     zn_poller_timer *timer;
     int awaiting_response;
     int retry_left;
-    char url[ZMS_CFG_HOOK_URL_MAX];
+    char url[ZCS_CFG_HOOK_URL_MAX];
     char host[256];
     char path[512];
     uint16_t port;
     char *req;
     size_t req_len;
-    char resp[ZMS_HOOK_RESP_MAX];
+    char resp[ZCS_HOOK_RESP_MAX];
     size_t resp_len;
-    zms_media_tuple tuple;
+    zcs_media_tuple tuple;
     int has_tuple;
     int none_reader;
-    zms_hook_req *next;
+    zcs_hook_req *next;
 };
 
-static zms_hook_req *g_reqs;
+static zcs_hook_req *g_reqs;
 static int32_t g_hook_pending;
 
-typedef struct zms_hook_notify {
-    char url[ZMS_CFG_HOOK_URL_MAX];
+typedef struct zcs_hook_notify {
+    char url[ZCS_CFG_HOOK_URL_MAX];
     char *body;
-    zms_media_tuple tuple;
+    zcs_media_tuple tuple;
     int has_tuple;
     int none_reader;
-} zms_hook_notify;
+} zcs_hook_notify;
 
 static int parse_http_url(const char *url, char *host, size_t host_cap, uint16_t *port,
                           char *path, size_t path_cap)
@@ -282,9 +282,9 @@ static int host_ip_lookup(const char *host, char *out, size_t cap)
     return 0;
 }
 
-static void req_unlink(zms_hook_req *r)
+static void req_unlink(zcs_hook_req *r)
 {
-    zms_hook_req **pp = &g_reqs;
+    zcs_hook_req **pp = &g_reqs;
 
     while (*pp) {
         if (*pp == r) {
@@ -295,7 +295,7 @@ static void req_unlink(zms_hook_req *r)
     }
 }
 
-static void req_free(zms_hook_req *r)
+static void req_free(zcs_hook_req *r)
 {
     if (!r) {
         return;
@@ -342,37 +342,37 @@ static int resp_close_requested(const char *resp)
 }
 
 /* 通知收尾：on_none_reader 的 close:true 在这里关流，然后在 poller 线程释放。 */
-static void req_finish(zms_hook_req *r, int err)
+static void req_finish(zcs_hook_req *r, int err)
 {
     if (err != 0) {
         zn_warn("webhook POST failed: %s", r->url);
     } else if (r->none_reader && g_webhook_initialized && resp_close_requested(r->resp)) {
-        zms_media_source *src = zms_media_source_find(r->tuple.schema, r->tuple.app,
+        zcs_media_source *src = zcs_media_source_find(r->tuple.schema, r->tuple.app,
                                                       r->tuple.stream);
 
         if (!src) {
-            src = zms_media_source_find_api(r->tuple.schema, r->tuple.app, r->tuple.stream);
+            src = zcs_media_source_find_api(r->tuple.schema, r->tuple.app, r->tuple.stream);
         }
         if (src) {
             zn_warn("webhook close stream on none_reader: %s/%s", r->tuple.app, r->tuple.stream);
-            zms_media_source_close(src, 0);
+            zcs_media_source_close(src, 0);
         }
     }
     req_free(r);
 }
 
-static void req_start(zms_hook_req *r);
+static void req_start(zcs_hook_req *r);
 
 static uint64_t req_retry_cb(void *user)
 {
-    zms_hook_req *r = (zms_hook_req *)user;
+    zcs_hook_req *r = (zcs_hook_req *)user;
 
     r->timer = NULL;
     req_start(r);
     return 0;
 }
 
-static void req_fail(zms_hook_req *r, const char *why)
+static void req_fail(zcs_hook_req *r, const char *why)
 {
     if (r->timer) {
         zn_poller_timer_cancel(r->timer);
@@ -403,7 +403,7 @@ static void req_fail(zms_hook_req *r, const char *why)
 
 static uint64_t req_timeout_cb(void *user)
 {
-    zms_hook_req *r = (zms_hook_req *)user;
+    zcs_hook_req *r = (zcs_hook_req *)user;
 
     r->timer = NULL;
     req_fail(r, "timeout");
@@ -411,7 +411,7 @@ static uint64_t req_timeout_cb(void *user)
 }
 
 /** 响应是否收全：以 Content-Length 为准；无长度则等对端关闭。 */
-static int resp_ready(const zms_hook_req *r)
+static int resp_ready(const zcs_hook_req *r)
 {
     const char *hdr_end = strstr(r->resp, "\r\n\r\n");
     const char *cl;
@@ -435,7 +435,7 @@ static int resp_ready(const zms_hook_req *r)
 
 static void req_on_connect(zn_tcp_client *cli, void *user)
 {
-    zms_hook_req *r = (zms_hook_req *)user;
+    zcs_hook_req *r = (zcs_hook_req *)user;
 
     r->awaiting_response = 1;
     if (zn_tcp_client_send(cli, r->req, r->req_len) != ZN_OK) {
@@ -445,7 +445,7 @@ static void req_on_connect(zn_tcp_client *cli, void *user)
 
 static void req_on_recv(zn_tcp_client *cli, const void *data, size_t len, void *user)
 {
-    zms_hook_req *r = (zms_hook_req *)user;
+    zcs_hook_req *r = (zcs_hook_req *)user;
     size_t room = sizeof(r->resp) - 1 - r->resp_len;
 
     (void)cli;
@@ -464,7 +464,7 @@ static void req_on_recv(zn_tcp_client *cli, const void *data, size_t len, void *
 
 static void req_on_error(zn_tcp_client *cli, void *user)
 {
-    zms_hook_req *r = (zms_hook_req *)user;
+    zcs_hook_req *r = (zcs_hook_req *)user;
 
     (void)cli;
     /* 无 Content-Length 的响应以对端关闭结束，此时视为成功。 */
@@ -477,7 +477,7 @@ static void req_on_error(zn_tcp_client *cli, void *user)
 
 static const zn_tcp_client_ops_t g_req_ops = { req_on_connect, req_on_recv, req_on_error };
 
-static void req_start(zms_hook_req *r)
+static void req_start(zcs_hook_req *r)
 {
     int timeout_ms = (int)(g_hook.timeout_sec * 1000.f);
 
@@ -511,7 +511,7 @@ static void req_start(zms_hook_req *r)
     }
 }
 
-static void req_start_with_body(zms_hook_req *r, const char *body)
+static void req_start_with_body(zcs_hook_req *r, const char *body)
 {
     size_t body_len = body ? strlen(body) : 0;
     size_t cap = body_len + 512;
@@ -542,8 +542,8 @@ static void req_start_with_body(zms_hook_req *r, const char *body)
 /** 主 poller 线程：把一条通知变成非阻塞请求。 */
 static void hook_notify_post(void *user)
 {
-    zms_hook_notify *n = (zms_hook_notify *)user;
-    zms_hook_req *r;
+    zcs_hook_notify *n = (zcs_hook_notify *)user;
+    zcs_hook_req *r;
     char ip[64];
 
     if (!n) {
@@ -554,7 +554,7 @@ static void hook_notify_post(void *user)
         free(n);
         return;
     }
-    r = (zms_hook_req *)calloc(1, sizeof(*r));
+    r = (zcs_hook_req *)calloc(1, sizeof(*r));
     if (!r) {
         free(n->body);
         free(n);
@@ -594,9 +594,9 @@ static void hook_notify_post(void *user)
 }
 
 /** 任意线程：打包通知并投递到主 poller（body 所有权转移）。 */
-static void hook_queue(const char *url, char *body, const zms_media_tuple *tuple, int none_reader)
+static void hook_queue(const char *url, char *body, const zcs_media_tuple *tuple, int none_reader)
 {
-    zms_hook_notify *n;
+    zcs_hook_notify *n;
 
     if (!body) {
         return;
@@ -605,7 +605,7 @@ static void hook_queue(const char *url, char *body, const zms_media_tuple *tuple
         free(body);
         return;
     }
-    n = (zms_hook_notify *)calloc(1, sizeof(*n));
+    n = (zcs_hook_notify *)calloc(1, sizeof(*n));
     if (!n) {
         free(body);
         return;
@@ -627,7 +627,7 @@ static void hook_queue(const char *url, char *body, const zms_media_tuple *tuple
 
 static char *body_alloc(void)
 {
-    return (char *)malloc(ZMS_HOOK_BODY_MAX);
+    return (char *)malloc(ZCS_HOOK_BODY_MAX);
 }
 
 /*
@@ -635,8 +635,8 @@ static char *body_alloc(void)
  * 开关与 API secret。camelCase 键与 zero-web-server 的 RegisterRequest 对齐。
  * 返回 0 成功。
  */
-static int build_server_info(char *body, size_t cap, const zms_config *cfg,
-                             const zms_media_server_ports *ports)
+static int build_server_info(char *body, size_t cap, const zcs_config *cfg,
+                             const zcs_media_server_ports *ports)
 {
     const char *ip;
     const char *secret;
@@ -669,7 +669,7 @@ static int build_server_info(char *body, size_t cap, const zms_config *cfg,
         "\"srtPort\":%u,\"webrtcPortMin\":%u,\"webrtcPortMax\":%u,"
         "\"enableRtsp\":%s,\"enableRtmp\":%s,\"enableHls\":%s,"
         "\"enableSrt\":%s,\"enableWebrtc\":%s",
-        ZMS_VERSION_STRING, ip, ip, ip, ip, secret, ports->http, cfg->http.ssl_port,
+        ZCS_VERSION_STRING, ip, ip, ip, ip, secret, ports->http, cfg->http.ssl_port,
         ports->rtsp, cfg->rtsp.ssl_port, ports->rtmp, cfg->rtmp.ssl_port, ports->srt,
         cfg->webrtc.port_min, cfg->webrtc.port_max, enable_rtsp ? "true" : "false",
         enable_rtmp ? "true" : "false", enable_hls ? "true" : "false",
@@ -687,7 +687,7 @@ static int build_server_info(char *body, size_t cap, const zms_config *cfg,
     return 0;
 }
 
-void zms_webhook_server_started(const zms_config *cfg, const zms_media_server_ports *ports)
+void zcs_webhook_server_started(const zcs_config *cfg, const zcs_media_server_ports *ports)
 {
     char *body;
 
@@ -698,7 +698,7 @@ void zms_webhook_server_started(const zms_config *cfg, const zms_media_server_po
     if (!body) {
         return;
     }
-    if (build_server_info(body, ZMS_HOOK_BODY_MAX, cfg, ports) != 0) {
+    if (build_server_info(body, ZCS_HOOK_BODY_MAX, cfg, ports) != 0) {
         free(body);
         return;
     }
@@ -710,8 +710,8 @@ void zms_webhook_server_started(const zms_config *cfg, const zms_media_server_po
 /* ── 云存储节点自注册 ───────────────────────────────────────────────────── */
 
 /* 构造存储节点注册体：地址/端口/secret + 容量/已用（来自录制器统计）。 */
-static int build_storage_info(char *body, size_t cap, const zms_config *cfg,
-                              const zms_media_server_ports *ports)
+static int build_storage_info(char *body, size_t cap, const zcs_config *cfg,
+                              const zcs_media_server_ports *ports)
 {
     const char *ip;
     const char *secret;
@@ -727,14 +727,14 @@ static int build_storage_info(char *body, size_t cap, const zms_config *cfg,
     ip = cfg->general.extern_ip[0] ? cfg->general.extern_ip : "127.0.0.1";
     secret = cfg->http.api_secret ? cfg->http.api_secret : "";
     if (cfg->storage.enable) {
-        zms_zs_recorder_stats(&slots, &free_slots, &used_bytes, &cap_bytes);
+        zcs_zs_recorder_stats(&slots, &free_slots, &used_bytes, &cap_bytes);
     }
     n = snprintf(
         body, cap,
         "{\"version\":\"%s\",\"type\":\"zstorage\",\"ip\":\"%s\",\"hookIp\":\"%s\","
         "\"streamIp\":\"%s\",\"secret\":\"%s\",\"httpPort\":%u,\"rtspPort\":%u,"
         "\"capacityGb\":%llu,\"usedGb\":%llu,\"slots\":%u,\"freeSlots\":%u",
-        ZMS_VERSION_STRING, ip, ip, ip, secret, ports->http, ports->rtsp,
+        ZCS_VERSION_STRING, ip, ip, ip, secret, ports->http, ports->rtsp,
         (unsigned long long)(cap_bytes / (1024ull * 1024ull * 1024ull)),
         (unsigned long long)(used_bytes / (1024ull * 1024ull * 1024ull)), slots, free_slots);
     if (n < 0 || (size_t)n >= cap) {
@@ -743,7 +743,7 @@ static int build_storage_info(char *body, size_t cap, const zms_config *cfg,
     return 0;
 }
 
-void zms_webhook_storage_started(const zms_config *cfg, const zms_media_server_ports *ports)
+void zcs_webhook_storage_started(const zcs_config *cfg, const zcs_media_server_ports *ports)
 {
     char *body;
     size_t len;
@@ -755,13 +755,13 @@ void zms_webhook_storage_started(const zms_config *cfg, const zms_media_server_p
     if (!body) {
         return;
     }
-    if (build_storage_info(body, ZMS_HOOK_BODY_MAX - 192, cfg, ports) != 0) {
+    if (build_storage_info(body, ZCS_HOOK_BODY_MAX - 192, cfg, ports) != 0) {
         free(body);
         return;
     }
     len = strlen(body);
-    if (json_append_common(body, ZMS_HOOK_BODY_MAX, &len, ",") != 0 ||
-        (size_t)snprintf(body + len, ZMS_HOOK_BODY_MAX - len, "}") >= ZMS_HOOK_BODY_MAX - len) {
+    if (json_append_common(body, ZCS_HOOK_BODY_MAX, &len, ",") != 0 ||
+        (size_t)snprintf(body + len, ZCS_HOOK_BODY_MAX - len, "}") >= ZCS_HOOK_BODY_MAX - len) {
         free(body);
         return;
     }
@@ -784,11 +784,11 @@ static uint64_t storage_keepalive_tick(void *user)
     }
     body = body_alloc();
     if (body) {
-        if (build_storage_info(body, ZMS_HOOK_BODY_MAX - 192, g_kp_cfg, &g_kp_ports) == 0) {
+        if (build_storage_info(body, ZCS_HOOK_BODY_MAX - 192, g_kp_cfg, &g_kp_ports) == 0) {
             len = strlen(body);
-            if (json_append_common(body, ZMS_HOOK_BODY_MAX, &len, ",") == 0 &&
-                (size_t)snprintf(body + len, ZMS_HOOK_BODY_MAX - len, "}") <
-                    ZMS_HOOK_BODY_MAX - len) {
+            if (json_append_common(body, ZCS_HOOK_BODY_MAX, &len, ",") == 0 &&
+                (size_t)snprintf(body + len, ZCS_HOOK_BODY_MAX - len, "}") <
+                    ZCS_HOOK_BODY_MAX - len) {
                 hook_queue(g_hook.on_storage_keepalive, body, NULL, 0);
             } else {
                 free(body);
@@ -814,8 +814,8 @@ static void storage_keepalive_arm(void *user)
         zn_poller_do_delay(g_poller, (uint64_t)interval * 1000u, storage_keepalive_tick, NULL);
 }
 
-void zms_webhook_start_storage_keepalive(const zms_config *cfg,
-                                         const zms_media_server_ports *ports)
+void zcs_webhook_start_storage_keepalive(const zcs_config *cfg,
+                                         const zcs_media_server_ports *ports)
 {
     if (!g_webhook_initialized || !cfg || !ports || !g_hook.on_storage_keepalive[0]) {
         return;
@@ -830,13 +830,13 @@ void zms_webhook_start_storage_keepalive(const zms_config *cfg,
             g_hook.keepalive_interval_sec > 0 ? g_hook.keepalive_interval_sec : 30);
 }
 
-void zms_webhook_on_record_ps(const char *channel, uint32_t slot, int64_t start_ms,
+void zcs_webhook_on_record_ps(const char *channel, uint32_t slot, int64_t start_ms,
                               int64_t end_ms, int64_t duration_ms, int64_t file_size,
                               const char *file_path, int status)
 {
     char *body;
     char esc_ch[160];
-    char esc_path[ZMS_CFG_PATH_MAX];
+    char esc_path[ZCS_CFG_PATH_MAX];
     size_t len = 0;
     int n;
 
@@ -849,18 +849,18 @@ void zms_webhook_on_record_ps(const char *channel, uint32_t slot, int64_t start_
     }
     json_escape_path(channel, esc_ch, sizeof(esc_ch));
     json_escape_path(file_path ? file_path : "", esc_path, sizeof(esc_path));
-    n = snprintf(body, ZMS_HOOK_BODY_MAX,
+    n = snprintf(body, ZCS_HOOK_BODY_MAX,
                  "{\"channel\":\"%s\",\"slot\":%u,\"startTime\":%lld,\"endTime\":%lld,"
                  "\"durationMs\":%lld,\"fileSize\":%lld,\"filePath\":\"%s\",\"status\":%d",
                  esc_ch, slot, (long long)start_ms, (long long)end_ms, (long long)duration_ms,
                  (long long)file_size, esc_path, status);
-    if (n < 0 || (size_t)n >= ZMS_HOOK_BODY_MAX) {
+    if (n < 0 || (size_t)n >= ZCS_HOOK_BODY_MAX) {
         free(body);
         return;
     }
     len = (size_t)n;
-    if (json_append_common(body, ZMS_HOOK_BODY_MAX, &len, ",") != 0 ||
-        (size_t)snprintf(body + len, ZMS_HOOK_BODY_MAX - len, "}") >= ZMS_HOOK_BODY_MAX - len) {
+    if (json_append_common(body, ZCS_HOOK_BODY_MAX, &len, ",") != 0 ||
+        (size_t)snprintf(body + len, ZCS_HOOK_BODY_MAX - len, "}") >= ZCS_HOOK_BODY_MAX - len) {
         free(body);
         return;
     }
@@ -879,7 +879,7 @@ static uint64_t keepalive_tick(void *user)
     }
     body = body_alloc();
     if (body) {
-        if (build_server_info(body, ZMS_HOOK_BODY_MAX, g_kp_cfg, &g_kp_ports) == 0) {
+        if (build_server_info(body, ZCS_HOOK_BODY_MAX, g_kp_cfg, &g_kp_ports) == 0) {
             hook_queue(g_hook.on_server_keepalive, body, NULL, 0);
         } else {
             free(body);
@@ -901,7 +901,7 @@ static void keepalive_arm(void *user)
     g_kp_timer = zn_poller_do_delay(g_poller, (uint64_t)interval * 1000u, keepalive_tick, NULL);
 }
 
-void zms_webhook_start_keepalive(const zms_config *cfg, const zms_media_server_ports *ports)
+void zcs_webhook_start_keepalive(const zcs_config *cfg, const zcs_media_server_ports *ports)
 {
     if (!g_webhook_initialized || !cfg || !ports || !g_hook.on_server_keepalive[0]) {
         return;
@@ -916,7 +916,7 @@ void zms_webhook_start_keepalive(const zms_config *cfg, const zms_media_server_p
             g_hook.keepalive_interval_sec > 0 ? g_hook.keepalive_interval_sec : 30);
 }
 
-void zms_webhook_stop_keepalive(void)
+void zcs_webhook_stop_keepalive(void)
 {
     g_kp_enabled = 0;
     g_kp_cfg = NULL;
@@ -926,7 +926,7 @@ void zms_webhook_stop_keepalive(void)
     }
 }
 
-void zms_webhook_on_stream_register(zms_media_source *src, zms_media_origin origin)
+void zcs_webhook_on_stream_register(zcs_media_source *src, zcs_media_origin origin)
 {
     char *body;
 
@@ -941,7 +941,7 @@ void zms_webhook_on_stream_register(zms_media_source *src, zms_media_origin orig
     if (!body) {
         return;
     }
-    if (build_stream_changed_regist(src, 1, body, ZMS_HOOK_BODY_MAX) != 0) {
+    if (build_stream_changed_regist(src, 1, body, ZCS_HOOK_BODY_MAX) != 0) {
         free(body);
         return;
     }
@@ -950,7 +950,7 @@ void zms_webhook_on_stream_register(zms_media_source *src, zms_media_origin orig
     hook_queue(g_hook.on_stream_changed, body, NULL, 0);
 }
 
-void zms_webhook_on_stream_unregister(zms_media_source *src, zms_media_origin origin)
+void zcs_webhook_on_stream_unregister(zcs_media_source *src, zcs_media_origin origin)
 {
     char *body;
 
@@ -965,14 +965,14 @@ void zms_webhook_on_stream_unregister(zms_media_source *src, zms_media_origin or
     if (!body) {
         return;
     }
-    if (build_stream_changed_regist(src, 0, body, ZMS_HOOK_BODY_MAX) != 0) {
+    if (build_stream_changed_regist(src, 0, body, ZCS_HOOK_BODY_MAX) != 0) {
         free(body);
         return;
     }
     hook_queue(g_hook.on_stream_changed, body, NULL, 0);
 }
 
-void zms_webhook_on_play_stop(const zms_media_tuple *tuple, const char *player_schema,
+void zcs_webhook_on_play_stop(const zcs_media_tuple *tuple, const char *player_schema,
                               uint64_t duration_ms)
 {
     char *body;
@@ -985,7 +985,7 @@ void zms_webhook_on_play_stop(const zms_media_tuple *tuple, const char *player_s
     if (!body) {
         return;
     }
-    if (build_tuple_body(tuple, player_schema, body, ZMS_HOOK_BODY_MAX) != 0) {
+    if (build_tuple_body(tuple, player_schema, body, ZCS_HOOK_BODY_MAX) != 0) {
         free(body);
         return;
     }
@@ -998,16 +998,16 @@ void zms_webhook_on_play_stop(const zms_media_tuple *tuple, const char *player_s
         if (len > 0 && body[len - 1] == '}') {
             n = snprintf(extra, sizeof(extra), ",\"durationMs\":%llu}",
                          (unsigned long long)duration_ms);
-            if (n > 0 && len - 1 + (size_t)n < ZMS_HOOK_BODY_MAX) {
+            if (n > 0 && len - 1 + (size_t)n < ZCS_HOOK_BODY_MAX) {
                 body[len - 1] = '\0';
-                strncat(body, extra, ZMS_HOOK_BODY_MAX - len);
+                strncat(body, extra, ZCS_HOOK_BODY_MAX - len);
             }
         }
     }
     hook_queue(g_hook.on_play_stop, body, NULL, 0);
 }
 
-void zms_webhook_on_none_reader(const zms_media_tuple *tuple)
+void zcs_webhook_on_none_reader(const zcs_media_tuple *tuple)
 {
     char *body;
 
@@ -1018,7 +1018,7 @@ void zms_webhook_on_none_reader(const zms_media_tuple *tuple)
     if (!body) {
         return;
     }
-    if (build_tuple_body(tuple, NULL, body, ZMS_HOOK_BODY_MAX) != 0) {
+    if (build_tuple_body(tuple, NULL, body, ZCS_HOOK_BODY_MAX) != 0) {
         free(body);
         return;
     }
@@ -1056,7 +1056,7 @@ static void json_escape_path(const char *in, char *out, size_t out_cap)
 
 static int record_file_to_http_rel(const char *file_path, char *out, size_t out_cap)
 {
-    char norm[ZMS_CFG_PATH_MAX];
+    char norm[ZCS_CFG_PATH_MAX];
     const char *p;
     size_t i;
 
@@ -1086,17 +1086,17 @@ static int record_file_to_http_rel(const char *file_path, char *out, size_t out_
     return (size_t)snprintf(out, out_cap, "%s", p) < out_cap;
 }
 
-void zms_webhook_on_record_mp4(const char *app, const char *stream, const char *file_name,
+void zcs_webhook_on_record_mp4(const char *app, const char *stream, const char *file_name,
                                const char *file_path, const char *folder, int64_t file_size,
                                int64_t start_time, float time_len)
 {
     char *body;
     char esc_name[256];
-    char esc_path[ZMS_CFG_PATH_MAX];
-    char esc_folder[ZMS_CFG_PATH_MAX];
-    char esc_url[ZMS_CFG_URL_MAX];
-    char rel[ZMS_CFG_PATH_MAX];
-    char url[ZMS_CFG_URL_MAX];
+    char esc_path[ZCS_CFG_PATH_MAX];
+    char esc_folder[ZCS_CFG_PATH_MAX];
+    char esc_url[ZCS_CFG_URL_MAX];
+    char rel[ZCS_CFG_PATH_MAX];
+    char url[ZCS_CFG_URL_MAX];
     size_t len = 0;
     int n;
 
@@ -1118,27 +1118,27 @@ void zms_webhook_on_record_mp4(const char *app, const char *stream, const char *
             json_escape_path(url, esc_url, sizeof(esc_url));
         }
     }
-    n = snprintf(body, ZMS_HOOK_BODY_MAX,
+    n = snprintf(body, ZCS_HOOK_BODY_MAX,
                  "{\"app\":\"%s\",\"stream\":\"%s\",\"file_name\":\"%s\",\"file_path\":\"%s\","
                  "\"folder\":\"%s\",\"file_size\":%lld,\"start_time\":%lld,\"time_len\":%.3f",
                  app ? app : "", stream ? stream : "", esc_name, esc_path, esc_folder,
                  (long long)file_size, (long long)start_time, (double)time_len);
-    if (n < 0 || (size_t)n >= ZMS_HOOK_BODY_MAX) {
+    if (n < 0 || (size_t)n >= ZCS_HOOK_BODY_MAX) {
         free(body);
         return;
     }
     len = (size_t)n;
     if (esc_url[0]) {
-        n = snprintf(body + len, ZMS_HOOK_BODY_MAX - len, ",\"url\":\"%s\",\"play_url\":\"%s\"",
+        n = snprintf(body + len, ZCS_HOOK_BODY_MAX - len, ",\"url\":\"%s\",\"play_url\":\"%s\"",
                      esc_url, esc_url);
-        if (n < 0 || (size_t)n >= ZMS_HOOK_BODY_MAX - len) {
+        if (n < 0 || (size_t)n >= ZCS_HOOK_BODY_MAX - len) {
             free(body);
             return;
         }
         len += (size_t)n;
     }
-    if (json_append_common(body, ZMS_HOOK_BODY_MAX, &len, ",") != 0 ||
-        (size_t)snprintf(body + len, ZMS_HOOK_BODY_MAX - len, "}") >= ZMS_HOOK_BODY_MAX - len) {
+    if (json_append_common(body, ZCS_HOOK_BODY_MAX, &len, ",") != 0 ||
+        (size_t)snprintf(body + len, ZCS_HOOK_BODY_MAX - len, "}") >= ZCS_HOOK_BODY_MAX - len) {
         free(body);
         return;
     }
@@ -1182,7 +1182,7 @@ static void resolve_hook_hosts(void)
                 dup = 1;
             }
         }
-        if (dup || g_host_count >= ZMS_HOOK_HOST_MAX) {
+        if (dup || g_host_count >= ZCS_HOOK_HOST_MAX) {
             continue;
         }
         snprintf(port_str, sizeof(port_str), "%u", (unsigned)port);
@@ -1207,7 +1207,7 @@ static void resolve_hook_hosts(void)
     }
 }
 
-void zms_webhook_init(zn_poller *poller, const zms_config *cfg)
+void zcs_webhook_init(zn_poller *poller, const zcs_config *cfg)
 {
     g_poller = poller;
     g_webhook_initialized = 0;
@@ -1236,10 +1236,10 @@ void zms_webhook_init(zn_poller *poller, const zms_config *cfg)
              g_play_http_port);
 }
 
-void zms_webhook_fini(void)
+void zcs_webhook_fini(void)
 {
     g_webhook_initialized = 0;
-    zms_webhook_stop_keepalive();
+    zcs_webhook_stop_keepalive();
     if (!g_poller) {
         return;
     }
@@ -1264,7 +1264,7 @@ void zms_webhook_fini(void)
     g_poller = NULL;
 }
 
-int zms_webhook_none_reader_configured(void)
+int zcs_webhook_none_reader_configured(void)
 {
     return g_webhook_initialized && g_hook.on_stream_none_reader[0] != '\0';
 }

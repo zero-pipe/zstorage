@@ -10,7 +10,7 @@
  * 并发：写（on_segment，packager 线程）与读（HTTP 请求线程）都经 m->mtx 保护；
  * 提供 copy_/ref_ 两套读取：copy 拷贝字节，ref 直接增引用返回底层 zn_buf（省一次拷贝）。
  */
-#include "zms/play/dash/playlist.h"
+#include "zcs/play/dash/playlist.h"
 #include "dash-mpd.h"
 #include "dash-proto.h"
 #include "zn/util/buf.h"
@@ -20,14 +20,14 @@
 #include <string.h>
 #include <inttypes.h>
 
-struct zms_http_dash_playlist {
+struct zcs_http_dash_playlist {
     dash_mpd_t *mpd;
     char prefix[64];
     unsigned seg_number;
-    zms_http_dash_segment init_video;
-    zms_http_dash_segment init_audio;
-    zms_http_dash_segment *video_segments;
-    zms_http_dash_segment *audio_segments;
+    zcs_http_dash_segment init_video;
+    zcs_http_dash_segment init_audio;
+    zcs_http_dash_segment *video_segments;
+    zcs_http_dash_segment *audio_segments;
     int video_seg_count;
     int video_seg_head;
     int audio_seg_count;
@@ -40,7 +40,7 @@ struct zms_http_dash_playlist {
 
 /* 重建 MPD 文本缓存（调用方持锁）。生成失败或超出缓冲（返回 ≥cap）时把长度置 0——
  * 读取方看到 0 会返回错误并触发重建，而不是返回半截 MPD。 */
-static void dash_playlist_refresh_mpd_cache_locked(zms_http_dash_playlist *m)
+static void dash_playlist_refresh_mpd_cache_locked(zcs_http_dash_playlist *m)
 {
     size_t n;
 
@@ -62,12 +62,12 @@ static void dash_playlist_refresh_mpd_cache_locked(zms_http_dash_playlist *m)
     }
 }
 
-static size_t dash_seg_len(const zms_http_dash_segment *s)
+static size_t dash_seg_len(const zcs_http_dash_segment *s)
 {
     return s && s->buf ? zn_buf_len(s->buf) : 0;
 }
 
-static void dash_seg_free(zms_http_dash_segment *s)
+static void dash_seg_free(zcs_http_dash_segment *s)
 {
     if (!s) {
         return;
@@ -89,7 +89,7 @@ static int dash_is_audio_segment(const char *name)
     return name && strstr(name, ".m4a");
 }
 
-static zms_http_dash_segment *dash_init_slot(zms_http_dash_playlist *m, const char *name)
+static zcs_http_dash_segment *dash_init_slot(zcs_http_dash_playlist *m, const char *name)
 {
     if (!m || !name) {
         return NULL;
@@ -103,7 +103,7 @@ static zms_http_dash_segment *dash_init_slot(zms_http_dash_playlist *m, const ch
     return NULL;
 }
 
-static void dash_slot_adopt(zms_http_dash_segment *slot, const char *name, zn_buf *buf)
+static void dash_slot_adopt(zcs_http_dash_segment *slot, const char *name, zn_buf *buf)
 {
     if (!slot || !name || !buf || zn_buf_len(buf) == 0) {
         return;
@@ -113,7 +113,7 @@ static void dash_slot_adopt(zms_http_dash_segment *slot, const char *name, zn_bu
     slot->buf = buf;
 }
 
-static int dash_slot_matches_name(const zms_http_dash_segment *slot, const char *name)
+static int dash_slot_matches_name(const zcs_http_dash_segment *slot, const char *name)
 {
     return slot && name && name[0] && slot->name[0] && strcmp(slot->name, name) == 0;
 }
@@ -121,13 +121,13 @@ static int dash_slot_matches_name(const zms_http_dash_segment *slot, const char 
 /* 登记一个媒体分片到对应环。先按名字找同槽位（同一分片重复推送时原地替换，幂等）；
  * 否则用空槽，没有空槽就按 head 轮转淘汰最旧。淘汰策略的选择见下方大注释
  * （不能用 mpd_cache 判活）。 */
-static void dash_store_media_locked(zms_http_dash_playlist *m, const char *name, zn_buf *buf)
+static void dash_store_media_locked(zcs_http_dash_playlist *m, const char *name, zn_buf *buf)
 {
     int is_audio = dash_is_audio_segment(name);
-    zms_http_dash_segment *slots = is_audio ? m->audio_segments : m->video_segments;
+    zcs_http_dash_segment *slots = is_audio ? m->audio_segments : m->video_segments;
     int *head = is_audio ? &m->audio_seg_head : &m->video_seg_head;
     int *count = is_audio ? &m->audio_seg_count : &m->video_seg_count;
-    zms_http_dash_segment *slot;
+    zcs_http_dash_segment *slot;
     int i;
     int victim = -1;
 
@@ -151,7 +151,7 @@ static void dash_store_media_locked(zms_http_dash_playlist *m, const char *name,
     if (victim < 0) {
         /* 环大小是 MPD 窗口的 2 倍（见 create 里的 seg_number *= 2），
          * 直接轮转淘汰最老的即可。不能用 mpd_cache 判活：zm packager
-         * 路径下 ZMS 自建的 m->mpd 没有喂入分片，缓存恒为空，会把第一个
+         * 路径下 ZCS 自建的 m->mpd 没有喂入分片，缓存恒为空，会把第一个
          * 槽位当成过期反复覆盖，导致除最新分片外全部 404。 */
         victim = *head % (int)m->seg_number;
     }
@@ -164,9 +164,9 @@ static void dash_store_media_locked(zms_http_dash_playlist *m, const char *name,
     }
 }
 
-static void dash_store_segment_locked(zms_http_dash_playlist *m, const char *name, zn_buf *buf)
+static void dash_store_segment_locked(zcs_http_dash_playlist *m, const char *name, zn_buf *buf)
 {
-    zms_http_dash_segment *slot;
+    zcs_http_dash_segment *slot;
 
     if (!m || !name || !buf || zn_buf_len(buf) == 0) {
         return;
@@ -181,10 +181,10 @@ static void dash_store_segment_locked(zms_http_dash_playlist *m, const char *nam
 
 /* packager 回调：把新分片拷进自有 zn_buf 并登记、刷新 MPD。必须在入口就把数据拷走——
  * 回调返回后 data 指针即失效。锁内只做存储与 MPD 重建。 */
-int zms_http_dash_playlist_on_segment(void *param, int track, const void *data, size_t bytes,
+int zcs_http_dash_playlist_on_segment(void *param, int track, const void *data, size_t bytes,
                                       int64_t pts, int64_t dts, int64_t duration, const char *name)
 {
-    zms_http_dash_playlist *m = (zms_http_dash_playlist *)param;
+    zcs_http_dash_playlist *m = (zcs_http_dash_playlist *)param;
     zn_buf *buf;
 
     (void)track;
@@ -209,9 +209,9 @@ int zms_http_dash_playlist_on_segment(void *param, int track, const void *data, 
     return 0;
 }
 
-zms_http_dash_playlist *zms_http_dash_playlist_create(const zms_http_dash_playlist_opts *opts)
+zcs_http_dash_playlist *zcs_http_dash_playlist_create(const zcs_http_dash_playlist_opts *opts)
 {
-    zms_http_dash_playlist *m = (zms_http_dash_playlist *)calloc(1, sizeof(*m));
+    zcs_http_dash_playlist *m = (zcs_http_dash_playlist *)calloc(1, sizeof(*m));
 
     if (!m) {
         return NULL;
@@ -228,12 +228,12 @@ zms_http_dash_playlist *zms_http_dash_playlist_create(const zms_http_dash_playli
         strncpy(m->prefix, "live", sizeof(m->prefix) - 1);
     }
 
-    m->mpd = dash_mpd_create(DASH_DYNAMIC, zms_http_dash_playlist_on_segment, m);
+    m->mpd = dash_mpd_create(DASH_DYNAMIC, zcs_http_dash_playlist_on_segment, m);
     m->mtx = zb_mutex_create(0);
     m->video_segments =
-        (zms_http_dash_segment *)calloc(m->seg_number, sizeof(zms_http_dash_segment));
+        (zcs_http_dash_segment *)calloc(m->seg_number, sizeof(zcs_http_dash_segment));
     m->audio_segments =
-        (zms_http_dash_segment *)calloc(m->seg_number, sizeof(zms_http_dash_segment));
+        (zcs_http_dash_segment *)calloc(m->seg_number, sizeof(zcs_http_dash_segment));
     if (!m->mpd || !m->mtx || !m->video_segments || !m->audio_segments) {
         dash_mpd_destroy(m->mpd);
         zb_mutex_destroy(m->mtx);
@@ -245,7 +245,7 @@ zms_http_dash_playlist *zms_http_dash_playlist_create(const zms_http_dash_playli
     return m;
 }
 
-void zms_http_dash_playlist_destroy(zms_http_dash_playlist *m)
+void zcs_http_dash_playlist_destroy(zcs_http_dash_playlist *m)
 {
     int i;
 
@@ -272,18 +272,18 @@ void zms_http_dash_playlist_destroy(zms_http_dash_playlist *m)
     free(m);
 }
 
-struct dash_mpd_t *zms_http_dash_playlist_mpd(zms_http_dash_playlist *m)
+struct dash_mpd_t *zcs_http_dash_playlist_mpd(zcs_http_dash_playlist *m)
 {
     return m ? m->mpd : NULL;
 }
 
-static int dash_segment_slot_matches(const zms_http_dash_segment *s, const char *name)
+static int dash_segment_slot_matches(const zcs_http_dash_segment *s, const char *name)
 {
     return s && name && name[0] && s->buf && dash_seg_len(s) > 0 && s->name[0] &&
            strcmp(s->name, name) == 0;
 }
 
-static int dash_ring_has_name(const zms_http_dash_segment *slots, int nslots, const char *name)
+static int dash_ring_has_name(const zcs_http_dash_segment *slots, int nslots, const char *name)
 {
     int i;
 
@@ -295,7 +295,7 @@ static int dash_ring_has_name(const zms_http_dash_segment *slots, int nslots, co
     return 0;
 }
 
-static int dash_segment_in_cache_locked(const zms_http_dash_playlist *m, const char *name)
+static int dash_segment_in_cache_locked(const zcs_http_dash_playlist *m, const char *name)
 {
     if (!m || !name || !name[0]) {
         return 0;
@@ -331,7 +331,7 @@ static int dash_ext_matches(const char *name, const char *ext)
  * 先试精确名字 want；再退一步按数字部分（时间戳）匹配——因为不同 packager 生成的
  * 分片名里“前缀-数字”之外的中间部分可能不一致，只比数字更宽容。都不匹配返回 0。
  */
-static int dash_pick_from_ring(const zms_http_dash_playlist *m, const zms_http_dash_segment *slots,
+static int dash_pick_from_ring(const zcs_http_dash_playlist *m, const zcs_http_dash_segment *slots,
                                const char *prefix, size_t plen, const char *rest, const char *dot,
                                char *out, size_t cap)
 {
@@ -353,7 +353,7 @@ static int dash_pick_from_ring(const zms_http_dash_playlist *m, const zms_http_d
     snprintf(want, sizeof(want), "%.*s-%.*s%s", (int)plen, prefix, (int)(end - rest), rest, dot);
 
     for (i = 0; i < (int)m->seg_number; ++i) {
-        const zms_http_dash_segment *s = &slots[i];
+        const zcs_http_dash_segment *s = &slots[i];
 
         if (!s->buf || dash_seg_len(s) == 0 || !s->name[0] || dash_is_init_segment(s->name)) {
             continue;
@@ -376,14 +376,14 @@ static int dash_pick_from_ring(const zms_http_dash_playlist *m, const zms_http_d
 /* 把请求里的分片名解析成缓存里实际存在的名字：先精确命中；否则按“前缀-数字.扩展”
  * 归一后再到对应环里找（容忍客户端把分片名写得与 packager 生成的不完全一致）。
  * 返回 1 表示解析成功，结果写入 out。 */
-static int dash_resolve_segment_name(zms_http_dash_playlist *m, const char *req, char *out,
+static int dash_resolve_segment_name(zcs_http_dash_playlist *m, const char *req, char *out,
                                      size_t cap)
 {
     const char *prefix;
     size_t plen;
     const char *rest;
     const char *dot;
-    const zms_http_dash_segment *slots;
+    const zcs_http_dash_segment *slots;
     int found = 0;
 
     if (!m || !req || !out || cap == 0) {
@@ -418,7 +418,7 @@ static int dash_resolve_segment_name(zms_http_dash_playlist *m, const char *req,
 
 /* 是否至少已缓存一个媒体（非 init）视频分片——用于判断清单是否已“可播”，
  * 供上层在无分片时返回 503/稍后重试。 */
-int zms_http_dash_playlist_has_media_segment(const zms_http_dash_playlist *m)
+int zcs_http_dash_playlist_has_media_segment(const zcs_http_dash_playlist *m)
 {
     int i;
     int found = 0;
@@ -428,7 +428,7 @@ int zms_http_dash_playlist_has_media_segment(const zms_http_dash_playlist *m)
     }
     zb_mutex_lock(m->mtx);
     for (i = 0; i < (int)m->seg_number; ++i) {
-        const zms_http_dash_segment *s = &m->video_segments[i];
+        const zcs_http_dash_segment *s = &m->video_segments[i];
         if (s->buf && dash_seg_len(s) > 0 && s->name[0] && !dash_is_init_segment(s->name)) {
             found = 1;
             break;
@@ -438,7 +438,7 @@ int zms_http_dash_playlist_has_media_segment(const zms_http_dash_playlist *m)
     return found;
 }
 
-zn_err_t zms_http_dash_playlist_copy_mpd(const zms_http_dash_playlist *m, char *out, size_t cap,
+zn_err_t zcs_http_dash_playlist_copy_mpd(const zcs_http_dash_playlist *m, char *out, size_t cap,
                                           size_t *out_len)
 {
     if (!m || !out || !out_len) {
@@ -456,7 +456,7 @@ zn_err_t zms_http_dash_playlist_copy_mpd(const zms_http_dash_playlist *m, char *
     return ZN_OK;
 }
 
-zn_err_t zms_http_dash_playlist_build_mpd(zms_http_dash_playlist *m, char *out, size_t cap,
+zn_err_t zcs_http_dash_playlist_build_mpd(zcs_http_dash_playlist *m, char *out, size_t cap,
                                            size_t *out_len)
 {
     if (!m || !m->mpd || !out || !out_len) {
@@ -475,14 +475,14 @@ zn_err_t zms_http_dash_playlist_build_mpd(zms_http_dash_playlist *m, char *out, 
 }
 
 /* copy 版本：把环里命中的分片字节拷进调用方 buf（cap 不足返回 INVALID）。 */
-static zn_err_t dash_copy_from_ring(const zms_http_dash_segment *slots, int nslots,
+static zn_err_t dash_copy_from_ring(const zcs_http_dash_segment *slots, int nslots,
                                      const char *resolved, uint8_t *buf, size_t cap,
                                      size_t *out_len)
 {
     int i;
 
     for (i = 0; i < nslots; ++i) {
-        const zms_http_dash_segment *s = &slots[i];
+        const zcs_http_dash_segment *s = &slots[i];
         if (!dash_segment_slot_matches(s, resolved)) {
             continue;
         }
@@ -496,7 +496,7 @@ static zn_err_t dash_copy_from_ring(const zms_http_dash_segment *slots, int nslo
     return ZN_ERR_INVALID;
 }
 
-zn_err_t zms_http_dash_playlist_copy_segment(zms_http_dash_playlist *m, const char *name,
+zn_err_t zcs_http_dash_playlist_copy_segment(zcs_http_dash_playlist *m, const char *name,
                                               uint8_t *buf, size_t cap, size_t *out_len)
 {
     char resolved[128];
@@ -513,11 +513,11 @@ zn_err_t zms_http_dash_playlist_copy_segment(zms_http_dash_playlist *m, const ch
     zb_mutex_lock(m->mtx);
     if (dash_segment_slot_matches(&m->init_video, resolved) ||
         dash_segment_slot_matches(&m->init_audio, resolved)) {
-        const zms_http_dash_segment *init_slots[2] = {&m->init_video, &m->init_audio};
+        const zcs_http_dash_segment *init_slots[2] = {&m->init_video, &m->init_audio};
         int j;
 
         for (j = 0; j < 2; ++j) {
-            const zms_http_dash_segment *s = init_slots[j];
+            const zcs_http_dash_segment *s = init_slots[j];
             if (!dash_segment_slot_matches(s, resolved)) {
                 continue;
             }
@@ -545,13 +545,13 @@ zn_err_t zms_http_dash_playlist_copy_segment(zms_http_dash_playlist *m, const ch
 
 /* ref 版本：不拷贝，直接把底层 zn_buf 增引用交给调用方（由它负责 unref）。
  * 省一次整片拷贝，适合直接把分片交给 sendfile/零拷贝发送路径。 */
-static zn_err_t dash_ref_from_ring(const zms_http_dash_segment *slots, int nslots,
+static zn_err_t dash_ref_from_ring(const zcs_http_dash_segment *slots, int nslots,
                                     const char *resolved, zn_buf **out_buf, size_t *out_len)
 {
     int i;
 
     for (i = 0; i < nslots; ++i) {
-        const zms_http_dash_segment *s = &slots[i];
+        const zcs_http_dash_segment *s = &slots[i];
         if (!dash_segment_slot_matches(s, resolved)) {
             continue;
         }
@@ -562,7 +562,7 @@ static zn_err_t dash_ref_from_ring(const zms_http_dash_segment *slots, int nslot
     return ZN_ERR_INVALID;
 }
 
-zn_err_t zms_http_dash_playlist_ref_segment(zms_http_dash_playlist *m, const char *name,
+zn_err_t zcs_http_dash_playlist_ref_segment(zcs_http_dash_playlist *m, const char *name,
                                              zn_buf **out_buf, size_t *out_len)
 {
     char resolved[128];
@@ -580,11 +580,11 @@ zn_err_t zms_http_dash_playlist_ref_segment(zms_http_dash_playlist *m, const cha
     zb_mutex_lock(m->mtx);
     if (dash_segment_slot_matches(&m->init_video, resolved) ||
         dash_segment_slot_matches(&m->init_audio, resolved)) {
-        const zms_http_dash_segment *init_slots[2] = {&m->init_video, &m->init_audio};
+        const zcs_http_dash_segment *init_slots[2] = {&m->init_video, &m->init_audio};
         int j;
 
         for (j = 0; j < 2; ++j) {
-            const zms_http_dash_segment *s = init_slots[j];
+            const zcs_http_dash_segment *s = init_slots[j];
             if (!dash_segment_slot_matches(s, resolved)) {
                 continue;
             }
@@ -604,12 +604,12 @@ zn_err_t zms_http_dash_playlist_ref_segment(zms_http_dash_playlist *m, const cha
     return err;
 }
 
-int zms_http_dash_playlist_segment_count(const zms_http_dash_playlist *m)
+int zcs_http_dash_playlist_segment_count(const zcs_http_dash_playlist *m)
 {
     return m ? m->video_seg_count + m->audio_seg_count : 0;
 }
 
-const char *zms_http_dash_playlist_prefix(const zms_http_dash_playlist *m)
+const char *zcs_http_dash_playlist_prefix(const zcs_http_dash_playlist *m)
 {
     return m && m->prefix[0] ? m->prefix : "live";
 }

@@ -15,8 +15,8 @@
  *
  * 目标是"不倒退、不漂、能跨 26.5 小时"，不追求与墙钟的极限精度。
  */
-#ifndef ZMS_SRC_STORAGE_ZS_CLOCK_H
-#define ZMS_SRC_STORAGE_ZS_CLOCK_H
+#ifndef ZCS_SRC_STORAGE_ZS_CLOCK_H
+#define ZCS_SRC_STORAGE_ZS_CLOCK_H
 
 #include <stdint.h>
 
@@ -68,4 +68,4 @@ uint32_t zs_clock_discontinuity_count(const zs_clock *c);
 }
 #endif
 
-#endif /* ZMS_SRC_STORAGE_ZS_CLOCK_H */
+#endif /* ZCS_SRC_STORAGE_ZS_CLOCK_H */

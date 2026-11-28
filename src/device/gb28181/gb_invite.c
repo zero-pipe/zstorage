@@ -202,8 +202,8 @@ static int is_playback_offer(const gb_sdp_offer *o, const gb_sip_msg *m)
 
 void gb_invite_handle(const gb_sip_msg *m)
 {
-    char channel_id[ZMS_GB28181_ID_MAX];
-    char platform_id[ZMS_GB28181_ID_MAX];
+    char channel_id[ZCS_GB28181_ID_MAX];
+    char platform_id[ZCS_GB28181_ID_MAX];
     char to_tag[64];
     char sdp[1024];
     char answer[1024];
@@ -267,8 +267,8 @@ void gb_invite_handle(const gb_sip_msg *m)
         }
         list = gb_record_query(channel_id, st, en);
         if (list) {
-            have = zms_device_record_list_count(list) > 0;
-            zms_device_record_list_free(list);
+            have = zcs_device_record_list_count(list) > 0;
+            zcs_device_record_list_free(list);
         }
         if (!have) {
             zn_warn("gb28181: playback INVITE channel=%s but no record in range", channel_id);
@@ -305,7 +305,7 @@ void gb_invite_handle_ack(const gb_sip_msg *m)
 {
     const char *call_id = gb_sip_hdr(m, "Call-ID");
     gb_media_session *sess = gb_media_find_call(call_id);
-    char channel_id[ZMS_GB28181_ID_MAX];
+    char channel_id[ZCS_GB28181_ID_MAX];
 
     if (!sess) {
         return;

@@ -2,21 +2,21 @@
  * @file rtp_play_pump.c
  * @brief RTP 播放 pump（pacing 与待发队列）。
  */
-#include "zms/media/clock.h"
-#include "zms/egress/pipeline/egress_pipeline.h"
-#include "zms/egress/rtp/rtp_play_pump.h"
-#include "zms/egress/pacing/egress_clock.h"
+#include "zcs/media/clock.h"
+#include "zcs/egress/pipeline/egress_pipeline.h"
+#include "zcs/egress/rtp/rtp_play_pump.h"
+#include "zcs/egress/pacing/egress_clock.h"
 
-#include "zms/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
 
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/codec/av1/av1_over_rtmp.h"
-#include "zms/egress/pacing/egress_live_policy.h"
-#include "zms/egress/rtp/rtp_muxer.h"
-#include "zms/core/gop/queue.h"
-#include "zms/core/stream/buffer.h"
-#include "zms/egress/vod_play_port.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/av1/av1_over_rtmp.h"
+#include "zcs/egress/pacing/egress_live_policy.h"
+#include "zcs/egress/rtp/rtp_muxer.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/core/stream/buffer.h"
+#include "zcs/egress/vod_play_port.h"
 
 #include "zn/util/buf.h"
 #include "zn/util/log.h"
@@ -29,16 +29,16 @@
  * 2048 是“任何合法包都不会超”的保险阈值，超出视为异常直接拒收。
  * PACE_LEAD_MS=120：在媒体到期前 120ms 就允许发出，用于吸收网络抖动，
  * 又不至于提前太多（否则等于增加了端到端延迟）。 */
-#define ZMS_RTP_PLAY_SLOT_MAX 2048u
-#define ZMS_RTP_PLAY_PACE_LEAD_MS 120u
+#define ZCS_RTP_PLAY_SLOT_MAX 2048u
+#define ZCS_RTP_PLAY_PACE_LEAD_MS 120u
 
 typedef struct {
     uint8_t ch;
     zn_buf *buf;
 } rtsp_play_slot;
 
-struct zms_rtp_play_sender {
-    zms_rtp_play_write_fn write;
+struct zcs_rtp_play_sender {
+    zcs_rtp_play_write_fn write;
     void *user;
     zn_poller *poller;
     rtsp_play_slot *slots;
@@ -51,7 +51,7 @@ struct zms_rtp_play_sender {
 
 static int g_play_sender_flush_depth;
 
-static int play_pump_abort(const zms_rtp_play_pump *p)
+static int play_pump_abort(const zcs_rtp_play_pump *p)
 {
     if (!p) {
         return 1;
@@ -65,27 +65,27 @@ static int play_pump_abort(const zms_rtp_play_pump *p)
     return 0;
 }
 
-static size_t rtsp_play_pump_pending(const zms_rtp_play_pump *p)
+static size_t rtsp_play_pump_pending(const zcs_rtp_play_pump *p)
 {
     if (!p) {
         return 0;
     }
     if (p->vod_reader) {
-        return zms_vod_buffer_reader_lag(p->vod_reader);
+        return zcs_vod_buffer_reader_lag(p->vod_reader);
     }
     if (p->gop_reader) {
-        return zms_gop_reader_lag(p->gop_reader);
+        return zcs_gop_reader_lag(p->gop_reader);
     }
     return 0;
 }
 
-zms_rtp_play_sender *zms_rtp_play_sender_create(zms_rtp_play_write_fn write, void *user,
+zcs_rtp_play_sender *zcs_rtp_play_sender_create(zcs_rtp_play_write_fn write, void *user,
                                                 unsigned cap)
 {
     if (!write || cap == 0) {
-        cap = ZMS_RTP_PLAY_RTPQ_CAP;
+        cap = ZCS_RTP_PLAY_RTPQ_CAP;
     }
-    zms_rtp_play_sender *s = (zms_rtp_play_sender *)calloc(1, sizeof(*s));
+    zcs_rtp_play_sender *s = (zcs_rtp_play_sender *)calloc(1, sizeof(*s));
     if (!s) {
         return NULL;
     }
@@ -100,7 +100,7 @@ zms_rtp_play_sender *zms_rtp_play_sender_create(zms_rtp_play_write_fn write, voi
     return s;
 }
 
-void zms_rtp_play_sender_destroy(zms_rtp_play_sender *s)
+void zcs_rtp_play_sender_destroy(zcs_rtp_play_sender *s)
 {
     size_t i;
 
@@ -118,7 +118,7 @@ void zms_rtp_play_sender_destroy(zms_rtp_play_sender *s)
     free(s);
 }
 
-void zms_rtp_play_sender_reset(zms_rtp_play_sender *s)
+void zcs_rtp_play_sender_reset(zcs_rtp_play_sender *s)
 {
     size_t i;
 
@@ -136,19 +136,19 @@ void zms_rtp_play_sender_reset(zms_rtp_play_sender *s)
     s->r = s->w = s->n = 0;
 }
 
-size_t zms_rtp_play_sender_pending(const zms_rtp_play_sender *s)
+size_t zcs_rtp_play_sender_pending(const zcs_rtp_play_sender *s)
 {
     return s ? s->n : 0;
 }
 
-void zms_rtp_play_sender_set_session_no(zms_rtp_play_sender *s, unsigned session_no)
+void zcs_rtp_play_sender_set_session_no(zcs_rtp_play_sender *s, unsigned session_no)
 {
     if (s) {
         s->session_no = session_no;
     }
 }
 
-void zms_rtp_play_sender_set_poller(zms_rtp_play_sender *s, zn_poller *poller)
+void zcs_rtp_play_sender_set_poller(zcs_rtp_play_sender *s, zn_poller *poller)
 {
     if (s) {
         s->poller = poller;
@@ -162,13 +162,13 @@ void zms_rtp_play_sender_set_poller(zms_rtp_play_sender *s, zn_poller *poller)
  * 也不能让发送滞后随积压增长；丢最旧保证交给播放端的是最新画面。
  * 缓冲区优先取自 poller 本地池，避免在 IO 线程走全局 malloc。
  */
-static int play_sender_push(zms_rtp_play_sender *s, uint8_t ch, const uint8_t *data, size_t len)
+static int play_sender_push(zcs_rtp_play_sender *s, uint8_t ch, const uint8_t *data, size_t len)
 {
     rtsp_play_slot *slot;
     zn_buf *buf;
     void *dst;
 
-    if (!s || !data || len == 0 || len > ZMS_RTP_PLAY_SLOT_MAX) {
+    if (!s || !data || len == 0 || len > ZCS_RTP_PLAY_SLOT_MAX) {
         return -1;
     }
     if (s->n >= s->cap) {
@@ -198,7 +198,7 @@ static int play_sender_push(zms_rtp_play_sender *s, uint8_t ch, const uint8_t *d
     return 0;
 }
 
-static void play_sender_flush_inner(zms_rtp_play_sender *s, int budget, int close_pending)
+static void play_sender_flush_inner(zcs_rtp_play_sender *s, int budget, int close_pending)
 {
     if (!s || !s->write || budget <= 0 || close_pending) {
         return;
@@ -223,7 +223,7 @@ static void play_sender_flush_inner(zms_rtp_play_sender *s, int budget, int clos
  * 反过来再次调用 submit/flush，若不加此栅栏就会在 flush 过程中递归重入，
  * 破坏 r/n 游标的一致性。depth>0 时直接放弃本次 flush，等外层循环自然处理。
  */
-void zms_rtp_play_sender_flush(zms_rtp_play_sender *s, int budget, int close_pending)
+void zcs_rtp_play_sender_flush(zcs_rtp_play_sender *s, int budget, int close_pending)
 {
     if (!s || budget <= 0 || g_play_sender_flush_depth > 0) {
         return;
@@ -241,7 +241,7 @@ void zms_rtp_play_sender_flush(zms_rtp_play_sender *s, int budget, int close_pen
  * 保持包序；队列达到高水位时立即 flush 一批，防止在写者侧无限堆积。
  * 若入队失败（如长度超限/OOM），仍回退为直写，绝不静默丢包。
  */
-void zms_rtp_play_sender_submit(zms_rtp_play_sender *s, int queued, uint8_t channel,
+void zcs_rtp_play_sender_submit(zcs_rtp_play_sender *s, int queued, uint8_t channel,
                                 const uint8_t *payload, size_t len)
 {
     if (!s || !payload || len == 0) {
@@ -257,13 +257,13 @@ void zms_rtp_play_sender_submit(zms_rtp_play_sender *s, int queued, uint8_t chan
         if (s->write) {
             s->write(s->user, channel, payload, len);
         }
-    } else if (s->n >= ZMS_RTP_PLAY_RTPQ_HIGH_WATER) {
-        zms_rtp_play_sender_flush(s, (int)ZMS_RTP_PLAY_RTPQ_HIGH_WATER, 0);
+    } else if (s->n >= ZCS_RTP_PLAY_RTPQ_HIGH_WATER) {
+        zcs_rtp_play_sender_flush(s, (int)ZCS_RTP_PLAY_RTPQ_HIGH_WATER, 0);
     }
 }
 
-static void rtsp_play_send_stream_config(zms_rtp_muxer *mux, const zms_media_source *src,
-                                         zms_vod_play_lane *lane, uint32_t anchor_ms)
+static void rtsp_play_send_stream_config(zcs_rtp_muxer *mux, const zcs_media_source *src,
+                                         zcs_vod_play_lane *lane, uint32_t anchor_ms)
 {
     size_t vcfg_len = 0;
     const uint8_t *vcfg = NULL;
@@ -272,35 +272,35 @@ static void rtsp_play_send_stream_config(zms_rtp_muxer *mux, const zms_media_sou
         return;
     }
     if (lane) {
-        vcfg = zms_vod_play_lane_video_config(lane, &vcfg_len);
+        vcfg = zcs_vod_play_lane_video_config(lane, &vcfg_len);
     }
     if ((!vcfg || vcfg_len <= 5) && src) {
-        vcfg = zms_media_source_video_config(src, &vcfg_len);
+        vcfg = zcs_media_source_video_config(src, &vcfg_len);
     }
     if (vcfg && vcfg_len > 5) {
-        zms_codec_id vc = zms_flv_video_config_codec(vcfg, vcfg_len);
-        if (vc == ZMS_CODEC_INVALID && src->video.codec != ZMS_CODEC_INVALID) {
+        zcs_codec_id vc = zcs_flv_video_config_codec(vcfg, vcfg_len);
+        if (vc == ZCS_CODEC_INVALID && src->video.codec != ZCS_CODEC_INVALID) {
             vc = src->video.codec;
         }
-        if (vc == ZMS_CODEC_H264) {
-            zms_rtp_muxer_send_avc_config(mux, vcfg, vcfg_len, anchor_ms);
-        } else if (vc == ZMS_CODEC_H265) {
-            zms_rtp_muxer_send_hevc_config(mux, vcfg, vcfg_len, anchor_ms);
-        } else if (vc == ZMS_CODEC_AV1) {
-            zms_rtp_muxer_send_av1_config(mux, vcfg, vcfg_len, anchor_ms);
+        if (vc == ZCS_CODEC_H264) {
+            zcs_rtp_muxer_send_avc_config(mux, vcfg, vcfg_len, anchor_ms);
+        } else if (vc == ZCS_CODEC_H265) {
+            zcs_rtp_muxer_send_hevc_config(mux, vcfg, vcfg_len, anchor_ms);
+        } else if (vc == ZCS_CODEC_AV1) {
+            zcs_rtp_muxer_send_av1_config(mux, vcfg, vcfg_len, anchor_ms);
         }
     }
 }
 
 static void rtp_play_on_snap(void *user)
 {
-    zms_rtp_play_pump *p = (zms_rtp_play_pump *)user;
+    zcs_rtp_play_pump *p = (zcs_rtp_play_pump *)user;
 
     if (!p) {
         return;
     }
     if (p->sender) {
-        zms_rtp_play_sender_reset(p->sender);
+        zcs_rtp_play_sender_reset(p->sender);
     }
     if (p->mux && p->source) {
         rtsp_play_send_stream_config(p->mux, p->source, NULL, 0);
@@ -309,7 +309,7 @@ static void rtp_play_on_snap(void *user)
 
 static void rtp_play_on_slow_consumer(void *user)
 {
-    zms_rtp_play_pump *p = (zms_rtp_play_pump *)user;
+    zcs_rtp_play_pump *p = (zcs_rtp_play_pump *)user;
 
     if (!p || !p->close_flag) {
         return;
@@ -317,31 +317,31 @@ static void rtp_play_on_slow_consumer(void *user)
     *(int *)p->close_flag = 1;
 }
 
-static const char *rtsp_play_attach_kind_slot(const zms_gop_slot *slot)
+static const char *rtsp_play_attach_kind_slot(const zcs_gop_slot *slot)
 {
-    if (!slot || slot->track != ZMS_TRACK_VIDEO || !slot->data || slot->len < 5) {
+    if (!slot || slot->track != ZCS_TRACK_VIDEO || !slot->data || slot->len < 5) {
         return "none";
     }
-    if (slot->codec == ZMS_CODEC_H265) {
-        if (zms_h265_annexb_is_idr(slot->data, slot->len)) {
+    if (slot->codec == ZCS_CODEC_H265) {
+        if (zcs_h265_annexb_is_idr(slot->data, slot->len)) {
             return "IDR";
         }
-        if (zms_h265_annexb_is_sync_key(slot->data, slot->len)) {
+        if (zcs_h265_annexb_is_sync_key(slot->data, slot->len)) {
             return "CRA";
         }
         return "VCL";
     }
-    if (slot->codec == ZMS_CODEC_H264) {
-        if (zms_h264_annexb_is_idr(slot->data, slot->len) || slot->keyframe) {
+    if (slot->codec == ZCS_CODEC_H264) {
+        if (zcs_h264_annexb_is_idr(slot->data, slot->len) || slot->keyframe) {
             return "IDR";
         }
-        if (zms_h264_annexb_is_sync_key(slot->data, slot->len)) {
+        if (zcs_h264_annexb_is_sync_key(slot->data, slot->len)) {
             return "sync";
         }
         return "VCL";
     }
-    if (slot->codec == ZMS_CODEC_AV1) {
-        if (slot->keyframe || zms_av1_obu_has_sequence_header(slot->data, slot->len)) {
+    if (slot->codec == ZCS_CODEC_AV1) {
+        if (slot->keyframe || zcs_av1_obu_has_sequence_header(slot->data, slot->len)) {
             return "key";
         }
         return "VCL";
@@ -353,12 +353,12 @@ static const char *rtsp_play_attach_kind_slot(const zms_gop_slot *slot)
  * 直播起播：先发流配置（SPS/PPS 等），再把读者定位到“最近的关键帧”。
  *
  * 对比 bootstrap_live_edge（seek_live_idr）：二者都要求以关键帧起播，
- * 但 attach 走 zms_egress_live_seek_rtsp_attach（尽量贴近实时边缘的同时
+ * 但 attach 走 zcs_egress_live_seek_rtsp_attach（尽量贴近实时边缘的同时
  * 保证起点可解码），edge 版本更激进地 seek 到最新 IDR。分成两个入口是
  * 为了适配不同客户端对“首帧延迟 vs 完整性”的偏好。
  */
-int zms_rtp_play_bootstrap_live(zms_rtp_muxer *mux, const zms_media_source *src,
-                                zms_gop_reader *reader, unsigned session_no)
+int zcs_rtp_play_bootstrap_live(zcs_rtp_muxer *mux, const zcs_media_source *src,
+                                zcs_gop_reader *reader, unsigned session_no)
 {
     size_t lag = 0;
 
@@ -369,14 +369,14 @@ int zms_rtp_play_bootstrap_live(zms_rtp_muxer *mux, const zms_media_source *src,
     rtsp_play_send_stream_config(mux, src, NULL, 0);
 
     if (reader) {
-        zms_egress_live_seek_rtsp_attach(reader);
-        lag = zms_gop_reader_lag(reader);
+        zcs_egress_live_seek_rtsp_attach(reader);
+        lag = zcs_gop_reader_lag(reader);
     }
 
     if (session_no) {
-        zms_gop_slot at;
+        zcs_gop_slot at;
 
-        if (reader && zms_gop_reader_slot_at_read(reader, &at) && at.track == ZMS_TRACK_VIDEO) {
+        if (reader && zcs_gop_reader_slot_at_read(reader, &at) && at.track == ZCS_TRACK_VIDEO) {
             const char *kind = rtsp_play_attach_kind_slot(&at);
 
             if (kind[0] == 'V' || kind[0] == 'n') {
@@ -394,8 +394,8 @@ int zms_rtp_play_bootstrap_live(zms_rtp_muxer *mux, const zms_media_source *src,
     return 1;
 }
 
-int zms_rtp_play_bootstrap_live_edge(zms_rtp_muxer *mux, const zms_media_source *src,
-                                     zms_gop_reader *reader, unsigned session_no)
+int zcs_rtp_play_bootstrap_live_edge(zcs_rtp_muxer *mux, const zcs_media_source *src,
+                                     zcs_gop_reader *reader, unsigned session_no)
 {
     size_t lag = 0;
 
@@ -406,14 +406,14 @@ int zms_rtp_play_bootstrap_live_edge(zms_rtp_muxer *mux, const zms_media_source 
     rtsp_play_send_stream_config(mux, src, NULL, 0);
 
     if (reader) {
-        zms_gop_reader_seek_live_idr(reader);
-        lag = zms_gop_reader_lag(reader);
+        zcs_gop_reader_seek_live_idr(reader);
+        lag = zcs_gop_reader_lag(reader);
     }
 
     if (session_no) {
-        zms_gop_slot at;
+        zcs_gop_slot at;
 
-        if (reader && zms_gop_reader_slot_at_read(reader, &at) && at.track == ZMS_TRACK_VIDEO) {
+        if (reader && zcs_gop_reader_slot_at_read(reader, &at) && at.track == ZCS_TRACK_VIDEO) {
             const char *kind = rtsp_play_attach_kind_slot(&at);
 
             if (kind[0] == 'V' || kind[0] == 'n') {
@@ -434,16 +434,16 @@ int zms_rtp_play_bootstrap_live_edge(zms_rtp_muxer *mux, const zms_media_source 
 /* 点播起播：先发流配置，再记录锚点（seek 起点对应的 RTP 时钟基准）。
  * anchor_ms 未给时用 muxer 当前的 vod 锚点；RTP-Info/play 响应都会引用它，
  * 保证客户端从正确的 rtptime 起算。 */
-int zms_rtp_play_bootstrap_vod(zms_rtp_muxer *mux, const zms_media_source *src,
-                               zms_vod_buffer_reader *reader, unsigned session_no,
-                               zms_vod_play_lane *lane, uint32_t anchor_ms)
+int zcs_rtp_play_bootstrap_vod(zcs_rtp_muxer *mux, const zcs_media_source *src,
+                               zcs_vod_buffer_reader *reader, unsigned session_no,
+                               zcs_vod_play_lane *lane, uint32_t anchor_ms)
 {
     (void)reader;
     if (!mux || !src) {
         return 0;
     }
     if (!anchor_ms) {
-        anchor_ms = zms_rtp_muxer_vod_anchor_ms(mux);
+        anchor_ms = zcs_rtp_muxer_vod_anchor_ms(mux);
     }
     rtsp_play_send_stream_config(mux, src, lane, anchor_ms);
     if (session_no) {
@@ -462,26 +462,26 @@ int zms_rtp_play_bootstrap_vod(zms_rtp_muxer *mux, const zms_media_source *src,
  * 慢消费者置位 close_flag，所以 flush 前要重新 play_pump_abort 一次——
  * 已判定的会话不该再往 socket 里写。
  */
-int zms_rtp_play_pump_run(zms_rtp_play_pump *p, int frame_budget, int rtp_flush_budget)
+int zcs_rtp_play_pump_run(zcs_rtp_play_pump *p, int frame_budget, int rtp_flush_budget)
 {
     if (!p || !p->mux || !p->sender || play_pump_abort(p)) {
         return 0;
     }
 
     if (frame_budget <= 0) {
-        frame_budget = (int)ZMS_RTP_PLAY_FRAME_BUDGET_LIVE;
+        frame_budget = (int)ZCS_RTP_PLAY_FRAME_BUDGET_LIVE;
     }
     if (rtp_flush_budget <= 0) {
-        rtp_flush_budget = ZMS_RTP_PLAY_RTP_FLUSH;
+        rtp_flush_budget = ZCS_RTP_PLAY_RTP_FLUSH;
     }
 
     int frames = 0;
     int pump_budget = frame_budget;
-    size_t rtpq_before = zms_rtp_play_sender_pending(p->sender);
+    size_t rtpq_before = zcs_rtp_play_sender_pending(p->sender);
 
     if (p->egress && (p->vod_reader || p->gop_reader)) {
-        zms_egress_live_state live_st;
-        const zms_egress_live_state *live = NULL;
+        zcs_egress_live_state live_st;
+        const zcs_egress_live_state *live = NULL;
 
         if (p->gop_reader && !p->vod_reader) {
             memset(&live_st, 0, sizeof(live_st));
@@ -494,27 +494,27 @@ int zms_rtp_play_pump_run(zms_rtp_play_pump *p, int frame_budget, int rtp_flush_
             live_st.low_latency = p->low_latency;
             live = &live_st;
         }
-        frames = zms_egress_pipeline_pump_rtsp(p->egress, p->vod_reader, p->vod_demux, pump_budget,
+        frames = zcs_egress_pipeline_pump_rtsp(p->egress, p->vod_reader, p->vod_demux, pump_budget,
                                                500, p->session_no, live);
         if (!play_pump_abort(p)) {
-            zms_rtp_play_sender_flush(p->sender, rtp_flush_budget, 0);
+            zcs_rtp_play_sender_flush(p->sender, rtp_flush_budget, 0);
         }
         if (frames > 0 && p->session_no) {
-            const zms_rtp_muxer_stats *st = zms_rtp_muxer_get_stats(p->mux);
+            const zcs_rtp_muxer_stats *st = zcs_rtp_muxer_get_stats(p->mux);
             size_t pending = rtsp_play_pump_pending(p);
-            if (st && p->vod_reader && zms_rtp_muxer_catchup_on(p->mux)) {
+            if (st && p->vod_reader && zcs_rtp_muxer_catchup_on(p->mux)) {
                 zn_debug("[rtsp] play_pump_catchup session=%u frames=%d rtpq=%zu->%zu lag=%zu "
                           "v_pkts=%u a_pkts=%u",
                           p->session_no, frames, rtpq_before,
-                          zms_rtp_play_sender_pending(p->sender), pending, st->video_pkt_count,
+                          zcs_rtp_play_sender_pending(p->sender), pending, st->video_pkt_count,
                           st->audio_pkt_count);
             } else if (st && !p->vod_reader &&
-                       (pending > ZMS_GOP_QUEUE_PLAY_MAX_LAG ||
-                        frames >= (int)ZMS_RTP_PLAY_FRAME_BUDGET_LIVE)) {
+                       (pending > ZCS_GOP_QUEUE_PLAY_MAX_LAG ||
+                        frames >= (int)ZCS_RTP_PLAY_FRAME_BUDGET_LIVE)) {
                 zn_debug("[rtsp] play_pump session=%u frames=%d rtpq=%zu->%zu lag=%zu v_pkts=%u "
                           "a_pkts=%u",
                           p->session_no, frames, rtpq_before,
-                          zms_rtp_play_sender_pending(p->sender), pending, st->video_pkt_count,
+                          zcs_rtp_play_sender_pending(p->sender), pending, st->video_pkt_count,
                           st->audio_pkt_count);
             }
         }
@@ -533,7 +533,7 @@ int zms_rtp_play_pump_run(zms_rtp_play_pump *p, int frame_budget, int rtp_flush_
  * 只取 '-' 之前的起点：本服务器不处理 bounded range（npt=a-b 的结束点），
  * 播放一旦开始就由客户端 PLAY/PAUSE/TEARDOWN 控制。
  */
-int zms_rtsp_parse_range_npt_ms(const char *range_hdr, uint64_t *out_ms, int *out_now)
+int zcs_rtsp_parse_range_npt_ms(const char *range_hdr, uint64_t *out_ms, int *out_now)
 {
     char npt[64];
     const char *p, *dash;
@@ -604,7 +604,7 @@ int zms_rtsp_parse_range_npt_ms(const char *range_hdr, uint64_t *out_ms, int *ou
 
 /* 解析 RTSP Scale 头（播放速率倍数）。非法/越界（<=0 或 >16）一律回落到当前
  * 值或 1.0：scale 直接影响 PTS 步进，异常值会让播放端时间轴发狂，宁可不改。 */
-double zms_rtsp_parse_play_scale(const char *hdr, double current)
+double zcs_rtsp_parse_play_scale(const char *hdr, double current)
 {
     double v;
     char *end;
@@ -621,17 +621,17 @@ double zms_rtsp_parse_play_scale(const char *hdr, double current)
 
 /* 取 vod 播放的锚点：优先用 fifo 里下一个可用样本的 dts（seek 后第一个真实
  * 帧的时间），没有则回落到请求的 seek_ms。锚点决定 RTP 起始 rtptime。 */
-uint32_t zms_rtp_play_vod_anchor_ms(zms_vod_buffer_reader *rd, uint32_t seek_ms)
+uint32_t zcs_rtp_play_vod_anchor_ms(zcs_vod_buffer_reader *rd, uint32_t seek_ms)
 {
-    zms_gop_slot slot;
+    zcs_gop_slot slot;
 
-    if (rd && zms_vod_buffer_reader_peek_muxed(rd, &slot)) {
+    if (rd && zcs_vod_buffer_reader_peek_muxed(rd, &slot)) {
         return slot.dts_ms;
     }
     return seek_ms;
 }
 
-void zms_rtsp_play_format_rtp_info(const zms_rtsp_play_rtp_info_args *args, char *rtp_info,
+void zcs_rtsp_play_format_rtp_info(const zcs_rtsp_play_rtp_info_args *args, char *rtp_info,
                                    size_t cap)
 {
     uint32_t vhz;
@@ -661,11 +661,11 @@ void zms_rtsp_play_format_rtp_info(const zms_rtsp_play_rtp_info_args *args, char
         vrtp = (uint32_t)((uint64_t)args->anchor_ms * (uint64_t)vhz / 1000u);
         artp = (uint32_t)((uint64_t)args->anchor_ms * (uint64_t)ahz / 1000u);
     } else {
-        vrtp = zms_ms_to_rtp_clock(args->anchor_ms, vhz);
-        artp = zms_ms_to_rtp_clock(args->anchor_ms, ahz);
+        vrtp = zcs_ms_to_rtp_clock(args->anchor_ms, vhz);
+        artp = zcs_ms_to_rtp_clock(args->anchor_ms, ahz);
     }
-    vseq = zms_rtp_muxer_video_seq(args->mux);
-    aseq = zms_rtp_muxer_audio_seq(args->mux);
+    vseq = zcs_rtp_muxer_video_seq(args->mux);
+    aseq = zcs_rtp_muxer_audio_seq(args->mux);
     if (args->source->has_video && args->source->has_audio) {
         snprintf(rtp_info, cap,
                  "RTP-Info: "
@@ -682,10 +682,10 @@ void zms_rtsp_play_format_rtp_info(const zms_rtsp_play_rtp_info_args *args, char
     }
 }
 
-zn_err_t zms_rtp_play_mux_create(zms_rtp_play_mux_handle *out, const zms_rtp_play_mux_opts *opts)
+zn_err_t zcs_rtp_play_mux_create(zcs_rtp_play_mux_handle *out, const zcs_rtp_play_mux_opts *opts)
 {
-    zms_egress_pipeline_opts ecfg;
-    zms_egress_rtsp_bind bind;
+    zcs_egress_pipeline_opts ecfg;
+    zcs_egress_rtsp_bind bind;
 
     if (!out || !opts || !opts->reader || !opts->on_rtp) {
         return ZN_ERR_INVALID;
@@ -696,63 +696,63 @@ zn_err_t zms_rtp_play_mux_create(zms_rtp_play_mux_handle *out, const zms_rtp_pla
     bind.opts = &opts->mux_opts;
     bind.on_rtp = opts->on_rtp;
     bind.user = opts->user;
-    ecfg.wire = ZMS_WIRE_FORMAT_RTP;
+    ecfg.wire = ZCS_WIRE_FORMAT_RTP;
     ecfg.reader = opts->reader;
     ecfg.rtsp = &bind;
-    out->egress = zms_egress_pipeline_create(&ecfg);
-    out->mux = out->egress ? zms_egress_pipeline_rtsp_mux(out->egress) : NULL;
+    out->egress = zcs_egress_pipeline_create(&ecfg);
+    out->mux = out->egress ? zcs_egress_pipeline_rtsp_mux(out->egress) : NULL;
     return out->mux ? ZN_OK : ZN_ERR_STATE;
 }
 
-void zms_rtp_play_mux_destroy(zms_rtp_play_mux_handle *h)
+void zcs_rtp_play_mux_destroy(zcs_rtp_play_mux_handle *h)
 {
     if (!h) {
         return;
     }
-    zms_egress_pipeline_destroy(h->egress);
+    zcs_egress_pipeline_destroy(h->egress);
     h->egress = NULL;
     h->mux = NULL;
 }
 
 /*
  * 本次 pump 的帧预算。VOD 追赶（catchup_on）给最大预算，尽快追到目标位置；
- * VOD 版落后时给中间档；直播交给 zms_egress_live_pump_budget 按 epoch/catchup/lag
+ * VOD 版落后时给中间档；直播交给 zcs_egress_live_pump_budget 按 epoch/catchup/lag
  * 动态计算。预算是“上限”，实际发多少由队列可用帧决定。
  */
-int zms_rtp_play_frame_budget(const zms_rtp_play_run_ctx *ctx)
+int zcs_rtp_play_frame_budget(const zcs_rtp_play_run_ctx *ctx)
 {
     if (!ctx || !ctx->mux) {
-        return (int)ZMS_RTP_PLAY_FRAME_BUDGET_LIVE;
+        return (int)ZCS_RTP_PLAY_FRAME_BUDGET_LIVE;
     }
-    if (zms_rtp_muxer_catchup_on(ctx->mux) && ctx->vod_reader) {
-        return (int)ZMS_RTP_PLAY_FRAME_BUDGET_SEEK;
+    if (zcs_rtp_muxer_catchup_on(ctx->mux) && ctx->vod_reader) {
+        return (int)ZCS_RTP_PLAY_FRAME_BUDGET_SEEK;
     }
-    if (ctx->vod_reader && zms_vod_buffer_reader_lag(ctx->vod_reader) > ZMS_RTP_PLAY_CATCHUP_LAG) {
-        return (int)ZMS_RTP_PLAY_FRAME_BUDGET;
+    if (ctx->vod_reader && zcs_vod_buffer_reader_lag(ctx->vod_reader) > ZCS_RTP_PLAY_CATCHUP_LAG) {
+        return (int)ZCS_RTP_PLAY_FRAME_BUDGET;
     }
     if (ctx->gop_reader) {
-        const zms_egress_clock *clk = zms_rtp_muxer_play_clock(ctx->mux);
-        size_t lag = zms_gop_reader_lag(ctx->gop_reader);
-        int epoch_on = clk && zms_egress_clock_epoch_locked(clk);
+        const zcs_egress_clock *clk = zcs_rtp_muxer_play_clock(ctx->mux);
+        size_t lag = zcs_gop_reader_lag(ctx->gop_reader);
+        int epoch_on = clk && zcs_egress_clock_epoch_locked(clk);
         int catchup = ctx->play_live_catchup ? *ctx->play_live_catchup : 0;
 
-        return zms_egress_live_pump_budget(epoch_on, catchup, lag, 0);
+        return zcs_egress_live_pump_budget(epoch_on, catchup, lag, 0);
     }
-    return (int)ZMS_RTP_PLAY_FRAME_BUDGET_LIVE;
+    return (int)ZCS_RTP_PLAY_FRAME_BUDGET_LIVE;
 }
 
-int zms_rtp_play_kick_budget(const zms_rtp_play_run_ctx *ctx)
+int zcs_rtp_play_kick_budget(const zcs_rtp_play_run_ctx *ctx)
 {
     if (!ctx) {
-        return (int)ZMS_RTP_PLAY_FRAME_BUDGET;
+        return (int)ZCS_RTP_PLAY_FRAME_BUDGET;
     }
-    if (ctx->vod_reader && ctx->mux && zms_rtp_muxer_catchup_on(ctx->mux)) {
-        return (int)ZMS_RTP_PLAY_FRAME_BUDGET_SEEK;
+    if (ctx->vod_reader && ctx->mux && zcs_rtp_muxer_catchup_on(ctx->mux)) {
+        return (int)ZCS_RTP_PLAY_FRAME_BUDGET_SEEK;
     }
     if (ctx->gop_reader && !ctx->vod_reader) {
-        return (int)ZMS_RTP_PLAY_FRAME_BUDGET_LIVE;
+        return (int)ZCS_RTP_PLAY_FRAME_BUDGET_LIVE;
     }
-    return (int)ZMS_RTP_PLAY_FRAME_BUDGET;
+    return (int)ZCS_RTP_PLAY_FRAME_BUDGET;
 }
 
 /*
@@ -760,15 +760,15 @@ int zms_rtp_play_kick_budget(const zms_rtp_play_run_ctx *ctx)
  * 组装临时 pump 结构跑一轮，最后恢复 pump_hold。pump_hold 在 pump 期间置 1，
  * 用于挡住 lane 自己在别处的并发泵送，避免同一 reader 被两个路径同时推进。
  */
-int zms_rtp_play_run_pump(zms_rtp_play_run_ctx *ctx, int budget, int flush)
+int zcs_rtp_play_run_pump(zcs_rtp_play_run_ctx *ctx, int budget, int flush)
 {
-    zms_rtp_play_pump pump;
+    zcs_rtp_play_pump pump;
 
     if (!ctx) {
         return 0;
     }
     if (ctx->vod_lane) {
-        zms_vod_play_lane_demux_fill(ctx->vod_lane, 32);
+        zcs_vod_play_lane_demux_fill(ctx->vod_lane, 32);
     }
     memset(&pump, 0, sizeof(pump));
     pump.mux = ctx->mux;
@@ -776,7 +776,7 @@ int zms_rtp_play_run_pump(zms_rtp_play_run_ctx *ctx, int budget, int flush)
     pump.sender = ctx->sender;
     pump.gop_reader = ctx->gop_reader;
     pump.vod_reader = ctx->vod_reader;
-    pump.vod_demux = ctx->vod_lane ? zms_vod_play_lane_reader(ctx->vod_lane) : NULL;
+    pump.vod_demux = ctx->vod_lane ? zcs_vod_play_lane_reader(ctx->vod_lane) : NULL;
     pump.source = ctx->source;
     pump.close_flag = ctx->close_pending;
     pump.destroy_flag = ctx->destroy_scheduled;
@@ -786,16 +786,16 @@ int zms_rtp_play_run_pump(zms_rtp_play_run_ctx *ctx, int budget, int flush)
     pump.session_no = ctx->session_no;
     pump.low_latency = ctx->low_latency;
     if (ctx->vod_lane) {
-        zms_vod_play_lane_set_pump_hold(ctx->vod_lane, 1);
+        zcs_vod_play_lane_set_pump_hold(ctx->vod_lane, 1);
     }
-    budget = zms_rtp_play_pump_run(&pump, budget, flush);
+    budget = zcs_rtp_play_pump_run(&pump, budget, flush);
     if (ctx->vod_lane) {
-        zms_vod_play_lane_set_pump_hold(ctx->vod_lane, 0);
+        zcs_vod_play_lane_set_pump_hold(ctx->vod_lane, 0);
     }
     return budget;
 }
 
-void zms_rtp_play_apply_vod_seek(zms_rtp_play_vod_seek_state *st)
+void zcs_rtp_play_apply_vod_seek(zcs_rtp_play_vod_seek_state *st)
 {
     uint32_t anchor_ms;
 
@@ -806,35 +806,35 @@ void zms_rtp_play_apply_vod_seek(zms_rtp_play_vod_seek_state *st)
      * 客户端会先收到一段“旧位置”的数据，表现为画面先闪回再跳到目标。 */
     if (st->is_replay && st->did_seek) {
         if (st->sender) {
-            zms_rtp_play_sender_reset(st->sender);
+            zcs_rtp_play_sender_reset(st->sender);
         }
     } else if (st->is_replay && st->was_paused) {
         if (st->sender) {
-            zms_rtp_play_sender_reset(st->sender);
+            zcs_rtp_play_sender_reset(st->sender);
         }
     }
     anchor_ms = (uint32_t)st->seek_ms;
     if (st->did_seek && st->vod_reader) {
-        anchor_ms = zms_rtp_play_vod_anchor_ms(st->vod_reader, anchor_ms);
+        anchor_ms = zcs_rtp_play_vod_anchor_ms(st->vod_reader, anchor_ms);
     }
     if (st->did_seek || !st->is_replay) {
-        zms_rtp_muxer_begin_vod_seek(st->mux, anchor_ms);
+        zcs_rtp_muxer_begin_vod_seek(st->mux, anchor_ms);
     } else if (st->was_paused) {
-        zms_rtp_muxer_resume_play(st->mux);
+        zcs_rtp_muxer_resume_play(st->mux);
     }
-    zms_rtp_muxer_set_play_scale(st->mux, st->scale);
+    zcs_rtp_muxer_set_play_scale(st->mux, st->scale);
     if (st->did_seek || st->was_paused) {
         /* Replay seek：关闭 catchup，避免 RTP ts 突发拖慢 RTCP SR（VLC 卡住）。 */
         if (st->is_replay && st->did_seek) {
-            zms_rtp_muxer_set_catchup_budget(st->mux, 0, 0);
+            zcs_rtp_muxer_set_catchup_budget(st->mux, 0, 0);
         } else {
-            int catchup = (int)ZMS_RTP_VOD_CATCHUP_FRAMES_START;
-            zms_rtp_muxer_set_catchup_budget(st->mux, 1, catchup);
+            int catchup = (int)ZCS_RTP_VOD_CATCHUP_FRAMES_START;
+            zcs_rtp_muxer_set_catchup_budget(st->mux, 1, catchup);
         }
     }
 }
 
-void zms_rtsp_play_format_vod_play_200(char *extra, size_t extra_cap, const char *session_id,
+void zcs_rtsp_play_format_vod_play_200(char *extra, size_t extra_cap, const char *session_id,
                                        double scale, uint64_t seek_ms, double vod_dur_sec,
                                        const char *rtp_info)
 {
@@ -862,7 +862,7 @@ void zms_rtsp_play_format_vod_play_200(char *extra, size_t extra_cap, const char
              session_id ? session_id : "", range_hdr, scale_hdr, rtp_info ? rtp_info : "");
 }
 
-void zms_rtsp_play_format_live_play_200(char *extra, size_t extra_cap, const char *session_id,
+void zcs_rtsp_play_format_live_play_200(char *extra, size_t extra_cap, const char *session_id,
                                         const char *rtp_info)
 {
     if (!extra || extra_cap == 0) {

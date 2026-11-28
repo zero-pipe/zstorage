@@ -43,6 +43,6 @@ contract.
 To run a fixture-gated test against an arbitrary file:
 
 ```bash
-ZMS_FIXTURE=/path/to/file.mp4 ./build/tests/test_zm_mov
-ZMS_FIXTURE=/path/to/file.mp4 ./build/tests/test_zm_dash
+ZCS_FIXTURE=/path/to/file.mp4 ./build/tests/test_zm_mov
+ZCS_FIXTURE=/path/to/file.mp4 ./build/tests/test_zm_dash
 ```

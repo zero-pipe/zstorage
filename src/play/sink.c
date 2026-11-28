@@ -2,12 +2,12 @@
  * @file sink.c
  * @brief 播放输出端统一取数驱动（见 sink.h 的契约说明）。
  */
-#include "zms/play/sink.h"
+#include "zcs/play/sink.h"
 #include "zn/poller/poller.h"
 #include "zn/util/log.h"
 #include <string.h>
 
-int zms_sink_pull(zms_sink_next_fn next, void *muxer, struct zn_poller *pol, size_t init_cap,
+int zcs_sink_pull(zcs_sink_next_fn next, void *muxer, struct zn_poller *pol, size_t init_cap,
                   size_t max_cap, zn_buf **out, size_t *out_len)
 {
     zn_buf *buf;
@@ -27,7 +27,7 @@ int zms_sink_pull(zms_sink_next_fn next, void *muxer, struct zn_poller *pol, siz
         return ZN_ERR_NOMEM;
     }
     r = next(muxer, (uint8_t *)zn_buf_data(buf), zn_buf_cap(buf), &n);
-    if (r == ZMS_SINK_NEED_BIGGER) {
+    if (r == ZCS_SINK_NEED_BIGGER) {
         size_t need = n;
 
         zn_buf_unref(buf);
@@ -42,7 +42,7 @@ int zms_sink_pull(zms_sink_next_fn next, void *muxer, struct zn_poller *pol, siz
         }
         n = 0;
         r = next(muxer, (uint8_t *)zn_buf_data(buf), zn_buf_cap(buf), &n);
-        if (r == ZMS_SINK_NEED_BIGGER) {
+        if (r == ZCS_SINK_NEED_BIGGER) {
             /* 契约要求：给足所需字节后必须能取出同一块数据。 */
             zn_warn("sink: still needs more after resize (%u bytes)", (unsigned)n);
             zn_buf_unref(buf);

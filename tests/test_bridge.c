@@ -1,8 +1,8 @@
 /**
  * @file test_bridge.c
- * @brief ZM <-> ZMS 桥接单测：zn_buf 零拷贝、frame/gop slot 映射、codec id。
+ * @brief ZM <-> ZCS 桥接单测：zn_buf 零拷贝、frame/gop slot 映射、codec id。
  */
-#include "bridge/zm_zms_bridge.h"
+#include "bridge/zm_zcs_bridge.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -32,7 +32,7 @@ static void test_zn_buf_wrap(void)
     memcpy(w, "abcd", 4);
     zn_buf_set_len(b, 4);
 
-    m = zms_zm_mem_from_zn(b);
+    m = zcs_zm_mem_from_zn(b);
     CHECK(m.owner == b);
     CHECK(m.data == (const uint8_t *)zn_buf_data(b));
     CHECK(m.len == 4);
@@ -54,21 +54,21 @@ static void test_zn_buf_wrap(void)
 static void test_frame_roundtrip(void)
 {
     uint8_t payload[8] = {0, 1, 2, 3, 4, 5, 6, 7};
-    zms_frame f;
-    zms_frame back;
+    zcs_frame f;
+    zcs_frame back;
     zm_packet p;
 
-    zms_frame_init(&f);
-    CHECK(zms_frame_assign(&f, payload, sizeof(payload), 0) == ZN_OK);
-    f.codec = ZMS_CODEC_H264;
-    f.track = ZMS_TRACK_VIDEO;
+    zcs_frame_init(&f);
+    CHECK(zcs_frame_assign(&f, payload, sizeof(payload), 0) == ZN_OK);
+    f.codec = ZCS_CODEC_H264;
+    f.track = ZCS_TRACK_VIDEO;
     f.keyframe = 1;
     f.config_frame = 0;
     f.drop_able = 0;
     f.dts_ms = 100;
     f.pts_ms = 120;
 
-    zms_zm_packet_from_frame(&f, &p);
+    zcs_zm_packet_from_frame(&f, &p);
     CHECK(p.mem.data == payload);
     CHECK(p.mem.len == sizeof(payload));
     CHECK(p.codec == ZM_CODEC_H264);
@@ -78,38 +78,38 @@ static void test_frame_roundtrip(void)
     CHECK((p.flags & ZM_PKT_KEY) != 0);
     CHECK(p.es_format == ZM_ES_ANNEXB);
 
-    CHECK(zms_zm_frame_from_packet(&p, &back) == ZM_OK);
+    CHECK(zcs_zm_frame_from_packet(&p, &back) == ZM_OK);
     CHECK(back.data == payload);
     CHECK(back.size == sizeof(payload));
     CHECK(back.capacity == p.mem.cap);
     CHECK(back.owned == 0);
-    CHECK(back.codec == ZMS_CODEC_H264);
-    CHECK(back.track == ZMS_TRACK_VIDEO);
+    CHECK(back.codec == ZCS_CODEC_H264);
+    CHECK(back.track == ZCS_TRACK_VIDEO);
     CHECK(back.keyframe == 1);
     CHECK(back.dts_ms == 100);
     CHECK(back.pts_ms == 120);
 
     zm_packet_clear(&p);
-    zms_frame_clear(&f);
-    zms_frame_clear(&back);
+    zcs_frame_clear(&f);
+    zcs_frame_clear(&back);
 }
 
 static void test_gop_slot(void)
 {
     uint8_t payload[4] = {9, 8, 7, 6};
-    zms_gop_slot slot;
+    zcs_gop_slot slot;
     zm_packet p;
 
     memset(&slot, 0, sizeof(slot));
-    slot.codec = ZMS_CODEC_AAC;
-    slot.track = ZMS_TRACK_AUDIO;
+    slot.codec = ZCS_CODEC_AAC;
+    slot.track = ZCS_TRACK_AUDIO;
     slot.dts_ms = 200;
     slot.pts_ms = 0; /* 0 means "same as dts" */
     slot.config_frame = 1;
     slot.data = payload;
     slot.len = sizeof(payload);
 
-    zms_zm_packet_from_gop_slot(&slot, &p);
+    zcs_zm_packet_from_gop_slot(&slot, &p);
     CHECK(p.mem.data == payload);
     CHECK(p.mem.len == sizeof(payload));
     CHECK(p.codec == ZM_CODEC_AAC);
@@ -122,25 +122,25 @@ static void test_gop_slot(void)
 
 static void test_codec_map(void)
 {
-    CHECK(zms_zm_codec_from_zms(ZMS_CODEC_H264) == ZM_CODEC_H264);
-    CHECK(zms_zm_codec_from_zms(ZMS_CODEC_AAC) == ZM_CODEC_AAC);
-    CHECK(zms_zm_codec_from_zms(ZMS_CODEC_INVALID) == ZM_CODEC_INVALID);
-    CHECK(zms_zm_codec_to_zms(ZM_CODEC_H265) == ZMS_CODEC_H265);
-    CHECK(zms_zm_codec_to_zms(ZM_CODEC_AVS3) == ZMS_CODEC_INVALID);
+    CHECK(zcs_zm_codec_from_zcs(ZCS_CODEC_H264) == ZM_CODEC_H264);
+    CHECK(zcs_zm_codec_from_zcs(ZCS_CODEC_AAC) == ZM_CODEC_AAC);
+    CHECK(zcs_zm_codec_from_zcs(ZCS_CODEC_INVALID) == ZM_CODEC_INVALID);
+    CHECK(zcs_zm_codec_to_zcs(ZM_CODEC_H265) == ZCS_CODEC_H265);
+    CHECK(zcs_zm_codec_to_zcs(ZM_CODEC_AVS3) == ZCS_CODEC_INVALID);
 }
 
 static void test_media_track(void)
 {
-    zms_media_track in;
+    zcs_media_track in;
     zm_track t;
 
     memset(&in, 0, sizeof(in));
-    in.type = ZMS_TRACK_AUDIO;
-    in.codec = ZMS_CODEC_AAC;
+    in.type = ZCS_TRACK_AUDIO;
+    in.codec = ZCS_CODEC_AAC;
     in.sample_rate = 44100;
     in.channels = 2;
 
-    zms_zm_track_from_media_track(&in, &t);
+    zcs_zm_track_from_media_track(&in, &t);
     CHECK(t.codec == ZM_CODEC_AAC);
     CHECK(t.kind == ZM_KIND_AUDIO);
     CHECK(t.clock_hz == 44100);

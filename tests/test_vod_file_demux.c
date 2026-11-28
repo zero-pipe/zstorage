@@ -5,8 +5,8 @@
  * 校验：config 包、媒体包（Annex-B/关键帧）、duration、seek、EOF，
  * 以及 MP4 sample 表遍历与文件型 zm_io。
  */
-#include "zms/media/container/container_registry.h"
-#include "zms/media/codec/codec_id.h"
+#include "zcs/media/container/container_registry.h"
+#include "zcs/media/codec/codec_id.h"
 
 #include "bridge/zm_file_io.h"
 #include "zm/core/io.h"
@@ -14,8 +14,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifndef ZMS_FIXTURE_DIR
-#define ZMS_FIXTURE_DIR "tests/fixtures"
+#ifndef ZCS_FIXTURE_DIR
+#define ZCS_FIXTURE_DIR "tests/fixtures"
 #endif
 
 static int g_failures;
@@ -42,7 +42,7 @@ static int fixture_present(const char *name)
     char path[1024];
     FILE *fp;
 
-    snprintf(path, sizeof(path), "%s/%s", ZMS_FIXTURE_DIR, name);
+    snprintf(path, sizeof(path), "%s/%s", ZCS_FIXTURE_DIR, name);
     fp = fopen(path, "rb");
     if (!fp) {
         return 0;
@@ -62,7 +62,7 @@ static int is_annexb(const uint8_t *p, size_t len)
     return len >= 4 && p[0] == 0 && p[1] == 0 && p[2] == 0 && p[3] == 1;
 }
 
-static void on_packet(const zms_container_packet *p, void *user)
+static void on_packet(const zcs_container_packet *p, void *user)
 {
     collector *c = (collector *)user;
 
@@ -70,14 +70,14 @@ static void on_packet(const zms_container_packet *p, void *user)
         return;
     }
     if (p->config) {
-        if (p->codec == ZMS_CODEC_H264 || p->codec == ZMS_CODEC_H265) {
+        if (p->codec == ZCS_CODEC_H264 || p->codec == ZCS_CODEC_H265) {
             c->video_cfg++;
-        } else if (p->codec == ZMS_CODEC_AAC) {
+        } else if (p->codec == ZCS_CODEC_AAC) {
             c->audio_cfg++;
         }
         return;
     }
-    if (p->codec == ZMS_CODEC_H264 || p->codec == ZMS_CODEC_H265) {
+    if (p->codec == ZCS_CODEC_H264 || p->codec == ZCS_CODEC_H265) {
         c->video_samples++;
         if (p->key) {
             c->key_seen++;
@@ -85,12 +85,12 @@ static void on_packet(const zms_container_packet *p, void *user)
         if (is_annexb(p->data, p->len)) {
             c->annexb_seen++;
         }
-    } else if (p->codec == ZMS_CODEC_AAC) {
+    } else if (p->codec == ZCS_CODEC_AAC) {
         c->audio_samples++;
     }
 }
 
-static int count_sample(const zms_mp4_sample_info *s, void *user)
+static int count_sample(const zcs_mp4_sample_info *s, void *user)
 {
     int *n = (int *)user;
 
@@ -107,13 +107,13 @@ static void test_zm_file_io(void)
     uint8_t buf[16];
     int n;
 
-    snprintf(path, sizeof(path), "%s/h264_aac.mp4", ZMS_FIXTURE_DIR);
+    snprintf(path, sizeof(path), "%s/h264_aac.mp4", ZCS_FIXTURE_DIR);
     if (!fixture_present("h264_aac.mp4")) {
         printf("test_vod_file_demux: skip file io (fixture missing)\n");
         return;
     }
     memset(&io, 0, sizeof(io));
-    CHECK(zms_zm_file_io_open(path, &io) == 0);
+    CHECK(zcs_zm_file_io_open(path, &io) == 0);
     CHECK(io.read != NULL && io.seek != NULL && io.tell != NULL);
 
     n = io.read(io.ctx, buf, sizeof(buf));
@@ -123,30 +123,30 @@ static void test_zm_file_io(void)
     CHECK(io.seek(io.ctx, 0, SEEK_SET) == 0);
     CHECK(io.tell(io.ctx) == 0);
 
-    zms_zm_file_io_close(&io);
+    zcs_zm_file_io_close(&io);
     CHECK(io.ctx == NULL && io.read == NULL);
 }
 
-static void test_container(zms_container_id id, const char *file)
+static void test_container(zcs_container_id id, const char *file)
 {
     char path[1024];
-    const zms_container_demuxer_ops *ops;
-    zms_container_demux_opts cfg;
+    const zcs_container_demuxer_ops *ops;
+    zcs_container_demux_opts cfg;
     collector col;
-    zms_codec_id video = ZMS_CODEC_INVALID;
-    zms_codec_id audio = ZMS_CODEC_INVALID;
+    zcs_codec_id video = ZCS_CODEC_INVALID;
+    zcs_codec_id audio = ZCS_CODEC_INVALID;
     void *ctx;
     uint64_t dur;
     int64_t ms;
     int v0;
     int i;
 
-    snprintf(path, sizeof(path), "%s/%s", ZMS_FIXTURE_DIR, file);
+    snprintf(path, sizeof(path), "%s/%s", ZCS_FIXTURE_DIR, file);
     if (!fixture_present(file)) {
         printf("test_vod_file_demux: skip %s (fixture missing)\n", file);
         return;
     }
-    ops = zms_container_demuxer_find(id);
+    ops = zcs_container_demuxer_find(id);
     CHECK(ops != NULL && ops->create && ops->open_file && ops->pump);
     if (!ops || !ops->create) {
         return;
@@ -165,15 +165,15 @@ static void test_container(zms_container_id id, const char *file)
     }
     CHECK(ops->open_file(ctx, path) == ZN_OK);
 
-    if (id == ZMS_CONTAINER_MP4) {
-        zms_container_demux_mp4_codecs(ctx, &video, &audio);
-    } else if (id == ZMS_CONTAINER_MKV) {
-        zms_container_demux_mkv_codecs(ctx, &video, &audio);
+    if (id == ZCS_CONTAINER_MP4) {
+        zcs_container_demux_mp4_codecs(ctx, &video, &audio);
+    } else if (id == ZCS_CONTAINER_MKV) {
+        zcs_container_demux_mkv_codecs(ctx, &video, &audio);
     } else {
-        zms_container_demux_flv_file_codecs(ctx, &video, &audio);
+        zcs_container_demux_flv_file_codecs(ctx, &video, &audio);
     }
-    CHECK(video == ZMS_CODEC_H264 || video == ZMS_CODEC_H265);
-    CHECK(audio == ZMS_CODEC_AAC);
+    CHECK(video == ZCS_CODEC_H264 || video == ZCS_CODEC_H265);
+    CHECK(audio == ZCS_CODEC_AAC);
     CHECK(col.video_cfg >= 1);
     CHECK(col.audio_cfg >= 1);
 
@@ -205,9 +205,9 @@ static void test_container(zms_container_id id, const char *file)
         CHECK(col.video_samples > v0);
     }
 
-    if (id == ZMS_CONTAINER_MP4) {
+    if (id == ZCS_CONTAINER_MP4) {
         int samples = 0;
-        int rc = zms_container_mp4_for_each_sample(ctx, count_sample, &samples);
+        int rc = zcs_container_mp4_for_each_sample(ctx, count_sample, &samples);
         CHECK(rc > 0);
         CHECK(samples > 0);
     }
@@ -219,15 +219,15 @@ static void test_container(zms_container_id id, const char *file)
 
 int main(void)
 {
-    zms_container_register_all();
+    zcs_container_register_all();
 
     test_zm_file_io();
 
-    test_container(ZMS_CONTAINER_MP4, "h264_aac.mp4");
-    test_container(ZMS_CONTAINER_MP4, "h265_aac.mp4");
-    test_container(ZMS_CONTAINER_MKV, "h264_aac.mkv");
-    test_container(ZMS_CONTAINER_MKV, "h265_aac.mkv");
-    test_container(ZMS_CONTAINER_FLV_FILE, "h264_aac.flv");
+    test_container(ZCS_CONTAINER_MP4, "h264_aac.mp4");
+    test_container(ZCS_CONTAINER_MP4, "h265_aac.mp4");
+    test_container(ZCS_CONTAINER_MKV, "h264_aac.mkv");
+    test_container(ZCS_CONTAINER_MKV, "h265_aac.mkv");
+    test_container(ZCS_CONTAINER_FLV_FILE, "h264_aac.flv");
 
     if (g_failures) {
         fprintf(stderr, "test_vod_file_demux: %d failure(s)\n", g_failures);

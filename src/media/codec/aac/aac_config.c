@@ -4,25 +4,25 @@
  *
  * Copyright (c) zero-media-server
  */
-#include "zms/media/codec/aac/aac_config.h"
+#include "zcs/media/codec/aac/aac_config.h"
 #include "zm/codec/bitstream.h"
 #include <string.h>
 
 /* 不透明存储须足够大且对齐，以容纳 lib 结构体。 */
-typedef char zms_aac_config_size_check
-    [(sizeof(struct mpeg4_aac_t) <= sizeof(((zms_aac_config *)0)->opaque)) ? 1 : -1];
+typedef char zcs_aac_config_size_check
+    [(sizeof(struct mpeg4_aac_t) <= sizeof(((zcs_aac_config *)0)->opaque)) ? 1 : -1];
 
-static struct mpeg4_aac_t *aac_of(zms_aac_config *c)
+static struct mpeg4_aac_t *aac_of(zcs_aac_config *c)
 {
     return (struct mpeg4_aac_t *)(void *)c->opaque.bytes;
 }
 
-static const struct mpeg4_aac_t *aac_const(const zms_aac_config *c)
+static const struct mpeg4_aac_t *aac_const(const zcs_aac_config *c)
 {
     return (const struct mpeg4_aac_t *)(const void *)c->opaque.bytes;
 }
 
-void zms_aac_config_set_defaults(zms_aac_config *c, int sample_rate, int channels)
+void zcs_aac_config_set_defaults(zcs_aac_config *c, int sample_rate, int channels)
 {
     struct mpeg4_aac_t *a;
     int freq_idx;
@@ -43,7 +43,7 @@ void zms_aac_config_set_defaults(zms_aac_config *c, int sample_rate, int channel
     a->extension_frequency = (uint32_t)sr;
 }
 
-int zms_aac_config_load_asc(zms_aac_config *c, const uint8_t *asc, size_t len)
+int zcs_aac_config_load_asc(zcs_aac_config *c, const uint8_t *asc, size_t len)
 {
     if (!c || !asc || len == 0) {
         return 0;
@@ -51,7 +51,7 @@ int zms_aac_config_load_asc(zms_aac_config *c, const uint8_t *asc, size_t len)
     return mpeg4_aac_audio_specific_config_load(asc, len, aac_of(c)) > 0 ? 1 : 0;
 }
 
-size_t zms_aac_config_save_asc(const zms_aac_config *c, uint8_t *out, size_t cap)
+size_t zcs_aac_config_save_asc(const zcs_aac_config *c, uint8_t *out, size_t cap)
 {
     int n;
 
@@ -62,7 +62,7 @@ size_t zms_aac_config_save_asc(const zms_aac_config *c, uint8_t *out, size_t cap
     return n > 0 ? (size_t)n : 0;
 }
 
-int zms_aac_config_adts_header(const zms_aac_config *c, uint16_t payload_len, uint8_t *out,
+int zcs_aac_config_adts_header(const zcs_aac_config *c, uint16_t payload_len, uint8_t *out,
                                size_t cap)
 {
     if (!c || !out) {
@@ -71,7 +71,7 @@ int zms_aac_config_adts_header(const zms_aac_config *c, uint16_t payload_len, ui
     return mpeg4_aac_adts_save(aac_const(c), payload_len, out, cap);
 }
 
-int zms_aac_config_sample_rate(const zms_aac_config *c)
+int zcs_aac_config_sample_rate(const zcs_aac_config *c)
 {
     const struct mpeg4_aac_t *a;
 
@@ -85,7 +85,7 @@ int zms_aac_config_sample_rate(const zms_aac_config *c)
     return mpeg4_aac_audio_frequency_to((enum mpeg4_aac_frequency)a->sampling_frequency_index);
 }
 
-int zms_aac_config_channels(const zms_aac_config *c)
+int zcs_aac_config_channels(const zcs_aac_config *c)
 {
     return c ? (int)aac_const(c)->channel_configuration : 0;
 }

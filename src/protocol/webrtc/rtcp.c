@@ -3,11 +3,11 @@
  * @brief WebRTC RTCP：SR/PLI/NACK/复合包。
  */
 #include "protocol/webrtc/media_internal.h"
-#include "zms/media/wire/rtcp.h"
-#include "zms/media/wire/rtp_packet.h"
+#include "zcs/media/wire/rtcp.h"
+#include "zcs/media/wire/rtp_packet.h"
 #include <string.h>
 
-int zms_webrtc_rtcp_is_psfb_pli(const uint8_t *data, size_t len)
+int zcs_webrtc_rtcp_is_psfb_pli(const uint8_t *data, size_t len)
 {
     if (!data || len < 12) {
         return 0;
@@ -24,7 +24,7 @@ int zms_webrtc_rtcp_is_psfb_pli(const uint8_t *data, size_t len)
     return 1;
 }
 
-int zms_webrtc_rtcp_is_rtpfb_nack(const uint8_t *data, size_t len)
+int zcs_webrtc_rtcp_is_rtpfb_nack(const uint8_t *data, size_t len)
 {
     if (!data || len < 12) {
         return 0;
@@ -41,7 +41,7 @@ int zms_webrtc_rtcp_is_rtpfb_nack(const uint8_t *data, size_t len)
     return 1;
 }
 
-int zms_webrtc_rtcp_is_rtpfb_twcc(const uint8_t *data, size_t len)
+int zcs_webrtc_rtcp_is_rtpfb_twcc(const uint8_t *data, size_t len)
 {
     if (!data || len < 20) {
         return 0;
@@ -58,7 +58,7 @@ int zms_webrtc_rtcp_is_rtpfb_twcc(const uint8_t *data, size_t len)
     return 1;
 }
 
-int zms_webrtc_rtcp_parse_twcc(const uint8_t *data, size_t len, zms_webrtc_twcc_summary *out)
+int zcs_webrtc_rtcp_parse_twcc(const uint8_t *data, size_t len, zcs_webrtc_twcc_summary *out)
 {
     size_t off;
     uint16_t count;
@@ -70,7 +70,7 @@ int zms_webrtc_rtcp_parse_twcc(const uint8_t *data, size_t len, zms_webrtc_twcc_
     if (!out) {
         return -1;
     }
-    if (!zms_webrtc_rtcp_is_rtpfb_twcc(data, len)) {
+    if (!zcs_webrtc_rtcp_is_rtpfb_twcc(data, len)) {
         return -1;
     }
     memset(out, 0, sizeof(*out));
@@ -139,7 +139,7 @@ int zms_webrtc_rtcp_parse_twcc(const uint8_t *data, size_t len, zms_webrtc_twcc_
     return 0;
 }
 
-int zms_webrtc_rtcp_parse_rr(const uint8_t *data, size_t len, uint32_t *fraction_lost,
+int zcs_webrtc_rtcp_parse_rr(const uint8_t *data, size_t len, uint32_t *fraction_lost,
                              uint32_t *jitter, uint32_t *lsr, uint32_t *dlsr)
 {
     if (!data || len < 32 || (data[0] & 0xC0) != 0x80 || data[1] != 201) {
@@ -163,14 +163,14 @@ int zms_webrtc_rtcp_parse_rr(const uint8_t *data, size_t len, uint32_t *fraction
     return 0;
 }
 
-size_t zms_webrtc_rtcp_build_sr(uint8_t *out, size_t cap, uint32_t ssrc, uint32_t ntp_sec,
+size_t zcs_webrtc_rtcp_build_sr(uint8_t *out, size_t cap, uint32_t ssrc, uint32_t ntp_sec,
                                 uint32_t ntp_frac, uint32_t rtp_ts, uint32_t packet_count,
                                 uint32_t octet_count)
 {
-    return zms_rtcp_build_sr(out, cap, ssrc, ntp_sec, ntp_frac, rtp_ts, packet_count, octet_count);
+    return zcs_rtcp_build_sr(out, cap, ssrc, ntp_sec, ntp_frac, rtp_ts, packet_count, octet_count);
 }
 
-void zms_webrtc_rtcp_for_each_compound(const uint8_t *data, size_t len,
+void zcs_webrtc_rtcp_for_each_compound(const uint8_t *data, size_t len,
                                        void (*cb)(const uint8_t *block, size_t block_len,
                                                   void *user),
                                        void *user)

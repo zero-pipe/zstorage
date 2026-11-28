@@ -3,23 +3,23 @@
  * @brief RTMP chunk 读取与重组：按 csid 维护 chunk stream 状态。
  */
 #include "protocol/rtmp/protocol_internal.h"
-#include "zms/util/buf_pool.h"
+#include "zcs/util/buf_pool.h"
 #include "zn/util/log.h"
 #include <stdlib.h>
 #include <string.h>
 
-static zms_rtmp_cs_state *get_cs(zms_rtmp_protocol *p, uint32_t csid)
+static zcs_rtmp_cs_state *get_cs(zcs_rtmp_protocol *p, uint32_t csid)
 {
-    zms_rtmp_cs_state *c;
+    zcs_rtmp_cs_state *c;
 
-    if (csid >= ZMS_RTMP_MAX_CS) {
+    if (csid >= ZCS_RTMP_MAX_CS) {
         return NULL;
     }
     c = p->cs[csid];
     if (c) {
         return c;
     }
-    c = (zms_rtmp_cs_state *)calloc(1, sizeof(*c));
+    c = (zcs_rtmp_cs_state *)calloc(1, sizeof(*c));
     if (!c) {
         return NULL;
     }
@@ -28,14 +28,14 @@ static zms_rtmp_cs_state *get_cs(zms_rtmp_protocol *p, uint32_t csid)
     return c;
 }
 
-void rtmp_chunk_cs_reset_all(zms_rtmp_protocol *p)
+void rtmp_chunk_cs_reset_all(zcs_rtmp_protocol *p)
 {
     int i;
 
     if (!p) {
         return;
     }
-    for (i = 0; i < (int)ZMS_RTMP_MAX_CS; ++i) {
+    for (i = 0; i < (int)ZCS_RTMP_MAX_CS; ++i) {
         if (p->cs[i]) {
             p->cs[i]->msg_len = 0;
             p->cs[i]->body_off = 0;
@@ -43,7 +43,7 @@ void rtmp_chunk_cs_reset_all(zms_rtmp_protocol *p)
     }
 }
 
-static zn_err_t ensure_body(zms_rtmp_protocol *p, zms_rtmp_cs_state *c, size_t need)
+static zn_err_t ensure_body(zcs_rtmp_protocol *p, zcs_rtmp_cs_state *c, size_t need)
 {
     size_t cap;
 
@@ -52,22 +52,22 @@ static zn_err_t ensure_body(zms_rtmp_protocol *p, zms_rtmp_cs_state *c, size_t n
     }
     cap = need < 256 ? 256 : need;
     if (p && p->io_poller) {
-        if (!zms_buf_pool_slot_resize_poller(&c->body, &c->body_cap, cap, p->io_poller)) {
+        if (!zcs_buf_pool_slot_resize_poller(&c->body, &c->body_cap, cap, p->io_poller)) {
             return ZN_ERR_NOMEM;
         }
-    } else if (!zms_buf_pool_slot_resize(&c->body, &c->body_cap, cap)) {
+    } else if (!zcs_buf_pool_slot_resize(&c->body, &c->body_cap, cap)) {
         return ZN_ERR_NOMEM;
     }
     return ZN_OK;
 }
 
-static void dispatch_msg(zms_rtmp_protocol *p, zms_rtmp_cs_state *c)
+static void dispatch_msg(zcs_rtmp_protocol *p, zcs_rtmp_cs_state *c)
 {
     if (c->body_off < c->msg_len) {
         return;
     }
 
-    if (c->type_id == ZMS_RTMP_MSG_VIDEO || c->type_id == ZMS_RTMP_MSG_AUDIO) {
+    if (c->type_id == ZCS_RTMP_MSG_VIDEO || c->type_id == ZCS_RTMP_MSG_AUDIO) {
         static unsigned disp_cnt;
         if (disp_cnt < 100) {
             zn_info("RTMP dispatch csid=%u type=%u len=%u tag_dts_ms=%u", (unsigned)c->csid,
@@ -76,49 +76,49 @@ static void dispatch_msg(zms_rtmp_protocol *p, zms_rtmp_cs_state *c)
         ++disp_cnt;
     }
 
-    if (c->type_id == ZMS_RTMP_MSG_SET_CHUNK && c->msg_len >= 4) {
+    if (c->type_id == ZCS_RTMP_MSG_SET_CHUNK && c->msg_len >= 4) {
         p->in_chunk_size = rtmp_read_be32(c->body);
         if (p->in_chunk_size == 0) {
-            p->in_chunk_size = ZMS_RTMP_DEFAULT_CHUNK;
+            p->in_chunk_size = ZCS_RTMP_DEFAULT_CHUNK;
         }
         zn_info("RTMP peer SetChunkSize=%u", (unsigned)p->in_chunk_size);
     }
 
-    zms_rtmp_chunk chunk = {
+    zcs_rtmp_chunk chunk = {
         .type_id = c->type_id,
         .stream_id = c->stream_id,
         .tag_dts_ms = c->tag_dts_ms,
         .body = c->body,
         .body_size = c->msg_len,
     };
-    if (c->type_id == ZMS_RTMP_MSG_CMD && p->opts.on_cmd && c->body && c->msg_len > 0) {
-        zms_amf_value *cmd = NULL;
+    if (c->type_id == ZCS_RTMP_MSG_CMD && p->opts.on_cmd && c->body && c->msg_len > 0) {
+        zcs_amf_value *cmd = NULL;
         size_t off = 0;
-        if (zms_amf_decode(c->body, c->msg_len, &cmd, &off) == ZN_OK && cmd &&
-            zms_amf_value_type(cmd) == ZMS_AMF_STRING) {
+        if (zcs_amf_decode(c->body, c->msg_len, &cmd, &off) == ZN_OK && cmd &&
+            zcs_amf_value_type(cmd) == ZCS_AMF_STRING) {
             static unsigned cmd_cnt;
             if (cmd_cnt < 20) {
                 zn_info("RTMP cmd csid=%u len=%u: %s", (unsigned)c->csid, (unsigned)c->msg_len,
-                         zms_amf_value_str(cmd));
+                         zcs_amf_value_str(cmd));
             }
             ++cmd_cnt;
             double trans = 0;
             if (off < c->msg_len) {
-                zms_amf_value *tid = NULL;
+                zcs_amf_value *tid = NULL;
                 size_t tid_len = 0;
-                if (zms_amf_decode(c->body + off, c->msg_len - off, &tid, &tid_len) == ZN_OK &&
+                if (zcs_amf_decode(c->body + off, c->msg_len - off, &tid, &tid_len) == ZN_OK &&
                     tid) {
-                    if (zms_amf_value_type(tid) == ZMS_AMF_NUMBER) {
-                        trans = zms_amf_value_num(tid);
+                    if (zcs_amf_value_type(tid) == ZCS_AMF_NUMBER) {
+                        trans = zcs_amf_value_num(tid);
                     }
-                    zms_amf_value_free(tid);
+                    zcs_amf_value_free(tid);
                     off += tid_len;
                 }
             }
-            p->opts.on_cmd(zms_amf_value_str(cmd), trans, c->body + off, c->msg_len - off,
+            p->opts.on_cmd(zcs_amf_value_str(cmd), trans, c->body + off, c->msg_len - off,
                            p->opts.user);
         }
-        zms_amf_value_free(cmd);
+        zcs_amf_value_free(cmd);
     } else if (p->opts.on_chunk) {
         p->opts.on_chunk(&chunk, p->opts.user);
     }
@@ -131,7 +131,7 @@ static void dispatch_msg(zms_rtmp_protocol *p, zms_rtmp_cs_state *c)
     c->msg_len = 0;
 }
 
-static void cs_restore_from_last(zms_rtmp_cs_state *c)
+static void cs_restore_from_last(zcs_rtmp_cs_state *c)
 {
     if (c->last_msg_len == 0) {
         return;
@@ -144,7 +144,7 @@ static void cs_restore_from_last(zms_rtmp_cs_state *c)
     c->body_off = 0;
 }
 
-zn_err_t rtmp_chunk_parse(zms_rtmp_protocol *p, const uint8_t *data, size_t len, size_t *consumed)
+zn_err_t rtmp_chunk_parse(zcs_rtmp_protocol *p, const uint8_t *data, size_t len, size_t *consumed)
 {
     static const size_t HEADER_LENGTH[] = {12, 8, 4, 1};
     const uint8_t *ptr = data;
@@ -183,7 +183,7 @@ zn_err_t rtmp_chunk_parse(zms_rtmp_protocol *p, const uint8_t *data, size_t len,
             break;
         }
 
-        zms_rtmp_cs_state *c = get_cs(p, csid);
+        zcs_rtmp_cs_state *c = get_cs(p, csid);
         if (!c) {
             break;
         }

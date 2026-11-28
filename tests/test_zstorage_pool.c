@@ -323,11 +323,11 @@ static int test_writer_waits_keyframe(void)
 
 static int test_config_bridge(void)
 {
-    zms_config cfg;
+    zcs_config cfg;
     zs_pool_opts po;
     zs_writer_opts wo;
 
-    zms_config_default(&cfg);
+    zcs_config_default(&cfg);
     /* 默认 2TB / 7 天 */
     CHECK(cfg.storage.capacity_gb == 2048);
     CHECK(cfg.storage.retention_days == 7);

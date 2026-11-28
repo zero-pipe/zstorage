@@ -2,16 +2,16 @@
  * @file zm_file_demuxer.c
  * @brief 基于 ZM `zm_*_reader` 的文件 demuxer（MP4/MOV、MKV、FLV）。
  *
- * 把 `zm_mov_reader` / `zm_mkv_reader` / `zm_flv_reader` 适配成 ZMS 的
- * `zms_container_demuxer_ops`，供 VOD 文件读取使用：
+ * 把 `zm_mov_reader` / `zm_mkv_reader` / `zm_flv_reader` 适配成 ZCS 的
+ * `zcs_container_demuxer_ops`，供 VOD 文件读取使用：
  *  - open_file 时把 `zm_track.config` 合成为 config 包；
  *  - pump 每次拉一个 `zm_packet`（视频已是 Annex-B）转成 sample 包；
  *  - seek 走接口的 `zm_reader_seek`。
  * MPEG 仍由旧路径处理。
  */
-#include "zms/media/container/container_registry.h"
+#include "zcs/media/container/container_registry.h"
 
-#include "zms/media/codec/codec_id.h"
+#include "zcs/media/codec/codec_id.h"
 
 #include "bridge/zm_file_io.h"
 #include "media/container/mkv/mkv_file_buffer.h"
@@ -35,7 +35,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* zm_codec_id 与 zms_codec_id 在 1..10 上数值一致，可直接转换。 */
+/* zm_codec_id 与 zcs_codec_id 在 1..10 上数值一致，可直接转换。 */
 
 typedef struct zm_file_desc {
     zm_format format;
@@ -45,7 +45,7 @@ typedef struct zm_file_desc {
 } zm_file_desc;
 
 typedef struct zm_file_ctx {
-    zms_container_demux_opts cfg;
+    zcs_container_demux_opts cfg;
     const zm_file_desc *desc;
     zm_io io;
     int io_open;
@@ -56,30 +56,30 @@ typedef struct zm_file_ctx {
     int has_audio;
     uint32_t video_track;
     uint32_t audio_track;
-    zms_codec_id video_codec;
-    zms_codec_id audio_codec;
+    zcs_codec_id video_codec;
+    zcs_codec_id audio_codec;
 
     uint64_t duration_ms;
     int eof;
 } zm_file_ctx;
 
-static uint64_t zms_mkv_file_duration_ms(const char *path);
+static uint64_t zcs_mkv_file_duration_ms(const char *path);
 
 /* ---- config / track 载入 ---- */
 
-static void file_emit_config(zm_file_ctx *c, uint32_t track, zms_codec_id codec,
+static void file_emit_config(zm_file_ctx *c, uint32_t track, zcs_codec_id codec,
                              const uint8_t *data, size_t len, uint16_t width, uint16_t height,
                              uint32_t sample_rate, uint8_t channels)
 {
-    zms_container_packet pkt;
+    zcs_container_packet pkt;
 
-    if (!c || !c->cfg.on_packet || codec == ZMS_CODEC_INVALID) {
+    if (!c || !c->cfg.on_packet || codec == ZCS_CODEC_INVALID) {
         return;
     }
     memset(&pkt, 0, sizeof(pkt));
     /* 统一用 MP4_SAMPLE 种类承载 config：上层只按 codec + config 标志识别，
      * 不关心底层容器，简化了 MP4/MKV/FLV 三路上报。 */
-    pkt.kind = ZMS_CONTAINER_PKT_MP4_SAMPLE;
+    pkt.kind = ZCS_CONTAINER_PKT_MP4_SAMPLE;
     pkt.track_id = track;
     pkt.codec = codec;
     pkt.config = 1;
@@ -107,7 +107,7 @@ static void file_load_tracks(zm_file_ctx *c)
      * 解码参数。视频只处理第一个匹配到的轨（单视频流假设）。 */
     for (i = 0; i < count; ++i) {
         const zm_track *t = &tracks[i];
-        zms_codec_id codec = (zms_codec_id)t->codec;
+        zcs_codec_id codec = (zcs_codec_id)t->codec;
         uint32_t rate = t->sample_rate > 0 ? (uint32_t)t->sample_rate : 0;
         uint8_t ch = t->channels > 0 ? (uint8_t)t->channels : 0;
 
@@ -126,7 +126,7 @@ static void file_load_tracks(zm_file_ctx *c)
             c->has_audio = 1;
             /* MOV 里 AAC 可能没有 ASC（stsd 缺 esds）：此时若 audio_config_always，
              * 仍发一个空 config 包，让下游用默认 44.1k/2 兜底，避免整条音轨被丢。 */
-            if ((c->desc->audio_config_always && codec == ZMS_CODEC_AAC) || t->config.len > 0) {
+            if ((c->desc->audio_config_always && codec == ZCS_CODEC_AAC) || t->config.len > 0) {
                 file_emit_config(c, t->track_id, codec, t->config.data, t->config.len, 0, 0, rate,
                                  ch);
             }
@@ -148,15 +148,15 @@ static void file_close(zm_file_ctx *c)
         c->reader = NULL;
     }
     if (c->io_open) {
-        zms_zm_file_io_close(&c->io);
+        zcs_zm_file_io_close(&c->io);
         c->io_open = 0;
     }
     c->has_video = 0;
     c->has_audio = 0;
     c->video_track = 0;
     c->audio_track = 0;
-    c->video_codec = ZMS_CODEC_INVALID;
-    c->audio_codec = ZMS_CODEC_INVALID;
+    c->video_codec = ZCS_CODEC_INVALID;
+    c->audio_codec = ZCS_CODEC_INVALID;
     c->duration_ms = 0;
     c->eof = 0;
 }
@@ -173,7 +173,7 @@ static zn_err_t file_open(void *ctx, const char *path)
     if ((size_t)snprintf(c->path, sizeof(c->path), "%s", path) >= sizeof(c->path)) {
         return ZN_ERR_INVALID;
     }
-    if (zms_zm_file_io_open(path, &c->io) != 0) {
+    if (zcs_zm_file_io_open(path, &c->io) != 0) {
         return ZN_ERR_IO;
     }
     c->io_open = 1;
@@ -194,7 +194,7 @@ static zn_err_t file_open(void *ctx, const char *path)
     /* 只支持 H.264/H.265 直出：本 demuxer 承诺“视频已是 Annex-B”，其它编码
      * （如 AV1/VP9 在 MP4 里）格式不满足上层对 Annex-B 的假设，早失败好过
      * 让脏数据流到下游。 */
-    if (!c->has_video || (c->video_codec != ZMS_CODEC_H264 && c->video_codec != ZMS_CODEC_H265)) {
+    if (!c->has_video || (c->video_codec != ZCS_CODEC_H264 && c->video_codec != ZCS_CODEC_H265)) {
         file_close(c);
         return ZN_ERR_NOT_IMPL;
     }
@@ -231,18 +231,18 @@ static int file_pump(void *ctx)
         return -1;
     }
     if (c->cfg.on_packet && pkt.mem.data && pkt.mem.len > 0) {
-        zms_codec_id codec = ZMS_CODEC_INVALID;
+        zcs_codec_id codec = ZCS_CODEC_INVALID;
 
         if (c->has_video && pkt.track_id == c->video_track) {
             codec = c->video_codec;
         } else if (c->has_audio && pkt.track_id == c->audio_track) {
             codec = c->audio_codec;
         }
-        if (codec != ZMS_CODEC_INVALID) {
-            zms_container_packet out;
+        if (codec != ZCS_CODEC_INVALID) {
+            zcs_container_packet out;
 
             memset(&out, 0, sizeof(out));
-            out.kind = ZMS_CONTAINER_PKT_MP4_SAMPLE;
+            out.kind = ZCS_CONTAINER_PKT_MP4_SAMPLE;
             out.track_id = pkt.track_id;
             out.codec = codec;
             /* pts 缺省（-1/0）时退回 dts：容器里偶有 packet 无 pts，直接留 0
@@ -307,30 +307,30 @@ static zn_err_t file_input_tag(void *ctx, uint8_t type_id, const uint8_t *body, 
 
 /* ---- 描述符 / vtable ---- */
 
-static const zm_file_desc *file_desc_for(zms_container_id id)
+static const zm_file_desc *file_desc_for(zcs_container_id id)
 {
     /* 每种容器绑定：ZM 读取器工厂 + 时长探测函数；audio_config_always 仅
      * MOV 置 1（见 file_load_tracks 注释）。MPEG 不走这里，由旧路径处理。 */
     static const zm_file_desc k_mov = {ZM_FMT_MOV, 1, zm_mov_reader_open,
-                                        zms_container_mp4_file_duration_ms};
+                                        zcs_container_mp4_file_duration_ms};
     static const zm_file_desc k_mkv = {ZM_FMT_MKV, 0, zm_mkv_reader_open,
-                                        zms_mkv_file_duration_ms};
+                                        zcs_mkv_file_duration_ms};
     static const zm_file_desc k_flv = {ZM_FMT_FLV, 0, zm_flv_reader_open_file,
-                                        zms_container_flv_file_duration_ms};
+                                        zcs_container_flv_file_duration_ms};
 
-    if (id == ZMS_CONTAINER_MP4) {
+    if (id == ZCS_CONTAINER_MP4) {
         return &k_mov;
     }
-    if (id == ZMS_CONTAINER_MKV) {
+    if (id == ZCS_CONTAINER_MKV) {
         return &k_mkv;
     }
-    if (id == ZMS_CONTAINER_FLV_FILE) {
+    if (id == ZCS_CONTAINER_FLV_FILE) {
         return &k_flv;
     }
     return NULL;
 }
 
-static void *file_create(const zms_container_demux_opts *opts)
+static void *file_create(const zcs_container_demux_opts *opts)
 {
     zm_file_ctx *c;
 
@@ -347,8 +347,8 @@ static void *file_create(const zms_container_demux_opts *opts)
         free(c);
         return NULL;
     }
-    c->video_codec = ZMS_CODEC_INVALID;
-    c->audio_codec = ZMS_CODEC_INVALID;
+    c->video_codec = ZCS_CODEC_INVALID;
+    c->audio_codec = ZCS_CODEC_INVALID;
     return c;
 }
 
@@ -363,54 +363,54 @@ static void file_destroy(void *ctx)
     free(c);
 }
 
-const zms_container_demuxer_ops zms_container_mp4_ops = {
-    ZMS_CONTAINER_MP4, "mp4",         file_create,    file_destroy,
+const zcs_container_demuxer_ops zcs_container_mp4_ops = {
+    ZCS_CONTAINER_MP4, "mp4",         file_create,    file_destroy,
     file_feed,         file_input_tag, file_open,     file_close_op,
     file_pump,         file_seek,     file_duration_ms,
 };
 
-const zms_container_demuxer_ops zms_container_mkv_ops = {
-    ZMS_CONTAINER_MKV, "mkv",         file_create,    file_destroy,
+const zcs_container_demuxer_ops zcs_container_mkv_ops = {
+    ZCS_CONTAINER_MKV, "mkv",         file_create,    file_destroy,
     file_feed,         file_input_tag, file_open,     file_close_op,
     file_pump,         file_seek,     file_duration_ms,
 };
 
-const zms_container_demuxer_ops zms_container_flv_file_ops = {
-    ZMS_CONTAINER_FLV_FILE, "flv-file",    file_create,    file_destroy,
+const zcs_container_demuxer_ops zcs_container_flv_file_ops = {
+    ZCS_CONTAINER_FLV_FILE, "flv-file",    file_create,    file_destroy,
     file_feed,              file_input_tag, file_open,     file_close_op,
     file_pump,              file_seek,     file_duration_ms,
 };
 
-static void file_codecs(void *ctx, zms_codec_id *video, zms_codec_id *audio)
+static void file_codecs(void *ctx, zcs_codec_id *video, zcs_codec_id *audio)
 {
     zm_file_ctx *c = (zm_file_ctx *)ctx;
 
     if (video) {
-        *video = c ? c->video_codec : ZMS_CODEC_INVALID;
+        *video = c ? c->video_codec : ZCS_CODEC_INVALID;
     }
     if (audio) {
-        *audio = c ? c->audio_codec : ZMS_CODEC_INVALID;
+        *audio = c ? c->audio_codec : ZCS_CODEC_INVALID;
     }
 }
 
-void zms_container_demux_mp4_codecs(void *ctx, zms_codec_id *video, zms_codec_id *audio)
+void zcs_container_demux_mp4_codecs(void *ctx, zcs_codec_id *video, zcs_codec_id *audio)
 {
     file_codecs(ctx, video, audio);
 }
 
-void zms_container_demux_mkv_codecs(void *ctx, zms_codec_id *video, zms_codec_id *audio)
+void zcs_container_demux_mkv_codecs(void *ctx, zcs_codec_id *video, zcs_codec_id *audio)
 {
     file_codecs(ctx, video, audio);
 }
 
-void zms_container_demux_flv_file_codecs(void *ctx, zms_codec_id *video, zms_codec_id *audio)
+void zcs_container_demux_flv_file_codecs(void *ctx, zcs_codec_id *video, zcs_codec_id *audio)
 {
     file_codecs(ctx, video, audio);
 }
 
 /* ---- MP4 专用：sample 表遍历 / duration 探测 ---- */
 
-struct mov_reader_t *zms_container_mp4_mov_reader(void *ctx)
+struct mov_reader_t *zcs_container_mp4_mov_reader(void *ctx)
 {
     /* ZM reader 不再暴露内部 mov_reader_t；保留符号以维持 ABI。 */
     (void)ctx;
@@ -418,14 +418,14 @@ struct mov_reader_t *zms_container_mp4_mov_reader(void *ctx)
 }
 
 typedef struct {
-    zms_mp4_sample_fn fn;
+    zcs_mp4_sample_fn fn;
     void *user;
 } mp4_sample_forward;
 
 static int mp4_on_sample(void *param, const struct mov_reader_sample_t *s)
 {
     mp4_sample_forward *f = (mp4_sample_forward *)param;
-    zms_mp4_sample_info info;
+    zcs_mp4_sample_info info;
 
     info.dts_ms = s->dts;
     info.bytes = s->bytes;
@@ -434,7 +434,7 @@ static int mp4_on_sample(void *param, const struct mov_reader_sample_t *s)
     return f->fn(&info, f->user);
 }
 
-int zms_container_mp4_for_each_sample(void *ctx, zms_mp4_sample_fn fn, void *user)
+int zcs_container_mp4_for_each_sample(void *ctx, zcs_mp4_sample_fn fn, void *user)
 {
     zm_file_ctx *c = (zm_file_ctx *)ctx;
     mp4_sample_forward f;
@@ -452,7 +452,7 @@ int zms_container_mp4_for_each_sample(void *ctx, zms_mp4_sample_fn fn, void *use
     if (!fp) {
         return -1;
     }
-    reader = mov_reader_create(zms_mov_file_buffer(), fp);
+    reader = mov_reader_create(zcs_mov_file_buffer(), fp);
     if (!reader) {
         fclose(fp);
         return -1;
@@ -485,7 +485,7 @@ static void probe_mov_onvideo(void *param, uint32_t track, uint8_t object, int w
     }
 }
 
-uint64_t zms_container_mp4_file_duration_ms(const char *path)
+uint64_t zcs_container_mp4_file_duration_ms(const char *path)
 {
     struct mov_reader_trackinfo_t info;
     struct mov_reader_t *reader;
@@ -500,7 +500,7 @@ uint64_t zms_container_mp4_file_duration_ms(const char *path)
     if (!fp) {
         return 0;
     }
-    reader = mov_reader_create(zms_mov_file_buffer(), fp);
+    reader = mov_reader_create(zcs_mov_file_buffer(), fp);
     if (!reader) {
         fclose(fp);
         return 0;
@@ -534,7 +534,7 @@ static void probe_mkv_onvideo(void *param, uint32_t track, enum mkv_codec_t code
     }
 }
 
-static uint64_t zms_mkv_file_duration_ms(const char *path)
+static uint64_t zcs_mkv_file_duration_ms(const char *path)
 {
     struct mkv_reader_trackinfo_t info;
     struct mkv_reader_t *reader;
@@ -549,7 +549,7 @@ static uint64_t zms_mkv_file_duration_ms(const char *path)
     if (!fp) {
         return 0;
     }
-    reader = mkv_reader_create(zms_mkv_file_buffer(), fp);
+    reader = mkv_reader_create(zcs_mkv_file_buffer(), fp);
     if (!reader) {
         fclose(fp);
         return 0;
@@ -566,7 +566,7 @@ static uint64_t zms_mkv_file_duration_ms(const char *path)
     return dur;
 }
 
-uint64_t zms_container_flv_file_duration_ms(const char *path)
+uint64_t zcs_container_flv_file_duration_ms(const char *path)
 {
     void *reader;
     int tagtype;

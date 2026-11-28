@@ -2,16 +2,16 @@
  * @file client.c
  * @brief WebRTC 主动连接：WHEP client（拉流）与 WHIP client（推流）。
  */
-#include "zms/session/webrtc/webrtc_server.h"
+#include "zcs/session/webrtc/webrtc_server.h"
 
 #include "session/webrtc/client_http.h"
 #include "protocol/webrtc/ice_internal.h"
 #include "session/webrtc/session_internal.h"
-#include "zms/core/event.h"
-#include "zms/core/stream/hub.h"
-#include "zms/egress/source/egress_source.h"
-#include "zms/media/media_limits.h"
-#include "zms/play/dispatch.h"
+#include "zcs/core/event.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/egress/source/egress_source.h"
+#include "zcs/media/media_limits.h"
+#include "zcs/play/dispatch.h"
 #include "zb/os/sync.h"
 #include "zn/platform.h"
 #include "zn/util/log.h"
@@ -21,10 +21,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ZMS_WEBRTC_CLIENT_MAX 8
-#define ZMS_WEBRTC_CLIENT_CONNECT_TIMEOUT_MS 45000u
+#define ZCS_WEBRTC_CLIENT_MAX 8
+#define ZCS_WEBRTC_CLIENT_CONNECT_TIMEOUT_MS 45000u
 
-typedef struct zms_webrtc_client {
+typedef struct zcs_webrtc_client {
     char id[32];
     char kind[8];
     char url[512];
@@ -33,8 +33,8 @@ typedef struct zms_webrtc_client {
     char token[256];
     zn_poller *poller;
     void *ssl_ctx;
-    zms_webrtc_session *sess;
-    zms_http_client *http;
+    zcs_webrtc_session *sess;
+    zcs_http_client *http;
     int state;
     int ice_connected;
     int dtls_ready;
@@ -42,18 +42,18 @@ typedef struct zms_webrtc_client {
     int stop;
     uint64_t created_ms;
     char error[128];
-    struct zms_webrtc_client *next;
-} zms_webrtc_client;
+    struct zcs_webrtc_client *next;
+} zcs_webrtc_client;
 
-static zms_webrtc_client *g_clients;
+static zcs_webrtc_client *g_clients;
 static zb_mutex *g_client_mtx;
 static unsigned g_client_no;
 static zn_poller *g_client_poller;
 static zn_poller_timer *g_client_tick;
 
-static zms_webrtc_client *client_find_locked(const char *id)
+static zcs_webrtc_client *client_find_locked(const char *id)
 {
-    zms_webrtc_client *c;
+    zcs_webrtc_client *c;
 
     for (c = g_clients; c; c = c->next) {
         if (strcmp(c->id, id) == 0) {
@@ -63,25 +63,25 @@ static zms_webrtc_client *client_find_locked(const char *id)
     return NULL;
 }
 
-static void client_destroy(zms_webrtc_client *c)
+static void client_destroy(zcs_webrtc_client *c)
 {
     if (!c) {
         return;
     }
     if (c->http) {
-        zms_http_client_destroy(c->http);
+        zcs_http_client_destroy(c->http);
         c->http = NULL;
     }
     if (c->sess) {
-        zms_webrtc_session_destroy(c->sess);
+        zcs_webrtc_session_destroy(c->sess);
         c->sess = NULL;
     }
     free(c);
 }
 
-static void client_unlink(zms_webrtc_client *c)
+static void client_unlink(zcs_webrtc_client *c)
 {
-    zms_webrtc_client **pp;
+    zcs_webrtc_client **pp;
 
     if (!c || !g_client_mtx) {
         return;
@@ -97,7 +97,7 @@ static void client_unlink(zms_webrtc_client *c)
     zb_mutex_unlock(g_client_mtx);
 }
 
-static void client_fail(zms_webrtc_client *c, const char *reason)
+static void client_fail(zcs_webrtc_client *c, const char *reason)
 {
     if (!c) {
         return;
@@ -106,16 +106,16 @@ static void client_fail(zms_webrtc_client *c, const char *reason)
     c->state = -1;
     zn_warn("[webrtc-client] %s %s: %s", c->kind, c->id, c->error);
     if (c->http) {
-        zms_http_client_destroy(c->http);
+        zcs_http_client_destroy(c->http);
         c->http = NULL;
     }
     if (c->sess) {
-        zms_webrtc_session_destroy(c->sess);
+        zcs_webrtc_session_destroy(c->sess);
         c->sess = NULL;
     }
 }
 
-static void client_refresh_state(zms_webrtc_client *c)
+static void client_refresh_state(zcs_webrtc_client *c)
 {
     if (!c) {
         return;
@@ -123,7 +123,7 @@ static void client_refresh_state(zms_webrtc_client *c)
     if (!c->sess) {
         return;
     }
-    c->ice_connected = c->sess->ice_host.ctx && zms_webrtc_ice_connected(c->sess->ice_host.ctx);
+    c->ice_connected = c->sess->ice_host.ctx && zcs_webrtc_ice_connected(c->sess->ice_host.ctx);
     c->dtls_ready = c->sess->dtls_ready;
     c->media_started = c->sess->media_started;
     if (c->state >= 0) {
@@ -141,8 +141,8 @@ static void client_refresh_state(zms_webrtc_client *c)
 
 static uint64_t client_tick_cb(void *user)
 {
-    zms_webrtc_client *c;
-    zms_webrtc_client *dead[ZMS_WEBRTC_CLIENT_MAX];
+    zcs_webrtc_client *c;
+    zcs_webrtc_client *dead[ZCS_WEBRTC_CLIENT_MAX];
     int n = 0;
     int i;
     uint64_t now = zn_monotonic_ms();
@@ -156,21 +156,21 @@ static uint64_t client_tick_cb(void *user)
         client_refresh_state(c);
         if (c->state >= 0 && !c->media_started &&
             now > c->created_ms &&
-            now - c->created_ms > ZMS_WEBRTC_CLIENT_CONNECT_TIMEOUT_MS) {
+            now - c->created_ms > ZCS_WEBRTC_CLIENT_CONNECT_TIMEOUT_MS) {
             snprintf(c->error, sizeof(c->error), "connect timeout");
             c->state = -1;
             if (c->http) {
-                zms_http_client_destroy(c->http);
+                zcs_http_client_destroy(c->http);
                 c->http = NULL;
             }
-            if (c->sess && n < ZMS_WEBRTC_CLIENT_MAX) {
+            if (c->sess && n < ZCS_WEBRTC_CLIENT_MAX) {
                 dead[n++] = c;
             }
         }
     }
     for (i = 0; i < n; ++i) {
         if (dead[i]->sess) {
-            zms_webrtc_session_destroy(dead[i]->sess);
+            zcs_webrtc_session_destroy(dead[i]->sess);
             dead[i]->sess = NULL;
         }
         zn_warn("[webrtc-client] %s %s connect timeout", dead[i]->kind, dead[i]->id);
@@ -193,7 +193,7 @@ static void client_ensure_tick(zn_poller *poller)
 static void client_on_answer(int status, const char *location, const char *body, size_t body_len,
                              void *user)
 {
-    zms_webrtc_client *c = (zms_webrtc_client *)user;
+    zcs_webrtc_client *c = (zcs_webrtc_client *)user;
 
     if (!c) {
         return;
@@ -211,7 +211,7 @@ static void client_on_answer(int status, const char *location, const char *body,
         return;
     }
     if (!c->sess ||
-        zms_webrtc_session_apply_client_answer(c->sess, body, body_len) != 0) {
+        zcs_webrtc_session_apply_client_answer(c->sess, body, body_len) != 0) {
         client_fail(c, "apply answer failed");
         return;
     }
@@ -220,51 +220,51 @@ static void client_on_answer(int status, const char *location, const char *body,
              location ? location : "-", body_len);
 }
 
-static zms_webrtc_session *client_create_whip_session(zms_webrtc_client *c)
+static zcs_webrtc_session *client_create_whip_session(zcs_webrtc_client *c)
 {
-    zms_media_source *src;
-    zms_webrtc_session *sess;
-    zms_session_play_opts pcfg;
+    zcs_media_source *src;
+    zcs_webrtc_session *sess;
+    zcs_session_play_opts pcfg;
 
-    src = zms_media_source_find_for_play_ex(ZMS_SCHEMA_RTMP, NULL, c->app, c->stream);
-    if (!src || !src->gop_queue || zms_media_source_is_vod(src)) {
+    src = zcs_media_source_find_for_play_ex(ZCS_SCHEMA_RTMP, NULL, c->app, c->stream);
+    if (!src || !src->gop_queue || zcs_media_source_is_vod(src)) {
         zn_warn("[webrtc-client] whip source offline %s/%s", c->app, c->stream);
         return NULL;
     }
-    sess = zms_webrtc_session_create(src, c->app, c->stream, c->poller);
+    sess = zcs_webrtc_session_create(src, c->app, c->stream, c->poller);
     if (!sess) {
         return NULL;
     }
-    zms_session_dispatch_register_all();
-    zms_egress_source_init(&sess->play);
+    zcs_session_dispatch_register_all();
+    zcs_egress_source_init(&sess->play);
     memset(&pcfg, 0, sizeof(pcfg));
-    pcfg.player = ZMS_SESSION_WEBRTC;
-    if (zms_session_attach_play(ZMS_SESSION_WEBRTC, &sess->play, src, &pcfg) != ZN_OK) {
-        zms_webrtc_session_destroy(sess);
+    pcfg.player = ZCS_SESSION_WEBRTC;
+    if (zcs_session_attach_play(ZCS_SESSION_WEBRTC, &sess->play, src, &pcfg) != ZN_OK) {
+        zcs_webrtc_session_destroy(sess);
         return NULL;
     }
-    if (zms_webrtc_session_enable_client(sess) != 0) {
-        zms_session_detach_play(ZMS_SESSION_WEBRTC, &sess->play);
-        zms_webrtc_session_destroy(sess);
+    if (zcs_webrtc_session_enable_client(sess) != 0) {
+        zcs_session_detach_play(ZCS_SESSION_WEBRTC, &sess->play);
+        zcs_webrtc_session_destroy(sess);
         return NULL;
     }
-    zms_media_source_reader_add(src);
+    zcs_media_source_reader_add(src);
     sess->play_reader_attached = 1;
     sess->play_start_ms = zn_monotonic_ms();
-    zms_media_event_play(src, "webrtc-client");
+    zcs_media_event_play(src, "webrtc-client");
     return sess;
 }
 
-static zms_webrtc_session *client_create_whep_session(zms_webrtc_client *c)
+static zcs_webrtc_session *client_create_whep_session(zcs_webrtc_client *c)
 {
-    zms_webrtc_session *sess;
+    zcs_webrtc_session *sess;
 
-    sess = zms_webrtc_session_create_publish(NULL, c->app, c->stream, c->poller);
+    sess = zcs_webrtc_session_create_publish(NULL, c->app, c->stream, c->poller);
     if (!sess) {
         return NULL;
     }
-    if (zms_webrtc_session_enable_client(sess) != 0) {
-        zms_webrtc_session_destroy(sess);
+    if (zcs_webrtc_session_enable_client(sess) != 0) {
+        zcs_webrtc_session_destroy(sess);
         return NULL;
     }
     return sess;
@@ -272,7 +272,7 @@ static zms_webrtc_session *client_create_whep_session(zms_webrtc_client *c)
 
 static void client_launch_task(void *user)
 {
-    zms_webrtc_client *c = (zms_webrtc_client *)user;
+    zcs_webrtc_client *c = (zcs_webrtc_client *)user;
     char offer[16384];
     size_t offer_len = 0;
     int recvonly;
@@ -288,12 +288,12 @@ static void client_launch_task(void *user)
         client_fail(c, "session create failed");
         return;
     }
-    if (zms_webrtc_session_build_client_offer(c->sess, recvonly, offer, sizeof(offer),
+    if (zcs_webrtc_session_build_client_offer(c->sess, recvonly, offer, sizeof(offer),
                                               &offer_len) != 0) {
         client_fail(c, "build offer failed");
         return;
     }
-    c->http = zms_http_client_post(c->poller, c->url, "application/sdp", offer, offer_len,
+    c->http = zcs_http_client_post(c->poller, c->url, "application/sdp", offer, offer_len,
                                    c->token[0] ? c->token : NULL, (struct zn_ssl_ctx *)c->ssl_ctx,
                                    10000, client_on_answer, c);
     if (!c->http) {
@@ -303,12 +303,12 @@ static void client_launch_task(void *user)
     zn_info("[webrtc-client] %s %s -> %s offer=%zu", kind, c->id, c->url, offer_len);
 }
 
-int zms_webrtc_client_launch(const char *kind, const char *url, const char *app,
+int zcs_webrtc_client_launch(const char *kind, const char *url, const char *app,
                              const char *stream, const char *token, void *ssl_ctx)
 {
-    zms_webrtc_client *c;
-    zms_webrtc_server *svc = zms_webrtc_server_instance();
-    zn_poller *poller = zms_webrtc_server_poller(svc);
+    zcs_webrtc_client *c;
+    zcs_webrtc_server *svc = zcs_webrtc_server_instance();
+    zn_poller *poller = zcs_webrtc_server_poller(svc);
 
     if (!kind || !url || !app || !stream || !poller) {
         return -1;
@@ -322,7 +322,7 @@ int zms_webrtc_client_launch(const char *kind, const char *url, const char *app,
             return -1;
         }
     }
-    c = (zms_webrtc_client *)calloc(1, sizeof(*c));
+    c = (zcs_webrtc_client *)calloc(1, sizeof(*c));
     if (!c) {
         return -1;
     }
@@ -349,9 +349,9 @@ int zms_webrtc_client_launch(const char *kind, const char *url, const char *app,
     return 0;
 }
 
-size_t zms_webrtc_client_stats_all(zms_webrtc_client_stats *out, size_t cap)
+size_t zcs_webrtc_client_stats_all(zcs_webrtc_client_stats *out, size_t cap)
 {
-    zms_webrtc_client *c;
+    zcs_webrtc_client *c;
     size_t n = 0;
 
     if (!out || cap == 0 || !g_client_mtx) {
@@ -383,7 +383,7 @@ size_t zms_webrtc_client_stats_all(zms_webrtc_client_stats *out, size_t cap)
 static void client_stop_task(void *user)
 {
     char *id = (char *)user;
-    zms_webrtc_client *c = NULL;
+    zcs_webrtc_client *c = NULL;
 
     if (!id) {
         return;
@@ -401,10 +401,10 @@ static void client_stop_task(void *user)
     client_destroy(c);
 }
 
-int zms_webrtc_client_stop(const char *id)
+int zcs_webrtc_client_stop(const char *id)
 {
     char *copy;
-    zms_webrtc_server *svc;
+    zcs_webrtc_server *svc;
     zn_poller *poller;
 
     if (!id || !g_client_mtx) {
@@ -415,8 +415,8 @@ int zms_webrtc_client_stop(const char *id)
         return -1;
     }
     strcpy(copy, id);
-    svc = zms_webrtc_server_instance();
-    poller = zms_webrtc_server_poller(svc);
+    svc = zcs_webrtc_server_instance();
+    poller = zcs_webrtc_server_poller(svc);
     if (poller && zn_poller_async(poller, client_stop_task, copy, 0) == ZN_OK) {
         return 0;
     }
@@ -424,10 +424,10 @@ int zms_webrtc_client_stop(const char *id)
     return 0;
 }
 
-void zms_webrtc_client_shutdown(void)
+void zcs_webrtc_client_shutdown(void)
 {
-    zms_webrtc_client *c;
-    zms_webrtc_client *next;
+    zcs_webrtc_client *c;
+    zcs_webrtc_client *next;
 
     if (!g_client_mtx) {
         return;

@@ -9,7 +9,7 @@
 #define ZN_RTP_PORT_DEFAULT_START 30000u
 #define ZN_RTP_PORT_DEFAULT_END   39998u
 
-struct zms_rtp_port_pool {
+struct zcs_rtp_port_pool {
     uint16_t range_start;
     uint16_t range_end;
     uint16_t *free_ports;
@@ -22,7 +22,7 @@ static int port_valid(uint16_t p, uint16_t start, uint16_t end)
     return (p >= start && p <= end && (p & 1u) == 0);
 }
 
-static int pool_push(zms_rtp_port_pool *pool, uint16_t port)
+static int pool_push(zcs_rtp_port_pool *pool, uint16_t port)
 {
     if (pool->free_count >= pool->free_cap) {
         unsigned ncap = pool->free_cap ? pool->free_cap * 2u : 64u;
@@ -36,7 +36,7 @@ static int pool_push(zms_rtp_port_pool *pool, uint16_t port)
     return 1;
 }
 
-static int pool_pop(zms_rtp_port_pool *pool, uint16_t *port)
+static int pool_pop(zcs_rtp_port_pool *pool, uint16_t *port)
 {
     if (pool->free_count == 0)
         return 0;
@@ -44,7 +44,7 @@ static int pool_pop(zms_rtp_port_pool *pool, uint16_t *port)
     return 1;
 }
 
-zms_rtp_port_pool *zms_rtp_port_pool_create(const zms_rtp_port_pool_opts *opts)
+zcs_rtp_port_pool *zcs_rtp_port_pool_create(const zcs_rtp_port_pool_opts *opts)
 {
     uint16_t start = ZN_RTP_PORT_DEFAULT_START;
     uint16_t end = ZN_RTP_PORT_DEFAULT_END;
@@ -58,7 +58,7 @@ zms_rtp_port_pool *zms_rtp_port_pool_create(const zms_rtp_port_pool_opts *opts)
     if ((start & 1u) || (end & 1u) || start > end)
         return NULL;
 
-    zms_rtp_port_pool *pool = (zms_rtp_port_pool *)calloc(1, sizeof(*pool));
+    zcs_rtp_port_pool *pool = (zcs_rtp_port_pool *)calloc(1, sizeof(*pool));
     if (!pool)
         return NULL;
 
@@ -67,14 +67,14 @@ zms_rtp_port_pool *zms_rtp_port_pool_create(const zms_rtp_port_pool_opts *opts)
 
     for (uint32_t p = start; p <= end; p += 2u) {
         if (!pool_push(pool, (uint16_t)p)) {
-            zms_rtp_port_pool_destroy(pool);
+            zcs_rtp_port_pool_destroy(pool);
             return NULL;
         }
     }
     return pool;
 }
 
-void zms_rtp_port_pool_destroy(zms_rtp_port_pool *pool)
+void zcs_rtp_port_pool_destroy(zcs_rtp_port_pool *pool)
 {
     if (!pool)
         return;
@@ -82,7 +82,7 @@ void zms_rtp_port_pool_destroy(zms_rtp_port_pool *pool)
     free(pool);
 }
 
-zn_err_t zms_rtp_port_pool_acquire(zms_rtp_port_pool *pool, uint16_t *rtp_port, uint16_t *rtcp_port)
+zn_err_t zcs_rtp_port_pool_acquire(zcs_rtp_port_pool *pool, uint16_t *rtp_port, uint16_t *rtcp_port)
 {
     if (!pool || !rtp_port || !rtcp_port)
         return ZN_ERR_INVALID;
@@ -96,14 +96,14 @@ zn_err_t zms_rtp_port_pool_acquire(zms_rtp_port_pool *pool, uint16_t *rtp_port, 
     return ZN_OK;
 }
 
-void zms_rtp_port_pool_release(zms_rtp_port_pool *pool, uint16_t rtp_port)
+void zcs_rtp_port_pool_release(zcs_rtp_port_pool *pool, uint16_t rtp_port)
 {
     if (!pool || !port_valid(rtp_port, pool->range_start, pool->range_end))
         return;
     (void)pool_push(pool, rtp_port);
 }
 
-unsigned zms_rtp_port_pool_free_count(const zms_rtp_port_pool *pool)
+unsigned zcs_rtp_port_pool_free_count(const zcs_rtp_port_pool *pool)
 {
     return pool ? pool->free_count : 0;
 }

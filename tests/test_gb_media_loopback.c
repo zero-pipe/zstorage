@@ -9,9 +9,9 @@
  *  - gb_media_stop_call 收尾后会话计数归零（poller 仍在运行时安全摘除）。
  */
 #include "device/gb28181/gb28181_internal.h"
-#include "zms/core/frame.h"
-#include "zms/core/gop/queue.h"
-#include "zms/core/stream/hub.h"
+#include "zcs/core/frame.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/core/stream/hub.h"
 #include "zn/platform.h"
 #include "zn/poller/poller.h"
 #include "zb/os/thread.h"
@@ -66,12 +66,12 @@ static void poller_main(void *user)
     zn_poller_run((zn_poller *)user, &g_stop);
 }
 
-static void push_frames(zms_gop_queue *q, int count, int key_every)
+static void push_frames(zcs_gop_queue *q, int count, int key_every)
 {
     int i;
 
     for (i = 0; i < count; ++i) {
-        zms_frame f;
+        zcs_frame f;
         int key = key_every > 0 && (i % key_every) == 0;
 
         memset(&f, 0, sizeof(f));
@@ -79,10 +79,10 @@ static void push_frames(zms_gop_queue *q, int count, int key_every)
         f.size = key ? sizeof(k_idr) : sizeof(k_p);
         f.dts_ms = (uint32_t)i * 40u;
         f.pts_ms = f.dts_ms;
-        f.codec = ZMS_CODEC_H264;
-        f.track = ZMS_TRACK_VIDEO;
+        f.codec = ZCS_CODEC_H264;
+        f.track = ZCS_TRACK_VIDEO;
         f.keyframe = key ? 1 : 0;
-        (void)zms_gop_queue_write(q, &f);
+        (void)zcs_gop_queue_write(q, &f);
     }
 }
 
@@ -90,7 +90,7 @@ int main(void)
 {
     zn_poller *p = NULL;
     zb_thread *th = NULL;
-    zms_media_source *src;
+    zcs_media_source *src;
     gb_media_session *sess;
     gb_channel ch;
     sock_t rx = SOCK_INVALID;
@@ -113,14 +113,14 @@ int main(void)
     }
 #endif
     zn_platform_init();
-    zms_media_source_registry_init();
+    zcs_media_source_registry_init();
 
     /* 1) 已发布的直播源 + GB 通道映射。 */
-    src = zms_media_source_register("rtmp", APP, STREAM);
+    src = zcs_media_source_register("rtmp", APP, STREAM);
     CHECK(src != NULL);
     src->publishing = 1;
     src->has_video = 1;
-    src->video.codec = ZMS_CODEC_H264;
+    src->video.codec = ZCS_CODEC_H264;
     src->video.ready = 1;
     src->video.width = 1280;
     src->video.height = 720;
@@ -310,7 +310,7 @@ int main(void)
     gb_media_set_poller_for_test(NULL);
 
     sock_close(rx);
-    zms_media_source_close(src, 1);
+    zcs_media_source_close(src, 1);
     (void)peer;
     printf("test_gb_media_loopback ok (rtp=%d ps=%d port=%u)\n", got, saw_ps,
            (unsigned)local_port);

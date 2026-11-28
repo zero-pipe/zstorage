@@ -9,14 +9,14 @@
 #include "session/webrtc/session_internal.h"
 #include "protocol/webrtc/media_internal.h"
 #include "protocol/webrtc/ice_internal.h"
-#include "zms/publish/ingest/common/stream_ingest.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/core/gop/queue.h"
-#include "zms/core/stream/hub.h"
-#include "zms/session/webrtc/webrtc_server.h"
-#include "zms/protocol/rtsp/sdp.h"
+#include "zcs/publish/ingest/common/stream_ingest.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/session/webrtc/webrtc_server.h"
+#include "zcs/protocol/rtsp/sdp.h"
 #include "sdp.h"
 #include "sdp_internal.h"
 #include "sdp-a-fmtp.h"
@@ -37,7 +37,7 @@
 #define webrtc_strcasecmp strcasecmp
 #endif
 
-int zms_webrtc_session_build_client_offer(zms_webrtc_session *s, int recvonly, char *offer,
+int zcs_webrtc_session_build_client_offer(zcs_webrtc_session *s, int recvonly, char *offer,
                                           size_t offer_cap, size_t *offer_len)
 {
     const char *host;
@@ -53,8 +53,8 @@ int zms_webrtc_session_build_client_offer(zms_webrtc_session *s, int recvonly, c
     if (!s || !s->ice_host.ctx || !offer || offer_cap == 0) {
         return -1;
     }
-    host = zms_webrtc_server_advertise_host(zms_webrtc_server_instance());
-    fp = zms_webrtc_dtls_fingerprint();
+    host = zcs_webrtc_server_advertise_host(zcs_webrtc_server_instance());
+    fp = zcs_webrtc_dtls_fingerprint();
     if (!host || !host[0] || !fp) {
         return -1;
     }
@@ -64,7 +64,7 @@ int zms_webrtc_session_build_client_offer(zms_webrtc_session *s, int recvonly, c
     if (!s->local_pwd[0]) {
         webrtc_rand_credential(s->local_pwd, sizeof(s->local_pwd), 22);
     }
-    if (zms_webrtc_ice_prepare_client(s->ice_host.ctx, s->local_ufrag, s->local_pwd, host, s->port) != 0) {
+    if (zcs_webrtc_ice_prepare_client(s->ice_host.ctx, s->local_ufrag, s->local_pwd, host, s->port) != 0) {
         return -1;
     }
     /* 不在这里等 ICE gather：本函数跑在 poller 上，sleep 会卡住整个事件循环。
@@ -89,7 +89,7 @@ int zms_webrtc_session_build_client_offer(zms_webrtc_session *s, int recvonly, c
     }
 
     s->video_pt = 96;
-    s->video_codec = ZMS_CODEC_H264;
+    s->video_codec = ZCS_CODEC_H264;
     s->answer_has_video = 1;
     s->answer_has_audio = 0;
     snprintf(s->video_mid, sizeof(s->video_mid), "0");
@@ -127,8 +127,8 @@ int zms_webrtc_session_build_client_offer(zms_webrtc_session *s, int recvonly, c
                          "a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-"
                          "extensions-01\r\n"
                          "a=rtcp-fb:96 transport-cc\r\n"
-                         "a=ssrc:1 cname:zms\r\n"
-                         "a=ssrc:1 msid:zms zmsv\r\n");
+                         "a=ssrc:1 cname:zcs\r\n"
+                         "a=ssrc:1 msid:zcs zcsv\r\n");
         if (r < 0 || (size_t)r >= offer_cap - (size_t)n) {
             return -1;
         }
@@ -143,7 +143,7 @@ int zms_webrtc_session_build_client_offer(zms_webrtc_session *s, int recvonly, c
         }
         n += r;
     }
-    cand_len = zms_webrtc_ice_sdp_candidates(s->ice_host.ctx, cands, sizeof(cands));
+    cand_len = zcs_webrtc_ice_sdp_candidates(s->ice_host.ctx, cands, sizeof(cands));
     if (cand_len > 0) {
         if (cand_len >= offer_cap - (size_t)n) {
             return -1;
@@ -238,7 +238,7 @@ static int webrtc_client_answer_video_pt(sdp_t *sdp, int *out_pt)
                                      sizeof(params)) != 0) {
             continue;
         }
-        if (webrtc_codec_from_encoding(enc) == ZMS_CODEC_H264) {
+        if (webrtc_codec_from_encoding(enc) == ZCS_CODEC_H264) {
             *out_pt = fmts[i];
             return 0;
         }
@@ -246,7 +246,7 @@ static int webrtc_client_answer_video_pt(sdp_t *sdp, int *out_pt)
     return -1;
 }
 
-int zms_webrtc_session_probe_offer(const char *offer, size_t offer_len, char *ufrag,
+int zcs_webrtc_session_probe_offer(const char *offer, size_t offer_len, char *ufrag,
                                    size_t ufrag_cap, int *video_pt)
 {
     sdp_t *sdp;
@@ -277,7 +277,7 @@ int zms_webrtc_session_probe_offer(const char *offer, size_t offer_len, char *uf
     return 0;
 }
 
-int zms_webrtc_session_apply_client_answer(zms_webrtc_session *s, const char *answer,
+int zcs_webrtc_session_apply_client_answer(zcs_webrtc_session *s, const char *answer,
                                            size_t answer_len)
 {
     sdp_t *sdp;
@@ -298,7 +298,7 @@ int zms_webrtc_session_apply_client_answer(zms_webrtc_session *s, const char *an
     }
     if (webrtc_client_answer_video_pt(sdp, &pt) == 0) {
         s->video_pt = (uint8_t)pt;
-        s->video_codec = ZMS_CODEC_H264;
+        s->video_codec = ZCS_CODEC_H264;
         s->answer_has_video = 1;
         zn_info("[webrtc] client answer video pt=%d id=%s", pt, s->id);
     } else {
@@ -308,7 +308,7 @@ int zms_webrtc_session_apply_client_answer(zms_webrtc_session *s, const char *an
     }
     s->answer_has_audio = 0;
     sdp_destroy(sdp);
-    if (s->ice_host.ctx && zms_webrtc_ice_connect_client(s->ice_host.ctx, answer, answer_len, s->remote_ufrag,
+    if (s->ice_host.ctx && zcs_webrtc_ice_connect_client(s->ice_host.ctx, answer, answer_len, s->remote_ufrag,
                                                 s->remote_pwd) != 0) {
         return -1;
     }

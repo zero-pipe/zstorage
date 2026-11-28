@@ -3,9 +3,9 @@
  * @brief RTSP ANNOUNCE：解析推流 SDP 并挂接入站。
  */
 #include "session/rtsp/session_internal.h"
-#include "zms/core/gop/queue.h"
-#include "zms/protocol/rtsp/sdp.h"
-#include "zms/util/base64.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/protocol/rtsp/sdp.h"
+#include "zcs/util/base64.h"
 #include "zn/util/log.h"
 #include <stdio.h>
 #include <string.h>
@@ -14,7 +14,7 @@
 static size_t decode_b64(const char *in, uint8_t *out, size_t cap)
 {
     size_t n = 0;
-    (void)zms_base64_decode(in, out, cap, &n);
+    (void)zcs_base64_decode(in, out, cap, &n);
     return n;
 }
 
@@ -31,7 +31,7 @@ static void trim_fmtp_token(char *s)
     }
 }
 
-static void apply_h264_sprop(zms_rtsp_session *rs, const char *fmtp)
+static void apply_h264_sprop(zcs_rtsp_session *rs, const char *fmtp)
 {
     if (!rs || !rs->pb.ingress || !fmtp) {
         return;
@@ -65,7 +65,7 @@ static void apply_h264_sprop(zms_rtsp_session *rs, const char *fmtp)
         return;
     }
 
-    (void)zms_live_ingest_set_h264_sps_pps(rs->pb.ingress, sps, sps_len, pps, pps_len);
+    (void)zcs_live_ingest_set_h264_sps_pps(rs->pb.ingress, sps, sps_len, pps, pps_len);
     zn_info("RTSP ANNOUNCE: applied H264 sprop SPS=%u PPS=%u", (unsigned)sps_len,
              (unsigned)pps_len);
 }
@@ -100,7 +100,7 @@ static int fmtp_extract_b64(const char *fmtp, const char *key, char *out, size_t
     return out[0] != '\0';
 }
 
-static void apply_h265_sprop(zms_rtsp_session *rs, const char *fmtp)
+static void apply_h265_sprop(zcs_rtsp_session *rs, const char *fmtp)
 {
     char vps_b64[512], sps_b64[512], pps_b64[512];
     uint8_t vps[512], sps[512], pps[512];
@@ -125,14 +125,14 @@ static void apply_h265_sprop(zms_rtsp_session *rs, const char *fmtp)
     if (!sps_len || !pps_len) {
         return;
     }
-    if (zms_live_ingest_set_h265_vps_sps_pps(rs->pb.ingress, vps_len ? vps : NULL, vps_len, sps,
+    if (zcs_live_ingest_set_h265_vps_sps_pps(rs->pb.ingress, vps_len ? vps : NULL, vps_len, sps,
                                              sps_len, pps, pps_len) == ZN_OK) {
         zn_info("RTSP ANNOUNCE: applied H265 sprop VPS=%u SPS=%u PPS=%u", (unsigned)vps_len,
                  (unsigned)sps_len, (unsigned)pps_len);
     }
 }
 
-static void apply_announce_sdp(zms_rtsp_session *rs, const char *sdp, size_t sdp_len)
+static void apply_announce_sdp(zcs_rtsp_session *rs, const char *sdp, size_t sdp_len)
 {
     if (!rs) {
         return;
@@ -141,59 +141,59 @@ static void apply_announce_sdp(zms_rtsp_session *rs, const char *sdp, size_t sdp
     memset(rs->pb.publish_track_setup, 0, sizeof(rs->pb.publish_track_setup));
     rs->pb.video_clock_hz = 90000;
     rs->pb.audio_clock_hz = 44100;
-    if (!sdp || !sdp_len || zms_sdp_parse(sdp, sdp_len, &rs->pb.publish_sdp) != ZN_OK) {
+    if (!sdp || !sdp_len || zcs_sdp_parse(sdp, sdp_len, &rs->pb.publish_sdp) != ZN_OK) {
         zn_warn("RTSP ANNOUNCE: SDP parse failed app=%s stream=%s", rs->app, rs->stream);
         return;
     }
 
     for (unsigned i = 0; i < rs->pb.publish_sdp.track_count; ++i) {
-        const zms_media_track *t = &rs->pb.publish_sdp.tracks[i];
-        if (t->type == ZMS_TRACK_VIDEO) {
+        const zcs_media_track *t = &rs->pb.publish_sdp.tracks[i];
+        if (t->type == ZCS_TRACK_VIDEO) {
             if (rs->source) {
                 rs->source->has_video = 1;
                 rs->source->video.codec = t->codec;
                 rs->source->video.ready = 1;
             }
             rs->pb.video_clock_hz = (uint32_t)(t->sample_rate > 0 ? t->sample_rate : 90000);
-            if (t->codec != ZMS_CODEC_H264 && t->codec != ZMS_CODEC_H265 &&
-                t->codec != ZMS_CODEC_AV1 && t->codec != ZMS_CODEC_VP8 &&
-                t->codec != ZMS_CODEC_VP9 && t->codec != ZMS_CODEC_H266) {
+            if (t->codec != ZCS_CODEC_H264 && t->codec != ZCS_CODEC_H265 &&
+                t->codec != ZCS_CODEC_AV1 && t->codec != ZCS_CODEC_VP8 &&
+                t->codec != ZCS_CODEC_VP9 && t->codec != ZCS_CODEC_H266) {
                 zn_warn("RTSP ANNOUNCE: unsupported video codec=%d", (int)t->codec);
                 continue;
             }
             if (t->fmtp[0]) {
-                if (t->codec == ZMS_CODEC_H265) {
+                if (t->codec == ZCS_CODEC_H265) {
                     apply_h265_sprop(rs, t->fmtp);
-                } else if (t->codec == ZMS_CODEC_H264) {
+                } else if (t->codec == ZCS_CODEC_H264) {
                     apply_h264_sprop(rs, t->fmtp);
                 }
             }
             if (t->interleaved_rtp == 0) {
                 rs->video_rtp_ch = (uint8_t)(i * 2);
             }
-        } else if (t->type == ZMS_TRACK_AUDIO) {
+        } else if (t->type == ZCS_TRACK_AUDIO) {
             if (rs->source) {
                 rs->source->has_audio = 1;
             }
             rs->pb.audio_rate = t->sample_rate > 0 ? t->sample_rate : 44100;
             rs->pb.audio_channels = t->channels > 0 ? t->channels : 2;
-            if (t->codec == ZMS_CODEC_G711A || t->codec == ZMS_CODEC_G711U) {
+            if (t->codec == ZCS_CODEC_G711A || t->codec == ZCS_CODEC_G711U) {
                 rs->pb.audio_codec = t->codec;
                 rs->pb.audio_rate = t->sample_rate > 0 ? t->sample_rate : 8000;
                 rs->pb.audio_channels = t->channels > 0 ? t->channels : 1;
                 rs->pb.audio_clock_hz = (uint32_t)rs->pb.audio_rate;
-            } else if (t->codec == ZMS_CODEC_OPUS) {
-                rs->pb.audio_codec = ZMS_CODEC_OPUS;
+            } else if (t->codec == ZCS_CODEC_OPUS) {
+                rs->pb.audio_codec = ZCS_CODEC_OPUS;
                 rs->pb.audio_rate = t->sample_rate > 0 ? t->sample_rate : 48000;
                 rs->pb.audio_clock_hz = (uint32_t)rs->pb.audio_rate;
-            } else if (t->codec != ZMS_CODEC_AAC) {
+            } else if (t->codec != ZCS_CODEC_AAC) {
                 zn_warn("RTSP ANNOUNCE: unsupported audio codec=%d", (int)t->codec);
                 continue;
             } else {
-                rs->pb.audio_codec = ZMS_CODEC_AAC;
+                rs->pb.audio_codec = ZCS_CODEC_AAC;
                 rs->pb.audio_clock_hz = (uint32_t)(t->sample_rate > 0 ? t->sample_rate : 44100);
             }
-            if (t->codec == ZMS_CODEC_AAC && (t->type == ZMS_TRACK_AUDIO && t->fmtp[0])) {
+            if (t->codec == ZCS_CODEC_AAC && (t->type == ZCS_TRACK_AUDIO && t->fmtp[0])) {
                 const char *cfg = strstr(t->fmtp, "config=");
                 if (!cfg) {
                     cfg = strstr(t->fmtp, "Config=");
@@ -204,12 +204,12 @@ static void apply_announce_sdp(zms_rtsp_session *rs, const char *sdp, size_t sdp
                     hex[sizeof(hex) - 1] = '\0';
                     trim_fmtp_token(hex);
                     if (hex[0]) {
-                        (void)zms_live_ingest_set_aac_config_hex(rs->pb.ingress, hex);
-                        zms_live_ingest_mark_real_audio(rs->pb.ingress);
+                        (void)zcs_live_ingest_set_aac_config_hex(rs->pb.ingress, hex);
+                        zcs_live_ingest_mark_real_audio(rs->pb.ingress);
                     }
                 }
             }
-            if (rs->source && rs->pb.audio_codec != ZMS_CODEC_INVALID) {
+            if (rs->source && rs->pb.audio_codec != ZCS_CODEC_INVALID) {
                 rs->source->audio.codec = rs->pb.audio_codec;
                 rs->source->audio.sample_rate = rs->pb.audio_rate;
                 rs->source->audio.channels = rs->pb.audio_channels;
@@ -225,57 +225,57 @@ static void apply_announce_sdp(zms_rtsp_session *rs, const char *sdp, size_t sdp
                  (int)t->type, (int)t->codec, t->payload_type, t->sample_rate, t->control);
     }
     if (rs->pb.ingress) {
-        zms_live_ingest_set_rtp_clocks(rs->pb.ingress, rs->pb.video_clock_hz, rs->pb.audio_codec,
+        zcs_live_ingest_set_rtp_clocks(rs->pb.ingress, rs->pb.video_clock_hz, rs->pb.audio_codec,
                                        rs->pb.audio_clock_hz);
     }
-    if (rs->pb.ingress && rs->source && rs->source->has_audio && rs->pb.audio_codec == ZMS_CODEC_AAC) {
-        (void)zms_live_ingest_ensure_aac_config(rs->pb.ingress, rs->pb.audio_rate, rs->pb.audio_channels);
-        zms_live_ingest_mark_real_audio(rs->pb.ingress);
+    if (rs->pb.ingress && rs->source && rs->source->has_audio && rs->pb.audio_codec == ZCS_CODEC_AAC) {
+        (void)zcs_live_ingest_ensure_aac_config(rs->pb.ingress, rs->pb.audio_rate, rs->pb.audio_channels);
+        zcs_live_ingest_mark_real_audio(rs->pb.ingress);
     }
 }
 
-void zms_rtsp_session_handle_announce(zms_rtsp_session *rs, const zms_rtsp_message *msg)
+void zcs_rtsp_session_handle_announce(zcs_rtsp_session *rs, const zcs_rtsp_message *msg)
 {
     if (!rs || !msg) {
         return;
     }
-    zms_rtsp_session_parse_url(zms_rtsp_message_url(msg), rs->app, rs->stream);
-    zms_rtsp_session_capture_params(rs, zms_rtsp_message_url(msg));
-    zms_rtsp_url_vhost(zms_rtsp_message_url(msg), rs->vhost, sizeof(rs->vhost));
+    zcs_rtsp_session_parse_url(zcs_rtsp_message_url(msg), rs->app, rs->stream);
+    zcs_rtsp_session_capture_params(rs, zcs_rtsp_message_url(msg));
+    zcs_rtsp_url_vhost(zcs_rtsp_message_url(msg), rs->vhost, sizeof(rs->vhost));
     if (!rs->app[0] || !rs->stream[0]) {
-        zms_rtsp_session_send_resp(rs, 403, "Forbidden", "Content-Type: text/plain\r\n",
+        zcs_rtsp_session_send_resp(rs, 403, "Forbidden", "Content-Type: text/plain\r\n",
                                    "invalid rtsp push url", 20);
         return;
     }
-    char client_stream[ZMS_STREAM_MAX];
+    char client_stream[ZCS_STREAM_MAX];
     strncpy(client_stream, rs->stream, sizeof(client_stream) - 1);
-    rs->pb.ingress = zms_live_ingest_create_publish(rs->app, rs->stream, NULL);
+    rs->pb.ingress = zcs_live_ingest_create_publish(rs->app, rs->stream, NULL);
     if (rs->pb.ingress) {
-        zms_live_ingest_set_poller(rs->pb.ingress, rs->poller);
+        zcs_live_ingest_set_poller(rs->pb.ingress, rs->poller);
     }
-    rs->source = rs->pb.ingress ? zms_live_ingest_source(rs->pb.ingress) : NULL;
+    rs->source = rs->pb.ingress ? zcs_live_ingest_source(rs->pb.ingress) : NULL;
     if (!rs->source || !rs->source->gop_queue) {
-        zms_live_ingest_destroy(rs->pb.ingress);
+        zcs_live_ingest_destroy(rs->pb.ingress);
         rs->pb.ingress = NULL;
-        zms_rtsp_session_send_resp(rs, 500, "Internal Server Error", NULL, NULL, 0);
+        zcs_rtsp_session_send_resp(rs, 500, "Internal Server Error", NULL, NULL, 0);
         return;
     }
-    if (zms_rtsp_message_body(msg) && zms_rtsp_message_body_len(msg)) {
-        apply_announce_sdp(rs, zms_rtsp_message_body(msg), zms_rtsp_message_body_len(msg));
+    if (zcs_rtsp_message_body(msg) && zcs_rtsp_message_body_len(msg)) {
+        apply_announce_sdp(rs, zcs_rtsp_message_body(msg), zcs_rtsp_message_body_len(msg));
     }
     if (rs->pb.publish_sdp.track_count == 0) {
-        zms_live_ingest_destroy(rs->pb.ingress);
+        zcs_live_ingest_destroy(rs->pb.ingress);
         rs->pb.ingress = NULL;
         rs->source = NULL;
-        zms_rtsp_session_send_resp(rs, 403, "Forbidden", "Content-Type: text/plain\r\n",
+        zcs_rtsp_session_send_resp(rs, 403, "Forbidden", "Content-Type: text/plain\r\n",
                                    "no valid track in sdp", 21);
         return;
     }
-    strncpy(rs->content_base, zms_rtsp_message_url(msg), sizeof(rs->content_base) - 1);
+    strncpy(rs->content_base, zcs_rtsp_message_url(msg), sizeof(rs->content_base) - 1);
     if (rs->source) {
         strncpy(rs->stream, rs->source->stream, sizeof(rs->stream) - 1);
     }
     zn_info("RTSP ANNOUNCE 200: app=%s client_stream=%s stream_id=%s tracks=%u", rs->app,
              client_stream, rs->stream, rs->pb.publish_sdp.track_count);
-    zms_rtsp_session_send_resp(rs, 200, "OK", NULL, NULL, 0);
+    zcs_rtsp_session_send_resp(rs, 200, "OK", NULL, NULL, 0);
 }

@@ -1,5 +1,5 @@
-#ifndef ZMS_SRC_BRIDGE_ZM_RTP_PS_H
-#define ZMS_SRC_BRIDGE_ZM_RTP_PS_H
+#ifndef ZCS_SRC_BRIDGE_ZM_RTP_PS_H
+#define ZCS_SRC_BRIDGE_ZM_RTP_PS_H
 
 /**
  * @file zm_rtp_ps.h
@@ -15,31 +15,31 @@
 extern "C" {
 #endif
 
-typedef struct zms_zm_rtp_ps zms_zm_rtp_ps;
+typedef struct zcs_zm_rtp_ps zcs_zm_rtp_ps;
 
-typedef int (*zms_zm_rtp_ps_write_fn)(void *user, const uint8_t *rtp, size_t len);
+typedef int (*zcs_zm_rtp_ps_write_fn)(void *user, const uint8_t *rtp, size_t len);
 
-typedef struct zms_zm_rtp_ps_opts {
+typedef struct zcs_zm_rtp_ps_opts {
     uint8_t payload_type;
     uint32_t ssrc;
     uint16_t seq;
     /** 单个 RTP 包总长上限（含 12 字节头）；0 = 1400。 */
     size_t mtu;
-    zms_zm_rtp_ps_write_fn write;
+    zcs_zm_rtp_ps_write_fn write;
     void *user;
-} zms_zm_rtp_ps_opts;
+} zcs_zm_rtp_ps_opts;
 
-zms_zm_rtp_ps *zms_zm_rtp_ps_create(const zms_zm_rtp_ps_opts *opts);
-void zms_zm_rtp_ps_destroy(zms_zm_rtp_ps *s);
+zcs_zm_rtp_ps *zcs_zm_rtp_ps_create(const zcs_zm_rtp_ps_opts *opts);
+void zcs_zm_rtp_ps_destroy(zcs_zm_rtp_ps *s);
 
 /** 打包一个 PS pack；timestamp 为 90kHz RTP 时间戳。 */
-int zms_zm_rtp_ps_input(zms_zm_rtp_ps *s, const uint8_t *ps, size_t len, uint32_t timestamp);
+int zcs_zm_rtp_ps_input(zcs_zm_rtp_ps *s, const uint8_t *ps, size_t len, uint32_t timestamp);
 
 /** 最近一次输出的序号（诊断用）。 */
-uint16_t zms_zm_rtp_ps_last_seq(const zms_zm_rtp_ps *s);
+uint16_t zcs_zm_rtp_ps_last_seq(const zcs_zm_rtp_ps *s);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* ZMS_SRC_BRIDGE_ZM_RTP_PS_H */
+#endif /* ZCS_SRC_BRIDGE_ZM_RTP_PS_H */

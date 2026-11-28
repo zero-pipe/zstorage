@@ -2,25 +2,25 @@
  * @file segmenter.c
  * @brief 直播 HLS(TS) 分片器。
  */
-#include "zms/play/hls/segmenter.h"
-#include "zms/play/hls/sidecar.h"
-#include "zms/media/codec/param_sets.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/container/container_registry.h"
-#include "zms/core/gop/queue.h"
-#include "zms/core/frame.h"
-#include "zms/media/clock.h"
-#include "zms/media/media_limits.h"
-#include "zms/egress/recorder/egress_segment_recorder.h"
+#include "zcs/play/hls/segmenter.h"
+#include "zcs/play/hls/sidecar.h"
+#include "zcs/media/codec/param_sets.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/container/container_registry.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/core/frame.h"
+#include "zcs/media/clock.h"
+#include "zcs/media/media_limits.h"
+#include "zcs/egress/recorder/egress_segment_recorder.h"
 #include "zn/util/buf.h"
 #include "zn/util/log.h"
 #include "zn/util/timer.h"
 #include "zn/poller/poller.h"
 #include "zb/os/sync.h"
 #include "zn/platform.h"
-#include "bridge/zm_zms_bridge.h"
+#include "bridge/zm_zcs_bridge.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,16 +75,16 @@ static int hls_save_mkdir_p(const char *dir)
     return HLS_MKDIR(tmp) == 0;
 }
 
-void hls_save_write_file(zms_http_hls_segmenter *rec, const char *name, const void *data,
+void hls_save_write_file(zcs_http_hls_segmenter *rec, const char *name, const void *data,
                          size_t len)
 {
     if (!rec || !rec->save_enabled || !hls_save_name_ok(name) || !data || len == 0)
         return;
     /* 磁盘写入交给 HLS 单 worker FIFO，避免 poller 阻塞。 */
-    zms_hls_io_enqueue(rec->save_dir, name, data, len);
+    zcs_hls_io_enqueue(rec->save_dir, name, data, len);
 }
 
-static void hls_save_playlist(zms_http_hls_segmenter *rec)
+static void hls_save_playlist(zcs_http_hls_segmenter *rec)
 {
     char text[4096];
     size_t n = 0;
@@ -92,7 +92,7 @@ static void hls_save_playlist(zms_http_hls_segmenter *rec)
     if (!rec || !rec->save_enabled || !rec->maker) {
         return;
     }
-    if (zms_http_hls_playlist_build_m3u8(rec->maker, text, sizeof(text), &n) != ZN_OK || n == 0) {
+    if (zcs_http_hls_playlist_build_m3u8(rec->maker, text, sizeof(text), &n) != ZN_OK || n == 0) {
         return;
     }
     hls_save_write_file(rec, "hls.m3u8", text, n);
@@ -110,7 +110,7 @@ static void hls_save_playlist(zms_http_hls_segmenter *rec)
 int hls_media_segment_cb(void *param, const void *data, size_t bytes, int64_t pts_ms,
                          int64_t dts_ms, int64_t duration_ms)
 {
-    zms_http_hls_segmenter *rec = (zms_http_hls_segmenter *)param;
+    zcs_http_hls_segmenter *rec = (zcs_http_hls_segmenter *)param;
     zn_buf *buf;
     uint64_t dur_ms;
 
@@ -134,7 +134,7 @@ int hls_media_segment_cb(void *param, const void *data, size_t bytes, int64_t pt
     }
     memcpy((void *)zn_buf_data(buf), data, bytes);
     zn_buf_set_len(buf, bytes);
-    if (zms_http_hls_playlist_push_segment_buf(rec->maker, buf, pts_ms, dts_ms, dur_ms, 0) !=
+    if (zcs_http_hls_playlist_push_segment_buf(rec->maker, buf, pts_ms, dts_ms, dur_ms, 0) !=
         ZN_OK) {
         zn_buf_unref(buf);
         return -1;
@@ -144,7 +144,7 @@ int hls_media_segment_cb(void *param, const void *data, size_t bytes, int64_t pt
         char latest[64];
 
         if (rec->src &&
-            zms_http_hls_playlist_latest_segment(rec->maker, latest, sizeof(latest), NULL)) {
+            zcs_http_hls_playlist_latest_segment(rec->maker, latest, sizeof(latest), NULL)) {
             zn_info("HLS live segment cut: %s/%s %s dur=%llu bytes=%u", rec->src->app,
                      rec->src->stream, latest, (unsigned long long)dur_ms, (unsigned)bytes);
             if (rec->save_enabled) {
@@ -182,7 +182,7 @@ static int hls_zm_on_playlist(void *ctx, const char *name, const char *text, siz
     (void)name;
     (void)text;
     (void)len;
-    return 0; /* 清单仍由 zms_http_hls_playlist 生成 */
+    return 0; /* 清单仍由 zcs_http_hls_playlist 生成 */
 }
 
 /*
@@ -190,23 +190,23 @@ static int hls_zm_on_playlist(void *ctx, const char *name, const char *text, siz
  * VP8/VP9/AV1/H266 没有广泛兼容的 TS 封装，浏览器 SASL/原生 HLS 也只认
  * fMP4 里的这些编码。所以源一旦是这些 codec，就必须切 CMAF/fMP4 路径。
  */
-static int hls_source_needs_fmp4(const zms_media_source *src)
+static int hls_source_needs_fmp4(const zcs_media_source *src)
 {
     if (!src || !src->video.ready) {
         return 0;
     }
     switch (src->video.codec) {
-    case ZMS_CODEC_VP8:
-    case ZMS_CODEC_VP9:
-    case ZMS_CODEC_AV1:
-    case ZMS_CODEC_H266:
+    case ZCS_CODEC_VP8:
+    case ZCS_CODEC_VP9:
+    case ZCS_CODEC_AV1:
+    case ZCS_CODEC_H266:
         return 1;
     default:
         return 0;
     }
 }
 
-void zms_http_hls_segmenter_default_opts(zms_http_hls_segmenter_opts *opts)
+void zcs_http_hls_segmenter_default_opts(zcs_http_hls_segmenter_opts *opts)
 {
     if (!opts) {
         return;
@@ -219,11 +219,11 @@ void zms_http_hls_segmenter_default_opts(zms_http_hls_segmenter_opts *opts)
 
 /* HLS recorder 在 publish 时创建，此时 codec 可能尚未就绪，use_fmp4 会被误判为 0。
  * 首个 tick 若发现源其实是 AV1/VP8/VP9/H266，且还没有产出任何分片，就切到 fMP4。 */
-static void hls_maybe_upgrade_to_fmp4(zms_http_hls_segmenter *rec)
+static void hls_maybe_upgrade_to_fmp4(zcs_http_hls_segmenter *rec)
 {
-    zms_http_hls_playlist_opts mopts;
-    zms_http_hls_playlist *maker;
-    zms_hls_fmp4 *fmp4;
+    zcs_http_hls_playlist_opts mopts;
+    zcs_http_hls_playlist *maker;
+    zcs_hls_fmp4 *fmp4;
     int64_t seg_ms;
 
     if (!rec || rec->use_fmp4 || !rec->maker || !rec->src) {
@@ -232,7 +232,7 @@ static void hls_maybe_upgrade_to_fmp4(zms_http_hls_segmenter *rec)
     if (!hls_source_needs_fmp4(rec->src)) {
         return;
     }
-    if (zms_http_hls_playlist_segment_count(rec->maker) > 0) {
+    if (zcs_http_hls_playlist_segment_count(rec->maker) > 0) {
         return; /* 已产出 TS 分片，不再回切 */
     }
 
@@ -244,13 +244,13 @@ static void hls_maybe_upgrade_to_fmp4(zms_http_hls_segmenter *rec)
     mopts.segment_duration_sec = rec->seg_duration_sec;
     mopts.segment_count = rec->seg_count;
     mopts.use_fmp4 = 1;
-    maker = zms_http_hls_playlist_create(&mopts);
+    maker = zcs_http_hls_playlist_create(&mopts);
     if (!maker) {
         return;
     }
-    fmp4 = zms_hls_fmp4_create(seg_ms, hls_fmp4_segment_cb, rec);
+    fmp4 = zcs_hls_fmp4_create(seg_ms, hls_fmp4_segment_cb, rec);
     if (!fmp4) {
-        zms_http_hls_playlist_destroy(maker);
+        zcs_http_hls_playlist_destroy(maker);
         return;
     }
     /* 首 tick 可能已经按"codec 未就绪"建了 TS 输出；此时还没切出分片，直接丢弃。 */
@@ -267,7 +267,7 @@ static void hls_maybe_upgrade_to_fmp4(zms_http_hls_segmenter *rec)
     }
     rec->sent_video_cfg = 0;
     rec->sent_audio_cfg = 0;
-    zms_http_hls_playlist_destroy(rec->maker);
+    zcs_http_hls_playlist_destroy(rec->maker);
     rec->maker = maker;
     rec->fmp4_mux = fmp4;
     rec->use_fmp4 = 1;
@@ -284,17 +284,17 @@ static void hls_maybe_upgrade_to_fmp4(zms_http_hls_segmenter *rec)
  * （尤其是音频 codec）可能还没到齐，提前建就选错了封装路径。
  *
  * 两级策略：优先 zm_packager（支持 H.264/H.265 + AAC，内部处理参数集）；
- * 若音频不是 AAC（packager 不支持），回退到 legacy zms_container TS mux。
+ * 若音频不是 AAC（packager 不支持），回退到 legacy zcs_container TS mux。
  * 回退前把已取的 tracks 全部 clear，避免泄漏。
  */
-static void hls_ensure_ts_output(zms_http_hls_segmenter *rec)
+static void hls_ensure_ts_output(zcs_http_hls_segmenter *rec)
 {    zm_track tracks[4];
     size_t tn = 0;
 
     if (!rec || rec->use_fmp4 || rec->zm_pkg || rec->ts_mux || !rec->src) {
         return;
     }
-    if (zms_zm_tracks_from_source(rec->src, tracks, 4, &tn) != ZM_OK || tn == 0) {
+    if (zcs_zm_tracks_from_source(rec->src, tracks, 4, &tn) != ZM_OK || tn == 0) {
         return; /* 配置尚未到达；下个 tick 再试 */
     }
     {
@@ -340,51 +340,51 @@ static void hls_ensure_ts_output(zms_http_hls_segmenter *rec)
     }
 legacy_ts:
     {
-        zms_container_mux_opts mcfg;
+        zcs_container_mux_opts mcfg;
         int64_t seg_ms = (int64_t)(rec->seg_duration_sec * 1000.f);
 
         if (seg_ms <= 0) {
             seg_ms = 2000;
         }
         memset(&mcfg, 0, sizeof(mcfg));
-        mcfg.id = ZMS_CONTAINER_MPEGTS;
+        mcfg.id = ZCS_CONTAINER_MPEGTS;
         mcfg.segment_duration_ms = seg_ms;
         mcfg.on_segment = hls_media_segment_cb;
         mcfg.user = rec;
-        rec->ts_mux_ops = zms_container_muxer_find(ZMS_CONTAINER_MPEGTS);
+        rec->ts_mux_ops = zcs_container_muxer_find(ZCS_CONTAINER_MPEGTS);
         rec->ts_mux =
             rec->ts_mux_ops && rec->ts_mux_ops->create ? rec->ts_mux_ops->create(&mcfg) : NULL;
     }
 }
 
-static void zms_http_hls_segmenter_tick_nolock(zms_http_hls_segmenter *rec);
+static void zcs_http_hls_segmenter_tick_nolock(zcs_http_hls_segmenter *rec);
 
 /* 定时器回调：与 HTTP 请求线程共用 rec->mu。所有对 rec 状态的读写（含 tick
  * 内部的 reader 读取、playlist 追加）都在锁内，closing 为 1 表示销毁中，
  * 立即放弃，避免在已释放的 rec 上工作。 */
 static void hls_segmenter_tick_cb(void *user)
 {
-    zms_http_hls_segmenter *rec = (zms_http_hls_segmenter *)user;
+    zcs_http_hls_segmenter *rec = (zcs_http_hls_segmenter *)user;
 
     if (!rec || !rec->mu) {
         return;
     }
     zb_mutex_lock(rec->mu);
     if (!rec->closing) {
-        zms_http_hls_segmenter_tick_nolock(rec);
+        zcs_http_hls_segmenter_tick_nolock(rec);
     }
     zb_mutex_unlock(rec->mu);
 }
 
-static zms_http_hls_segmenter *hls_segmenter_create_common(zms_media_source *src,
-                                                           const zms_http_hls_segmenter_opts *o)
+static zcs_http_hls_segmenter *hls_segmenter_create_common(zcs_media_source *src,
+                                                           const zcs_http_hls_segmenter_opts *o)
 {
-    zms_http_hls_segmenter *rec = (zms_http_hls_segmenter *)calloc(1, sizeof(*rec));
+    zcs_http_hls_segmenter *rec = (zcs_http_hls_segmenter *)calloc(1, sizeof(*rec));
     if (!rec) {
         return NULL;
     }
 
-    zms_http_hls_playlist_opts mopts = {
+    zcs_http_hls_playlist_opts mopts = {
         .segment_duration_sec = o->segment_duration_sec,
         .segment_count = o->segment_count,
     };
@@ -394,7 +394,7 @@ static zms_http_hls_segmenter *hls_segmenter_create_common(zms_media_source *src
      * 多出一个无意义的 "default" 目录。app/stream 已通过 name_ok 校验。 */
     if (o->save_path && o->save_path[0] && src && hls_save_name_ok(src->app) &&
         hls_save_name_ok(src->stream)) {
-        int n = (zms_vhost_enabled() && strcmp(src->vhost, ZMS_DEFAULT_VHOST) != 0)
+        int n = (zcs_vhost_enabled() && strcmp(src->vhost, ZCS_DEFAULT_VHOST) != 0)
                     ? snprintf(rec->save_dir, sizeof(rec->save_dir), "%s/%s/%s/%s", o->save_path,
                                src->vhost, src->app, src->stream)
                     : snprintf(rec->save_dir, sizeof(rec->save_dir), "%s/%s/%s", o->save_path,
@@ -411,7 +411,7 @@ static zms_http_hls_segmenter *hls_segmenter_create_common(zms_media_source *src
      * 复杂判断，保持路径简单。 */
     rec->use_fmp4 = rec->force_fmp4 || hls_source_needs_fmp4(src);
     mopts.use_fmp4 = rec->use_fmp4;
-    rec->maker = zms_http_hls_playlist_create(&mopts);
+    rec->maker = zcs_http_hls_playlist_create(&mopts);
     if (!rec->maker) {
         free(rec);
         return NULL;
@@ -422,9 +422,9 @@ static zms_http_hls_segmenter *hls_segmenter_create_common(zms_media_source *src
         seg_ms = 2000;
     }
     if (rec->use_fmp4) {
-        rec->fmp4_mux = zms_hls_fmp4_create(seg_ms, hls_fmp4_segment_cb, rec);
+        rec->fmp4_mux = zcs_hls_fmp4_create(seg_ms, hls_fmp4_segment_cb, rec);
         if (!rec->fmp4_mux) {
-            zms_http_hls_playlist_destroy(rec->maker);
+            zcs_http_hls_playlist_destroy(rec->maker);
             free(rec);
             return NULL;
         }
@@ -441,10 +441,10 @@ static zms_http_hls_segmenter *hls_segmenter_create_common(zms_media_source *src
     rec->seg_count = o->segment_count;
     rec->mu = zb_mutex_create(0);
     if (!rec->mu) {
-        zms_http_hls_segmenter_destroy(rec);
+        zcs_http_hls_segmenter_destroy(rec);
         return NULL;
     }
-    zms_mux_av_timeline_reset(&rec->mux_av);
+    zcs_mux_av_timeline_reset(&rec->mux_av);
 
     rec->annexb_cap = 256 * 1024;
     rec->annexb = (uint8_t *)malloc(rec->annexb_cap);
@@ -454,37 +454,37 @@ static zms_http_hls_segmenter *hls_segmenter_create_common(zms_media_source *src
     rec->adts_cap = 8 * 1024;
     rec->adts = (uint8_t *)malloc(rec->adts_cap);
     if (!rec->annexb || !rec->mux_buf || !rec->adts) {
-        zms_http_hls_segmenter_destroy(rec);
+        zcs_http_hls_segmenter_destroy(rec);
         return NULL;
     }
     return rec;
 }
 
-zms_http_hls_segmenter *zms_http_hls_segmenter_create(zms_media_source *src,
-                                                      const zms_http_hls_segmenter_opts *opts)
+zcs_http_hls_segmenter *zcs_http_hls_segmenter_create(zcs_media_source *src,
+                                                      const zcs_http_hls_segmenter_opts *opts)
 {
-    zms_http_hls_segmenter_opts def;
-    zms_http_hls_segmenter *rec;
-    const zms_http_hls_segmenter_opts *o;
+    zcs_http_hls_segmenter_opts def;
+    zcs_http_hls_segmenter *rec;
+    const zcs_http_hls_segmenter_opts *o;
 
     if (!src || !src->gop_queue) {
         return NULL;
     }
-    zms_http_hls_segmenter_default_opts(&def);
+    zcs_http_hls_segmenter_default_opts(&def);
     o = opts ? opts : &def;
 
     rec = hls_segmenter_create_common(src, o);
     if (!rec) {
         return NULL;
     }
-    rec->reader = zms_gop_reader_attach(src->gop_queue);
+    rec->reader = zcs_gop_reader_attach(src->gop_queue);
     if (!rec->reader) {
-        zms_http_hls_segmenter_destroy(rec);
+        zcs_http_hls_segmenter_destroy(rec);
         return NULL;
     }
-    zms_gop_reader_seek_live_key(rec->reader);
+    zcs_gop_reader_seek_live_key(rec->reader);
     /* 直接 seek 到 key：从任意位置起读会让首个分片缺少起始 IDR，播放器无法解码首屏。 */
-    (void)zms_media_source_segment_rec_set(src, ZMS_SEGMENT_REC_HLS, rec);
+    (void)zcs_media_source_segment_rec_set(src, ZCS_SEGMENT_REC_HLS, rec);
     zn_info("HLS recorder start (%s): %s/%s", rec->use_fmp4 ? "fMP4" : "gop_queue", src->app,
              src->stream);
     return rec;
@@ -503,14 +503,14 @@ zms_http_hls_segmenter *zms_http_hls_segmenter_create(zms_media_source *src,
  * 形态。因此当定时器属于其它正在运行的 poller 时，把真正的清理投递到该 poller
  * 上执行：tick 回调与 async 任务在同一线程串行，天然不会并发。
  */
-static void hls_segmenter_destroy_now(zms_http_hls_segmenter *rec);
+static void hls_segmenter_destroy_now(zcs_http_hls_segmenter *rec);
 
 static void hls_segmenter_destroy_deferred(void *user)
 {
-    hls_segmenter_destroy_now((zms_http_hls_segmenter *)user);
+    hls_segmenter_destroy_now((zcs_http_hls_segmenter *)user);
 }
 
-void zms_http_hls_segmenter_destroy(zms_http_hls_segmenter *rec)
+void zcs_http_hls_segmenter_destroy(zcs_http_hls_segmenter *rec)
 {
     zn_poller *pol;
 
@@ -537,19 +537,19 @@ void zms_http_hls_segmenter_destroy(zms_http_hls_segmenter *rec)
     hls_segmenter_destroy_now(rec);
 }
 
-static void hls_segmenter_destroy_now(zms_http_hls_segmenter *rec)
+static void hls_segmenter_destroy_now(zcs_http_hls_segmenter *rec)
 {
-    zms_media_source *src;
-    zms_http_hls_playlist *maker;
-    zms_gop_reader *reader;
-    const zms_container_muxer_ops *ts_mux_ops;
+    zcs_media_source *src;
+    zcs_http_hls_playlist *maker;
+    zcs_gop_reader *reader;
+    const zcs_container_muxer_ops *ts_mux_ops;
     void *ts_mux;
     zb_mutex *mu;
     int video_armed;
     uint64_t last_mux_dts_ms;
-    zms_codec_id video_codec;
+    zcs_codec_id video_codec;
 
-    zms_hls_fmp4 *fmp4_mux;
+    zcs_hls_fmp4 *fmp4_mux;
     zm_packager *zm_pkg;
     int use_fmp4;
 
@@ -578,10 +578,10 @@ static void hls_segmenter_destroy_now(zms_http_hls_segmenter *rec)
     if (mu) {
         zb_mutex_lock(mu);
         rec->closing = 1;
-        if (src && zms_media_source_segment_rec_get(src, ZMS_SEGMENT_REC_HLS) == rec) {
+        if (src && zcs_media_source_segment_rec_get(src, ZCS_SEGMENT_REC_HLS) == rec) {
             /* 只有 sidecar 里仍是自己时才摘除：延迟销毁期间同名录制器可能已重建，
              * 此时不能把新录制器从 sidecar 里抹掉。 */
-            (void)zms_media_source_segment_rec_set(src, ZMS_SEGMENT_REC_HLS, NULL);
+            (void)zcs_media_source_segment_rec_set(src, ZCS_SEGMENT_REC_HLS, NULL);
         }
         rec->ts_mux = NULL;
         rec->ts_mux_ops = NULL;
@@ -589,12 +589,12 @@ static void hls_segmenter_destroy_now(zms_http_hls_segmenter *rec)
         rec->zm_pkg = NULL;
         rec->reader = NULL;
         zb_mutex_unlock(mu);
-    } else if (src && zms_media_source_segment_rec_get(src, ZMS_SEGMENT_REC_HLS) == rec) {
-        (void)zms_media_source_segment_rec_set(src, ZMS_SEGMENT_REC_HLS, NULL);
+    } else if (src && zcs_media_source_segment_rec_get(src, ZCS_SEGMENT_REC_HLS) == rec) {
+        (void)zcs_media_source_segment_rec_set(src, ZCS_SEGMENT_REC_HLS, NULL);
     }
 
     if (fmp4_mux) {
-        zms_hls_fmp4_destroy(fmp4_mux);
+        zcs_hls_fmp4_destroy(fmp4_mux);
     }
     if (zm_pkg) {
         (void)zm_packager_flush(zm_pkg, 0);
@@ -612,20 +612,20 @@ static void hls_segmenter_destroy_now(zms_http_hls_segmenter *rec)
         }
     }
     if (reader) {
-        zms_gop_reader_detach(reader);
+        zcs_gop_reader_detach(reader);
     }
     if (maker) {
-        zms_http_hls_playlist_destroy(maker);
+        zcs_http_hls_playlist_destroy(maker);
     }
     free(rec->annexb);
     free(rec->mux_buf);
     free(rec->adts);
-    zms_codec_param_sets_clear(&rec->params);
+    zcs_codec_param_sets_clear(&rec->params);
     zb_mutex_destroy(mu);
     free(rec);
 }
 
-zms_http_hls_playlist *zms_http_hls_segmenter_playlist(zms_http_hls_segmenter *rec)
+zcs_http_hls_playlist *zcs_http_hls_segmenter_playlist(zcs_http_hls_segmenter *rec)
 {
     if (!rec || rec->closing) {
         return NULL;
@@ -635,13 +635,13 @@ zms_http_hls_playlist *zms_http_hls_segmenter_playlist(zms_http_hls_segmenter *r
 
 static zn_poller *hls_segmenter_timer_poller(zn_poller *fallback)
 {
-    zn_poller *main_pol = zms_http_hls_main_poller();
+    zn_poller *main_pol = zcs_http_hls_main_poller();
     return main_pol ? main_pol : fallback;
 }
 
 /* 定时器未挂在目标 poller 上时启动；10ms 周期较密，是因为直播 HLS 需要及时
  * 切片、减小首屏与切片延迟。tick 内部有帧数上限，密集触发不会吃满 CPU。 */
-void zms_http_hls_segmenter_bind_timer(zms_http_hls_segmenter *rec, zn_poller *poller)
+void zcs_http_hls_segmenter_bind_timer(zcs_http_hls_segmenter *rec, zn_poller *poller)
 {
     zn_poller *bind_pol;
 
@@ -675,7 +675,7 @@ void zms_http_hls_segmenter_bind_timer(zms_http_hls_segmenter *rec, zn_poller *p
 
 /* enter/leave 是给“分片读取”用的引用计数：HTTP 线程在读取 playlist/分片期间
  * 计数 >0，销毁/重切时据此判断还有人在用，避免把正在被读的缓冲释放掉。 */
-void zms_http_hls_segmenter_http_enter(zms_http_hls_segmenter *rec)
+void zcs_http_hls_segmenter_http_enter(zcs_http_hls_segmenter *rec)
 {
     if (!rec || !rec->mu) {
         return;
@@ -685,7 +685,7 @@ void zms_http_hls_segmenter_http_enter(zms_http_hls_segmenter *rec)
     zb_mutex_unlock(rec->mu);
 }
 
-void zms_http_hls_segmenter_http_leave(zms_http_hls_segmenter *rec)
+void zcs_http_hls_segmenter_http_leave(zcs_http_hls_segmenter *rec)
 {
     if (!rec || !rec->mu) {
         return;
@@ -697,19 +697,19 @@ void zms_http_hls_segmenter_http_leave(zms_http_hls_segmenter *rec)
     zb_mutex_unlock(rec->mu);
 }
 
-void zms_http_hls_segmenter_touch_hls(zms_http_hls_segmenter *rec)
+void zcs_http_hls_segmenter_touch_hls(zcs_http_hls_segmenter *rec)
 {
     if (rec) {
         rec->last_hls_req_ms = zn_monotonic_ms();
     }
 }
 
-uint32_t hls_mux_dts_ms(zms_http_hls_segmenter *rec, zms_track_type track, uint32_t ring_dts_ms)
+uint32_t hls_mux_dts_ms(zcs_http_hls_segmenter *rec, zcs_track_type track, uint32_t ring_dts_ms)
 {
-    return zms_mux_av_timeline_pts(&rec->mux_av, track, ring_dts_ms);
+    return zcs_mux_av_timeline_pts(&rec->mux_av, track, ring_dts_ms);
 }
 
-static int hls_ensure_mux_buf(zms_http_hls_segmenter *rec, size_t need)
+static int hls_ensure_mux_buf(zcs_http_hls_segmenter *rec, size_t need)
 {
     uint8_t *p;
     size_t cap;
@@ -737,10 +737,10 @@ static int hls_ensure_mux_buf(zms_http_hls_segmenter *rec, size_t need)
     return 1;
 }
 
-/* zm packager 直接吃 ES，不会像 legacy zms_mpegts_feed_* 那样补齐参数集。
+/* zm packager 直接吃 ES，不会像 legacy zcs_mpegts_feed_* 那样补齐参数集。
  * HLS(TS) 的每个 sync 帧都要自带 SPS/PPS（H.265 还要 VPS），否则中途加入的
  * 播放器会报 "non-existing PPS"；这里复用 media/codec 的参数集缓存前置。 */
-static void hls_zm_prepend_key_params(zms_http_hls_segmenter *rec, const zms_gop_slot *slot,
+static void hls_zm_prepend_key_params(zcs_http_hls_segmenter *rec, const zcs_gop_slot *slot,
                                        zm_packet *pkt)
 {
     size_t full = 0;
@@ -749,20 +749,20 @@ static void hls_zm_prepend_key_params(zms_http_hls_segmenter *rec, const zms_gop
     if (!rec || !slot || !pkt || !slot->keyframe) {
         return;
     }
-    if (slot->codec == ZMS_CODEC_H264 && rec->params.sps && rec->params.pps) {
+    if (slot->codec == ZCS_CODEC_H264 && rec->params.sps && rec->params.pps) {
         need = slot->len + rec->params.sps_len + rec->params.pps_len + 64u;
         if (hls_ensure_mux_buf(rec, need) &&
-            zms_h264_annexb_prepend_sps_pps(rec->params.sps, rec->params.sps_len,
+            zcs_h264_annexb_prepend_sps_pps(rec->params.sps, rec->params.sps_len,
                                             rec->params.pps, rec->params.pps_len, slot->data,
                                             slot->len, rec->mux_buf, rec->mux_buf_cap,
                                             &full) == ZN_OK &&
             full > 0) {
             pkt->mem = zm_mem_borrow(rec->mux_buf, full);
         }
-    } else if (slot->codec == ZMS_CODEC_H265 && rec->params.sps && rec->params.pps) {
+    } else if (slot->codec == ZCS_CODEC_H265 && rec->params.sps && rec->params.pps) {
         need = slot->len + rec->params.vps_len + rec->params.sps_len + rec->params.pps_len + 64u;
         if (hls_ensure_mux_buf(rec, need) &&
-            zms_h265_annexb_build_rtp_au(rec->params.vps, rec->params.vps_len, rec->params.sps,
+            zcs_h265_annexb_build_rtp_au(rec->params.vps, rec->params.vps_len, rec->params.sps,
                                          rec->params.sps_len, rec->params.pps, rec->params.pps_len,
                                          slot->data, slot->len, 1, rec->mux_buf, rec->mux_buf_cap,
                                          &full) == ZN_OK &&
@@ -779,11 +779,11 @@ static void hls_zm_prepend_key_params(zms_http_hls_segmenter *rec, const zms_gop
  *   3. legacy TS mux：各自 feed_*，首次还要先送 config。
  * 三者都用 read_muxed 读交织后的帧，且都跳过 config_frame（配置单独走
  * sent_*_cfg 通道），避免把参数集当成普通媒体帧重复写入。
- * 每 tick 最多读 ZMS_SEGMENT_REC_TICK_FRAMES 帧，防止一次 tick 独占过久。
+ * 每 tick 最多读 ZCS_SEGMENT_REC_TICK_FRAMES 帧，防止一次 tick 独占过久。
  */
-static void zms_http_hls_segmenter_tick_nolock(zms_http_hls_segmenter *rec)
+static void zcs_http_hls_segmenter_tick_nolock(zcs_http_hls_segmenter *rec)
 {
-    zms_gop_slot slot;
+    zcs_gop_slot slot;
 
     if (!rec || rec->closing || !rec->src) {
         return;
@@ -797,34 +797,34 @@ static void zms_http_hls_segmenter_tick_nolock(zms_http_hls_segmenter *rec)
     if (rec->use_fmp4) {
         if (!rec->sent_audio_cfg && rec->enable_audio && rec->src) {
             size_t clen = 0;
-            const uint8_t *cfg = zms_gop_queue_audio_config(rec->src->gop_queue, &clen);
+            const uint8_t *cfg = zcs_gop_queue_audio_config(rec->src->gop_queue, &clen);
             if (cfg && clen) {
                 hls_fmp4_ensure_aac_track(rec, cfg, clen);
-            } else if (rec->src->audio.ready && rec->src->audio.codec == ZMS_CODEC_OPUS) {
+            } else if (rec->src->audio.ready && rec->src->audio.codec == ZCS_CODEC_OPUS) {
                 hls_fmp4_ensure_opus_track(rec);
             }
         }
-        for (int n = 0; n < ZMS_SEGMENT_REC_TICK_FRAMES &&
-                        zms_gop_reader_read_muxed(rec->reader, &slot, 0) > 0;
+        for (int n = 0; n < ZCS_SEGMENT_REC_TICK_FRAMES &&
+                        zcs_gop_reader_read_muxed(rec->reader, &slot, 0) > 0;
              ++n) {
             if (!slot.data || slot.len == 0 || slot.config_frame) {
                 continue;
             }
-            if (slot.track == ZMS_TRACK_VIDEO) {
-                zms_gop_slot_refresh_play_key(&slot);
-                if (slot.codec == ZMS_CODEC_VP8 || slot.codec == ZMS_CODEC_VP9) {
+            if (slot.track == ZCS_TRACK_VIDEO) {
+                zcs_gop_slot_refresh_play_key(&slot);
+                if (slot.codec == ZCS_CODEC_VP8 || slot.codec == ZCS_CODEC_VP9) {
                     hls_fmp4_feed_vpx(rec, slot.codec, slot.data, slot.len, slot.dts_ms,
                                       slot.keyframe);
-                } else if (slot.codec == ZMS_CODEC_AV1) {
+                } else if (slot.codec == ZCS_CODEC_AV1) {
                     hls_fmp4_feed_av1(rec, slot.data, slot.len, slot.dts_ms, slot.keyframe);
-                } else if (slot.codec == ZMS_CODEC_H264 || slot.codec == ZMS_CODEC_H265) {
+                } else if (slot.codec == ZCS_CODEC_H264 || slot.codec == ZCS_CODEC_H265) {
                     hls_fmp4_feed_h26x(rec, slot.codec, slot.data, slot.len, slot.dts_ms,
                                        slot.keyframe);
                 }
-            } else if (slot.track == ZMS_TRACK_AUDIO) {
-                if (slot.codec == ZMS_CODEC_OPUS) {
+            } else if (slot.track == ZCS_TRACK_AUDIO) {
+                if (slot.codec == ZCS_CODEC_OPUS) {
                     hls_fmp4_feed_opus(rec, slot.data, slot.len, slot.dts_ms);
-                } else if (slot.codec == ZMS_CODEC_AAC) {
+                } else if (slot.codec == ZCS_CODEC_AAC) {
                     hls_fmp4_feed_aac(rec, slot.data, slot.len, slot.dts_ms);
                 }
             }
@@ -835,22 +835,22 @@ static void zms_http_hls_segmenter_tick_nolock(zms_http_hls_segmenter *rec)
     if (rec->zm_pkg) {
         if ((!rec->params.sps || !rec->params.pps) && rec->src && rec->src->gop_queue) {
             size_t clen = 0;
-            const uint8_t *cfg = zms_gop_queue_video_config(rec->src->gop_queue, &clen);
+            const uint8_t *cfg = zcs_gop_queue_video_config(rec->src->gop_queue, &clen);
             if (cfg && clen) {
-                (void)zms_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
+                (void)zcs_codec_param_sets_cache_flv_cfg(&rec->params, cfg, clen);
             }
         }
         for (int n = 0;
-             n < ZMS_SEGMENT_REC_TICK_FRAMES && zms_gop_reader_read_muxed(rec->reader, &slot, 0) > 0;
+             n < ZCS_SEGMENT_REC_TICK_FRAMES && zcs_gop_reader_read_muxed(rec->reader, &slot, 0) > 0;
              ++n) {
             zm_packet pkt;
             if (!slot.data || slot.len == 0 || slot.config_frame) {
                 continue;
             }
-            if (slot.track == ZMS_TRACK_VIDEO) {
-                zms_gop_slot_refresh_play_key(&slot);
+            if (slot.track == ZCS_TRACK_VIDEO) {
+                zcs_gop_slot_refresh_play_key(&slot);
             }
-            zms_zm_packet_from_gop_slot(&slot, &pkt);
+            zcs_zm_packet_from_gop_slot(&slot, &pkt);
             pkt.dts_ms = (int64_t)hls_mux_dts_ms(rec, slot.track, slot.dts_ms);
             pkt.pts_ms = pkt.dts_ms;
             hls_zm_prepend_key_params(rec, &slot, &pkt);
@@ -861,7 +861,7 @@ static void zms_http_hls_segmenter_tick_nolock(zms_http_hls_segmenter *rec)
 
     if (!rec->sent_video_cfg) {
         size_t clen = 0;
-        const uint8_t *cfg = zms_gop_queue_video_config(rec->src->gop_queue, &clen);
+        const uint8_t *cfg = zcs_gop_queue_video_config(rec->src->gop_queue, &clen);
         if (cfg && clen) {
             feed_video_tag_cfg(rec, cfg, clen);
             rec->sent_video_cfg = 1;
@@ -869,77 +869,77 @@ static void zms_http_hls_segmenter_tick_nolock(zms_http_hls_segmenter *rec)
     }
     if (!rec->sent_audio_cfg && rec->enable_audio) {
         size_t clen = 0;
-        const uint8_t *cfg = zms_gop_queue_audio_config(rec->src->gop_queue, &clen);
+        const uint8_t *cfg = zcs_gop_queue_audio_config(rec->src->gop_queue, &clen);
         if (cfg && clen) {
             feed_audio_tag_cfg(rec, cfg, clen);
             if (!rec->sent_audio_cfg) {
                 rec->sent_audio_cfg = 1;
             }
-        } else if (rec->src && rec->src->audio.ready && rec->src->audio.codec == ZMS_CODEC_OPUS) {
+        } else if (rec->src && rec->src->audio.ready && rec->src->audio.codec == ZCS_CODEC_OPUS) {
             hls_ensure_opus_extradata(rec);
         }
     }
 
     for (int n = 0;
-         n < ZMS_SEGMENT_REC_TICK_FRAMES && zms_gop_reader_read_muxed(rec->reader, &slot, 0) > 0;
+         n < ZCS_SEGMENT_REC_TICK_FRAMES && zcs_gop_reader_read_muxed(rec->reader, &slot, 0) > 0;
          ++n) {
         if (!slot.data || slot.len == 0 || slot.config_frame) {
             continue;
         }
-        if (slot.track == ZMS_TRACK_VIDEO) {
-            zms_gop_slot_refresh_play_key(&slot);
-            if (slot.codec == ZMS_CODEC_H265) {
+        if (slot.track == ZCS_TRACK_VIDEO) {
+            zcs_gop_slot_refresh_play_key(&slot);
+            if (slot.codec == ZCS_CODEC_H265) {
                 feed_h265_video_es(rec, slot.data, slot.len, slot.dts_ms, slot.keyframe);
-            } else if (slot.codec == ZMS_CODEC_H264) {
+            } else if (slot.codec == ZCS_CODEC_H264) {
                 feed_h264_video_es(rec, slot.data, slot.len, slot.dts_ms, slot.keyframe);
-            } else if (slot.codec == ZMS_CODEC_H266) {
-                feed_raw_video_es(rec, hls_video_psi(ZMS_CODEC_H266), slot.data, slot.len,
+            } else if (slot.codec == ZCS_CODEC_H266) {
+                feed_raw_video_es(rec, hls_video_psi(ZCS_CODEC_H266), slot.data, slot.len,
                                   slot.dts_ms, slot.keyframe);
-            } else if (slot.codec == ZMS_CODEC_AV1) {
-                feed_raw_video_es(rec, hls_video_psi(ZMS_CODEC_AV1), slot.data, slot.len,
+            } else if (slot.codec == ZCS_CODEC_AV1) {
+                feed_raw_video_es(rec, hls_video_psi(ZCS_CODEC_AV1), slot.data, slot.len,
                                   slot.dts_ms, slot.keyframe);
-            } else if (slot.codec == ZMS_CODEC_VP8) {
-                feed_raw_video_es(rec, hls_video_psi(ZMS_CODEC_VP8), slot.data, slot.len,
+            } else if (slot.codec == ZCS_CODEC_VP8) {
+                feed_raw_video_es(rec, hls_video_psi(ZCS_CODEC_VP8), slot.data, slot.len,
                                   slot.dts_ms, slot.keyframe);
-            } else if (slot.codec == ZMS_CODEC_VP9) {
-                feed_raw_video_es(rec, hls_video_psi(ZMS_CODEC_VP9), slot.data, slot.len,
+            } else if (slot.codec == ZCS_CODEC_VP9) {
+                feed_raw_video_es(rec, hls_video_psi(ZCS_CODEC_VP9), slot.data, slot.len,
                                   slot.dts_ms, slot.keyframe);
             }
-        } else if (slot.track == ZMS_TRACK_AUDIO) {
+        } else if (slot.track == ZCS_TRACK_AUDIO) {
             feed_audio_es(rec, slot.data, slot.len, slot.dts_ms, slot.codec);
         }
     }
 }
 
-void zms_http_hls_segmenter_lock(zms_http_hls_segmenter *rec)
+void zcs_http_hls_segmenter_lock(zcs_http_hls_segmenter *rec)
 {
     if (rec && rec->mu) {
         zb_mutex_lock(rec->mu);
     }
 }
 
-void zms_http_hls_segmenter_unlock(zms_http_hls_segmenter *rec)
+void zcs_http_hls_segmenter_unlock(zcs_http_hls_segmenter *rec)
 {
     if (rec && rec->mu) {
         zb_mutex_unlock(rec->mu);
     }
 }
 
-void zms_http_hls_segmenter_tick_locked(zms_http_hls_segmenter *rec)
+void zcs_http_hls_segmenter_tick_locked(zcs_http_hls_segmenter *rec)
 {
-    zms_http_hls_segmenter_tick_nolock(rec);
+    zcs_http_hls_segmenter_tick_nolock(rec);
 }
 
 /* 对外 tick 入口：加锁后跑 tick_nolock。定时器回调与手动 tick 都走这里，
  * closing 时跳过（销毁中）。 */
-void zms_http_hls_segmenter_tick(zms_http_hls_segmenter *rec)
+void zcs_http_hls_segmenter_tick(zcs_http_hls_segmenter *rec)
 {
     if (!rec || !rec->mu) {
         return;
     }
     zb_mutex_lock(rec->mu);
     if (!rec->closing) {
-        zms_http_hls_segmenter_tick_nolock(rec);
+        zcs_http_hls_segmenter_tick_nolock(rec);
     }
     zb_mutex_unlock(rec->mu);
 }
@@ -948,7 +948,7 @@ void zms_http_hls_segmenter_tick(zms_http_hls_segmenter *rec)
  * 仅在尚无分片时于 m3u8 请求路径上 pump（与 DASH MPD 策略一致）。
  * 已有分片后依赖 10ms timer；每次 m3u8 狂抽 gop_reader 会抽空交织窗口，导致切段停滞。
  */
-static void hls_segmenter_serve_pump_m3u8(zms_http_hls_segmenter *rec)
+static void hls_segmenter_serve_pump_m3u8(zcs_http_hls_segmenter *rec)
 {
     int i;
 
@@ -957,8 +957,8 @@ static void hls_segmenter_serve_pump_m3u8(zms_http_hls_segmenter *rec)
     }
     zb_mutex_lock(rec->mu);
     if (!rec->closing) {
-        for (i = 0; i < ZMS_SEGMENT_REC_SERVE_MAX_TICKS; ++i) {
-            zms_http_hls_segmenter_tick_nolock(rec);
+        for (i = 0; i < ZCS_SEGMENT_REC_SERVE_MAX_TICKS; ++i) {
+            zcs_http_hls_segmenter_tick_nolock(rec);
         }
         if (rec->use_fmp4) {
             hls_fmp4_serve_flush(rec);
@@ -967,10 +967,10 @@ static void hls_segmenter_serve_pump_m3u8(zms_http_hls_segmenter *rec)
     zb_mutex_unlock(rec->mu);
 }
 
-zn_err_t zms_http_hls_segmenter_serve_m3u8(zms_http_hls_segmenter *rec, char *out, size_t cap,
+zn_err_t zcs_http_hls_segmenter_serve_m3u8(zcs_http_hls_segmenter *rec, char *out, size_t cap,
                                             size_t *out_len, int max_ticks, int *seg_count)
 {
-    zms_http_hls_playlist *maker;
+    zcs_http_hls_playlist *maker;
     zn_err_t err;
 
     (void)max_ticks;
@@ -987,7 +987,7 @@ zn_err_t zms_http_hls_segmenter_serve_m3u8(zms_http_hls_segmenter *rec, char *ou
     }
 
     /* 已有分片时勿在每次 m3u8 轮询时 pump：高频刷新会抽空 reader，切段停滞（同 DASH）。 */
-    if (zms_http_hls_playlist_segment_count(maker) <= 0) {
+    if (zcs_http_hls_playlist_segment_count(maker) <= 0) {
         hls_segmenter_serve_pump_m3u8(rec);
     }
 
@@ -996,29 +996,29 @@ zn_err_t zms_http_hls_segmenter_serve_m3u8(zms_http_hls_segmenter *rec, char *ou
         zb_mutex_unlock(rec->mu);
         return ZN_ERR_INVALID;
     }
-    err = zms_http_hls_playlist_build_m3u8(maker, out, cap, out_len);
+    err = zcs_http_hls_playlist_build_m3u8(maker, out, cap, out_len);
     if (err == ZN_OK && seg_count) {
-        *seg_count = zms_http_hls_playlist_segment_count(maker);
+        *seg_count = zcs_http_hls_playlist_segment_count(maker);
     }
     if (err == ZN_OK) {
-        zms_http_hls_segmenter_touch_hls(rec);
+        zcs_http_hls_segmenter_touch_hls(rec);
     }
     zb_mutex_unlock(rec->mu);
     return err;
 }
 
-zn_err_t zms_http_hls_segmenter_copy_segment(zms_http_hls_segmenter *rec, const char *name,
+zn_err_t zcs_http_hls_segmenter_copy_segment(zcs_http_hls_segmenter *rec, const char *name,
                                               uint8_t *buf, size_t cap, size_t *out_len,
                                               int max_ticks)
 {
-    zms_http_hls_playlist *maker;
+    zcs_http_hls_playlist *maker;
     int i;
 
     if (!rec || !rec->mu || !name || !buf || !out_len) {
         return ZN_ERR_INVALID;
     }
     if (max_ticks <= 0) {
-        max_ticks = ZMS_SEGMENT_REC_SERVE_MAX_TICKS;
+        max_ticks = ZCS_SEGMENT_REC_SERVE_MAX_TICKS;
     }
 
     maker = rec->maker;
@@ -1026,9 +1026,9 @@ zn_err_t zms_http_hls_segmenter_copy_segment(zms_http_hls_segmenter *rec, const 
         return ZN_ERR_INVALID;
     }
 
-    if (zms_http_hls_playlist_copy_segment(maker, name, buf, cap, out_len) == ZN_OK &&
+    if (zcs_http_hls_playlist_copy_segment(maker, name, buf, cap, out_len) == ZN_OK &&
         *out_len > 0) {
-        zms_http_hls_segmenter_touch_hls(rec);
+        zcs_http_hls_segmenter_touch_hls(rec);
         return ZN_OK;
     }
 
@@ -1041,11 +1041,11 @@ zn_err_t zms_http_hls_segmenter_copy_segment(zms_http_hls_segmenter *rec, const 
             zb_mutex_unlock(rec->mu);
             return ZN_ERR_INVALID;
         }
-        zms_http_hls_segmenter_tick_nolock(rec);
+        zcs_http_hls_segmenter_tick_nolock(rec);
         zb_mutex_unlock(rec->mu);
-        if (zms_http_hls_playlist_copy_segment(maker, name, buf, cap, out_len) == ZN_OK &&
+        if (zcs_http_hls_playlist_copy_segment(maker, name, buf, cap, out_len) == ZN_OK &&
             *out_len > 0) {
-            zms_http_hls_segmenter_touch_hls(rec);
+            zcs_http_hls_segmenter_touch_hls(rec);
             return ZN_OK;
         }
     }
@@ -1055,17 +1055,17 @@ zn_err_t zms_http_hls_segmenter_copy_segment(zms_http_hls_segmenter *rec, const 
 
 /* 引用式取分片（不拷贝，返回 buf 引用）。与 copy_segment 同样“取不到就 tick
  * 催产”，区别是不复制正文，适合内部零拷贝发送路径。 */
-zn_err_t zms_http_hls_segmenter_ref_segment(zms_http_hls_segmenter *rec, const char *name,
+zn_err_t zcs_http_hls_segmenter_ref_segment(zcs_http_hls_segmenter *rec, const char *name,
                                              zn_buf **out_buf, size_t *out_len, int max_ticks)
 {
-    zms_http_hls_playlist *maker;
+    zcs_http_hls_playlist *maker;
     int i;
 
     if (!rec || !rec->mu || !name || !out_buf || !out_len) {
         return ZN_ERR_INVALID;
     }
     if (max_ticks <= 0) {
-        max_ticks = ZMS_SEGMENT_REC_SERVE_MAX_TICKS;
+        max_ticks = ZCS_SEGMENT_REC_SERVE_MAX_TICKS;
     }
 
     maker = rec->maker;
@@ -1073,9 +1073,9 @@ zn_err_t zms_http_hls_segmenter_ref_segment(zms_http_hls_segmenter *rec, const c
         return ZN_ERR_INVALID;
     }
 
-    if (zms_http_hls_playlist_ref_segment(maker, name, out_buf, out_len) == ZN_OK &&
+    if (zcs_http_hls_playlist_ref_segment(maker, name, out_buf, out_len) == ZN_OK &&
         *out_len > 0) {
-        zms_http_hls_segmenter_touch_hls(rec);
+        zcs_http_hls_segmenter_touch_hls(rec);
         return ZN_OK;
     }
 
@@ -1085,11 +1085,11 @@ zn_err_t zms_http_hls_segmenter_ref_segment(zms_http_hls_segmenter *rec, const c
             zb_mutex_unlock(rec->mu);
             return ZN_ERR_INVALID;
         }
-        zms_http_hls_segmenter_tick_nolock(rec);
+        zcs_http_hls_segmenter_tick_nolock(rec);
         zb_mutex_unlock(rec->mu);
-        if (zms_http_hls_playlist_ref_segment(maker, name, out_buf, out_len) == ZN_OK &&
+        if (zcs_http_hls_playlist_ref_segment(maker, name, out_buf, out_len) == ZN_OK &&
             *out_len > 0) {
-            zms_http_hls_segmenter_touch_hls(rec);
+            zcs_http_hls_segmenter_touch_hls(rec);
             return ZN_OK;
         }
     }
@@ -1097,14 +1097,14 @@ zn_err_t zms_http_hls_segmenter_ref_segment(zms_http_hls_segmenter *rec, const c
     return ZN_ERR_INVALID;
 }
 
-static zn_err_t hls_ops_create_live(zms_media_source *src, const void *opts, void **out_rec)
+static zn_err_t hls_ops_create_live(zcs_media_source *src, const void *opts, void **out_rec)
 {
-    zms_http_hls_segmenter *rec;
+    zcs_http_hls_segmenter *rec;
 
     if (!out_rec) {
         return ZN_ERR_INVALID;
     }
-    rec = zms_http_hls_segmenter_create(src, (const zms_http_hls_segmenter_opts *)opts);
+    rec = zcs_http_hls_segmenter_create(src, (const zcs_http_hls_segmenter_opts *)opts);
     if (!rec) {
         return ZN_ERR_INVALID;
     }
@@ -1114,26 +1114,26 @@ static zn_err_t hls_ops_create_live(zms_media_source *src, const void *opts, voi
 
 static void hls_ops_destroy(void *rec)
 {
-    zms_http_hls_segmenter_destroy((zms_http_hls_segmenter *)rec);
+    zcs_http_hls_segmenter_destroy((zcs_http_hls_segmenter *)rec);
 }
 
 static void hls_ops_bind_timer(void *rec, zn_poller *poller)
 {
-    zms_http_hls_segmenter_bind_timer((zms_http_hls_segmenter *)rec, poller);
+    zcs_http_hls_segmenter_bind_timer((zcs_http_hls_segmenter *)rec, poller);
 }
 
 static void hls_ops_tick(void *rec)
 {
-    zms_http_hls_segmenter_tick((zms_http_hls_segmenter *)rec);
+    zcs_http_hls_segmenter_tick((zcs_http_hls_segmenter *)rec);
 }
 
 static void hls_ops_touch(void *rec)
 {
-    zms_http_hls_segmenter_touch_hls((zms_http_hls_segmenter *)rec);
+    zcs_http_hls_segmenter_touch_hls((zcs_http_hls_segmenter *)rec);
 }
 
-static const zms_segment_recorder_ops k_hls_ops = {
-    .name = ZMS_SEGMENT_REC_HLS,
+static const zcs_segment_recorder_ops k_hls_ops = {
+    .name = ZCS_SEGMENT_REC_HLS,
     .create_live = hls_ops_create_live,
     .destroy = hls_ops_destroy,
     .bind_timer = hls_ops_bind_timer,
@@ -1141,7 +1141,7 @@ static const zms_segment_recorder_ops k_hls_ops = {
     .touch = hls_ops_touch,
 };
 
-const zms_segment_recorder_ops *zms_http_hls_segment_recorder_ops(void)
+const zcs_segment_recorder_ops *zcs_http_hls_segment_recorder_ops(void)
 {
     return &k_hls_ops;
 }

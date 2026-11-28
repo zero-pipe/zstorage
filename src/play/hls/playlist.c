@@ -2,9 +2,9 @@
  * @file playlist.c
  * @brief HLS m3u8 清单生成与分片登记。
  */
-#include "zms/play/hls/playlist.h"
+#include "zcs/play/hls/playlist.h"
 
-#include "zms/media/container/hls/hls_playlist.h"
+#include "zcs/media/container/hls/hls_playlist.h"
 
 #include "zn/util/buf.h"
 #include "zb/os/sync.h"
@@ -15,12 +15,12 @@
 
 #define HLS_VOD_DEFAULT_SEG_MS 8333u
 
-struct zms_http_hls_playlist {
-    zms_hls_m3u8 *m3u8;
+struct zcs_http_hls_playlist {
+    zcs_hls_m3u8 *m3u8;
     float seg_duration_sec;
     unsigned seg_number;
     uint64_t file_index;
-    zms_http_hls_segment *segments;
+    zcs_http_hls_segment *segments;
     int seg_count;
     int seg_head;
     int use_fmp4;
@@ -28,12 +28,12 @@ struct zms_http_hls_playlist {
     zb_mutex *mtx;
 };
 
-static size_t hls_seg_len(const zms_http_hls_segment *s)
+static size_t hls_seg_len(const zcs_http_hls_segment *s)
 {
     return s && s->buf ? zn_buf_len(s->buf) : 0;
 }
 
-static void seg_free(zms_http_hls_segment *s)
+static void seg_free(zcs_http_hls_segment *s)
 {
     if (!s) {
         return;
@@ -46,10 +46,10 @@ static void seg_free(zms_http_hls_segment *s)
     s->dur_ms = 0;
 }
 
-static void store_segment_locked_buf(zms_http_hls_playlist *m, const char *name, zn_buf *buf,
+static void store_segment_locked_buf(zcs_http_hls_playlist *m, const char *name, zn_buf *buf,
                                      int64_t pts_ms, int64_t duration_ms, int discontinuity)
 {
-    zms_http_hls_segment *slot;
+    zcs_http_hls_segment *slot;
     uint32_t dur;
 
     if (!m || !name || !buf || zn_buf_len(buf) == 0) {
@@ -71,7 +71,7 @@ static void store_segment_locked_buf(zms_http_hls_playlist *m, const char *name,
     slot->buf = buf;
 
     if (m->m3u8) {
-        (void)zms_hls_m3u8_add(m->m3u8, name, pts_ms, (int64_t)dur, discontinuity);
+        (void)zcs_hls_m3u8_add(m->m3u8, name, pts_ms, (int64_t)dur, discontinuity);
     }
 
     m->seg_head = (m->seg_head + 1) % (int)m->seg_number;
@@ -80,9 +80,9 @@ static void store_segment_locked_buf(zms_http_hls_playlist *m, const char *name,
     }
 }
 
-zms_http_hls_playlist *zms_http_hls_playlist_create(const zms_http_hls_playlist_opts *opts)
+zcs_http_hls_playlist *zcs_http_hls_playlist_create(const zcs_http_hls_playlist_opts *opts)
 {
-    zms_http_hls_playlist *m = (zms_http_hls_playlist *)calloc(1, sizeof(*m));
+    zcs_http_hls_playlist *m = (zcs_http_hls_playlist *)calloc(1, sizeof(*m));
     if (!m) {
         return NULL;
     }
@@ -94,14 +94,14 @@ zms_http_hls_playlist *zms_http_hls_playlist_create(const zms_http_hls_playlist_
     }
     m->use_fmp4 = opts && opts->use_fmp4 ? 1 : 0;
 
-    m->m3u8 = zms_hls_m3u8_create((int)m->seg_number, m->use_fmp4 ? 7 : 3);
+    m->m3u8 = zcs_hls_m3u8_create((int)m->seg_number, m->use_fmp4 ? 7 : 3);
     if (m->use_fmp4 && m->m3u8) {
-        (void)zms_hls_m3u8_set_x_map(m->m3u8, "init.mp4");
+        (void)zcs_hls_m3u8_set_x_map(m->m3u8, "init.mp4");
     }
     m->mtx = zb_mutex_create(0);
-    m->segments = (zms_http_hls_segment *)calloc(m->seg_number, sizeof(zms_http_hls_segment));
+    m->segments = (zcs_http_hls_segment *)calloc(m->seg_number, sizeof(zcs_http_hls_segment));
     if (!m->m3u8 || !m->mtx || !m->segments) {
-        zms_hls_m3u8_destroy(m->m3u8);
+        zcs_hls_m3u8_destroy(m->m3u8);
         zb_mutex_destroy(m->mtx);
         free(m->segments);
         free(m);
@@ -110,7 +110,7 @@ zms_http_hls_playlist *zms_http_hls_playlist_create(const zms_http_hls_playlist_
     return m;
 }
 
-void zms_http_hls_playlist_destroy(zms_http_hls_playlist *m)
+void zcs_http_hls_playlist_destroy(zcs_http_hls_playlist *m)
 {
     if (!m) {
         return;
@@ -124,13 +124,13 @@ void zms_http_hls_playlist_destroy(zms_http_hls_playlist *m)
     }
     m->init_seg = NULL;
     zb_mutex_unlock(m->mtx);
-    zms_hls_m3u8_destroy(m->m3u8);
+    zcs_hls_m3u8_destroy(m->m3u8);
     free(m->segments);
     zb_mutex_destroy(m->mtx);
     free(m);
 }
 
-void zms_http_hls_playlist_reset(zms_http_hls_playlist *m)
+void zcs_http_hls_playlist_reset(zcs_http_hls_playlist *m)
 {
     if (!m) {
         return;
@@ -147,16 +147,16 @@ void zms_http_hls_playlist_reset(zms_http_hls_playlist *m)
         m->init_seg = NULL;
     }
     if (m->m3u8) {
-        zms_hls_m3u8_destroy(m->m3u8);
-        m->m3u8 = zms_hls_m3u8_create((int)m->seg_number, m->use_fmp4 ? 7 : 3);
+        zcs_hls_m3u8_destroy(m->m3u8);
+        m->m3u8 = zcs_hls_m3u8_create((int)m->seg_number, m->use_fmp4 ? 7 : 3);
         if (m->use_fmp4 && m->m3u8) {
-            (void)zms_hls_m3u8_set_x_map(m->m3u8, "init.mp4");
+            (void)zcs_hls_m3u8_set_x_map(m->m3u8, "init.mp4");
         }
     }
     zb_mutex_unlock(m->mtx);
 }
 
-zn_err_t zms_http_hls_playlist_push_segment_buf(zms_http_hls_playlist *m, zn_buf *buf,
+zn_err_t zcs_http_hls_playlist_push_segment_buf(zcs_http_hls_playlist *m, zn_buf *buf,
                                                  int64_t pts_ms, int64_t dts_ms,
                                                  uint64_t duration_ms, int discontinuity)
 {
@@ -183,7 +183,7 @@ zn_err_t zms_http_hls_playlist_push_segment_buf(zms_http_hls_playlist *m, zn_buf
     return ZN_OK;
 }
 
-zn_err_t zms_http_hls_playlist_push_segment(zms_http_hls_playlist *m, const void *data, size_t len,
+zn_err_t zcs_http_hls_playlist_push_segment(zcs_http_hls_playlist *m, const void *data, size_t len,
                                              int64_t pts_ms, int64_t dts_ms, uint64_t duration_ms,
                                              int discontinuity)
 {
@@ -201,14 +201,14 @@ zn_err_t zms_http_hls_playlist_push_segment(zms_http_hls_playlist *m, const void
     memcpy((void *)zn_buf_data(buf), data, len);
     zn_buf_set_len(buf, len);
     err =
-        zms_http_hls_playlist_push_segment_buf(m, buf, pts_ms, dts_ms, duration_ms, discontinuity);
+        zcs_http_hls_playlist_push_segment_buf(m, buf, pts_ms, dts_ms, duration_ms, discontinuity);
     if (err != ZN_OK) {
         zn_buf_unref(buf);
     }
     return err;
 }
 
-zn_err_t zms_http_hls_playlist_build_m3u8(const zms_http_hls_playlist *m, char *out, size_t cap,
+zn_err_t zcs_http_hls_playlist_build_m3u8(const zcs_http_hls_playlist *m, char *out, size_t cap,
                                            size_t *out_len)
 {
     if (!m || !m->m3u8 || !out || cap < 32) {
@@ -216,7 +216,7 @@ zn_err_t zms_http_hls_playlist_build_m3u8(const zms_http_hls_playlist *m, char *
     }
 
     zb_mutex_lock(m->mtx);
-    int r = zms_hls_m3u8_playlist(m->m3u8, 0, out, cap);
+    int r = zcs_hls_m3u8_playlist(m->m3u8, 0, out, cap);
     zb_mutex_unlock(m->mtx);
     if (r != 0) {
         return ZN_ERR_BUFFER_TOO_SMALL;
@@ -227,7 +227,7 @@ zn_err_t zms_http_hls_playlist_build_m3u8(const zms_http_hls_playlist *m, char *
     return ZN_OK;
 }
 
-zn_err_t zms_http_hls_playlist_copy_segment(zms_http_hls_playlist *m, const char *name,
+zn_err_t zcs_http_hls_playlist_copy_segment(zcs_http_hls_playlist *m, const char *name,
                                              uint8_t *buf, size_t cap, size_t *out_len)
 {
     if (!m || !name || !buf || !out_len) {
@@ -236,7 +236,7 @@ zn_err_t zms_http_hls_playlist_copy_segment(zms_http_hls_playlist *m, const char
     zb_mutex_lock(m->mtx);
     for (int i = 0; i < m->seg_count; ++i) {
         int idx = (m->seg_head - m->seg_count + i + (int)m->seg_number) % (int)m->seg_number;
-        const zms_http_hls_segment *s = &m->segments[idx];
+        const zcs_http_hls_segment *s = &m->segments[idx];
         if (s->name[0] && strcmp(s->name, name) == 0 && s->buf && hls_seg_len(s) > 0) {
             size_t slen = hls_seg_len(s);
             if (slen > cap) {
@@ -253,12 +253,12 @@ zn_err_t zms_http_hls_playlist_copy_segment(zms_http_hls_playlist *m, const char
     return ZN_ERR_INVALID;
 }
 
-int zms_http_hls_playlist_use_fmp4(const zms_http_hls_playlist *m)
+int zcs_http_hls_playlist_use_fmp4(const zcs_http_hls_playlist *m)
 {
     return m && m->use_fmp4 ? 1 : 0;
 }
 
-zn_err_t zms_http_hls_playlist_store_init_segment(zms_http_hls_playlist *m, zn_buf *buf)
+zn_err_t zcs_http_hls_playlist_store_init_segment(zcs_http_hls_playlist *m, zn_buf *buf)
 {
     if (!m || !buf || zn_buf_len(buf) == 0) {
         return ZN_ERR_INVALID;
@@ -272,7 +272,7 @@ zn_err_t zms_http_hls_playlist_store_init_segment(zms_http_hls_playlist *m, zn_b
     return ZN_OK;
 }
 
-zn_err_t zms_http_hls_playlist_ref_segment(zms_http_hls_playlist *m, const char *name,
+zn_err_t zcs_http_hls_playlist_ref_segment(zcs_http_hls_playlist *m, const char *name,
                                             zn_buf **out_buf, size_t *out_len)
 {
     if (!m || !name || !out_buf || !out_len) {
@@ -290,7 +290,7 @@ zn_err_t zms_http_hls_playlist_ref_segment(zms_http_hls_playlist *m, const char 
     }
     for (int i = 0; i < m->seg_count; ++i) {
         int idx = (m->seg_head - m->seg_count + i + (int)m->seg_number) % (int)m->seg_number;
-        const zms_http_hls_segment *s = &m->segments[idx];
+        const zcs_http_hls_segment *s = &m->segments[idx];
         if (s->name[0] && strcmp(s->name, name) == 0 && s->buf && hls_seg_len(s) > 0) {
             *out_buf = zn_buf_ref((zn_buf *)s->buf);
             *out_len = hls_seg_len(s);
@@ -302,7 +302,7 @@ zn_err_t zms_http_hls_playlist_ref_segment(zms_http_hls_playlist *m, const char 
     return ZN_ERR_INVALID;
 }
 
-int zms_http_hls_playlist_segment_count(const zms_http_hls_playlist *m)
+int zcs_http_hls_playlist_segment_count(const zcs_http_hls_playlist *m)
 {
     int n;
 
@@ -315,11 +315,11 @@ int zms_http_hls_playlist_segment_count(const zms_http_hls_playlist *m)
     return n;
 }
 
-int zms_http_hls_playlist_latest_segment(const zms_http_hls_playlist *m, char *out_name,
+int zcs_http_hls_playlist_latest_segment(const zcs_http_hls_playlist *m, char *out_name,
                                          size_t name_cap, size_t *out_len)
 {
     int idx;
-    const zms_http_hls_segment *s;
+    const zcs_http_hls_segment *s;
     int ok = 0;
 
     if (!m || m->seg_count <= 0) {
@@ -341,7 +341,7 @@ int zms_http_hls_playlist_latest_segment(const zms_http_hls_playlist *m, char *o
     return ok;
 }
 
-int zms_http_hls_playlist_has_segment(const zms_http_hls_playlist *m, const char *name)
+int zcs_http_hls_playlist_has_segment(const zcs_http_hls_playlist *m, const char *name)
 {
     int found = 0;
 
@@ -351,7 +351,7 @@ int zms_http_hls_playlist_has_segment(const zms_http_hls_playlist *m, const char
     zb_mutex_lock(m->mtx);
     for (int i = 0; i < m->seg_count; ++i) {
         int idx = (m->seg_head - m->seg_count + i + (int)m->seg_number) % (int)m->seg_number;
-        const zms_http_hls_segment *s = &m->segments[idx];
+        const zcs_http_hls_segment *s = &m->segments[idx];
         if (s->name[0] && strcmp(s->name, name) == 0 && s->buf && hls_seg_len(s) > 0 &&
             (m->use_fmp4 || hls_seg_len(s) >= 188)) {
             found = 1;
@@ -362,7 +362,7 @@ int zms_http_hls_playlist_has_segment(const zms_http_hls_playlist *m, const char
     return found;
 }
 
-zn_err_t zms_http_hls_playlist_build_vod_index_m3u8(const zms_http_hls_playlist *m, char *out,
+zn_err_t zcs_http_hls_playlist_build_vod_index_m3u8(const zcs_http_hls_playlist *m, char *out,
                                                      size_t cap, size_t *out_len,
                                                      uint64_t total_dur_ms, uint32_t seg_dur_ms,
                                                      int add_endlist)

@@ -2,7 +2,7 @@
  * @file device_event.c
  * @brief 设备事件环形缓冲与订阅。
  */
-#include "zms/device/core/device_event.h"
+#include "zcs/device/core/device_event.h"
 
 #include "zb/os/sync.h"
 #include "zn/util/timer.h"
@@ -11,15 +11,15 @@
 #include <string.h>
 
 typedef struct {
-    zms_device_event_cb cb;
+    zcs_device_event_cb cb;
     void *user;
 } subscriber;
 
 static struct {
-    zms_device_event ring[ZMS_DEVICE_EVENT_RING];
+    zcs_device_event ring[ZCS_DEVICE_EVENT_RING];
     size_t write_idx;
     size_t count;
-    subscriber subs[ZMS_DEVICE_EVENT_SUBSCRIBERS];
+    subscriber subs[ZCS_DEVICE_EVENT_SUBSCRIBERS];
     zb_mutex *mtx;
     int inited;
 } g_ev;
@@ -33,12 +33,12 @@ static void ensure_init(void)
     g_ev.inited = g_ev.mtx ? 1 : 0;
 }
 
-void zms_device_event_init(void)
+void zcs_device_event_init(void)
 {
     ensure_init();
 }
 
-void zms_device_event_fini(void)
+void zcs_device_event_fini(void)
 {
     if (!g_ev.inited) {
         return;
@@ -54,10 +54,10 @@ void zms_device_event_fini(void)
     g_ev.inited = 0;
 }
 
-void zms_device_event_publish(const zms_device_event *ev)
+void zcs_device_event_publish(const zcs_device_event *ev)
 {
-    zms_device_event e;
-    subscriber subs[ZMS_DEVICE_EVENT_SUBSCRIBERS];
+    zcs_device_event e;
+    subscriber subs[ZCS_DEVICE_EVENT_SUBSCRIBERS];
     size_t n = 0;
     size_t i;
 
@@ -73,12 +73,12 @@ void zms_device_event_publish(const zms_device_event *ev)
         e.time_ms = zn_wall_ms();
     }
     zb_mutex_lock(g_ev.mtx);
-    g_ev.ring[g_ev.write_idx % ZMS_DEVICE_EVENT_RING] = e;
+    g_ev.ring[g_ev.write_idx % ZCS_DEVICE_EVENT_RING] = e;
     ++g_ev.write_idx;
-    if (g_ev.count < ZMS_DEVICE_EVENT_RING) {
+    if (g_ev.count < ZCS_DEVICE_EVENT_RING) {
         ++g_ev.count;
     }
-    for (i = 0; i < ZMS_DEVICE_EVENT_SUBSCRIBERS; ++i) {
+    for (i = 0; i < ZCS_DEVICE_EVENT_SUBSCRIBERS; ++i) {
         if (g_ev.subs[i].cb) {
             subs[n++] = g_ev.subs[i];
         }
@@ -89,7 +89,7 @@ void zms_device_event_publish(const zms_device_event *ev)
     }
 }
 
-size_t zms_device_event_list(zms_device_event *out, size_t cap)
+size_t zcs_device_event_list(zcs_device_event *out, size_t cap)
 {
     size_t n;
     size_t i;
@@ -104,14 +104,14 @@ size_t zms_device_event_list(zms_device_event *out, size_t cap)
     zb_mutex_lock(g_ev.mtx);
     n = g_ev.count < cap ? g_ev.count : cap;
     for (i = 0; i < n; ++i) {
-        size_t idx = (g_ev.write_idx + ZMS_DEVICE_EVENT_RING - 1 - i) % ZMS_DEVICE_EVENT_RING;
+        size_t idx = (g_ev.write_idx + ZCS_DEVICE_EVENT_RING - 1 - i) % ZCS_DEVICE_EVENT_RING;
         out[i] = g_ev.ring[idx];
     }
     zb_mutex_unlock(g_ev.mtx);
     return n;
 }
 
-int zms_device_event_subscribe(zms_device_event_cb cb, void *user)
+int zcs_device_event_subscribe(zcs_device_event_cb cb, void *user)
 {
     size_t i;
 
@@ -123,7 +123,7 @@ int zms_device_event_subscribe(zms_device_event_cb cb, void *user)
         return -1;
     }
     zb_mutex_lock(g_ev.mtx);
-    for (i = 0; i < ZMS_DEVICE_EVENT_SUBSCRIBERS; ++i) {
+    for (i = 0; i < ZCS_DEVICE_EVENT_SUBSCRIBERS; ++i) {
         if (!g_ev.subs[i].cb) {
             g_ev.subs[i].cb = cb;
             g_ev.subs[i].user = user;
@@ -135,7 +135,7 @@ int zms_device_event_subscribe(zms_device_event_cb cb, void *user)
     return -1;
 }
 
-int zms_device_event_unsubscribe(zms_device_event_cb cb, void *user)
+int zcs_device_event_unsubscribe(zcs_device_event_cb cb, void *user)
 {
     size_t i;
 
@@ -144,7 +144,7 @@ int zms_device_event_unsubscribe(zms_device_event_cb cb, void *user)
         return -1;
     }
     zb_mutex_lock(g_ev.mtx);
-    for (i = 0; i < ZMS_DEVICE_EVENT_SUBSCRIBERS; ++i) {
+    for (i = 0; i < ZCS_DEVICE_EVENT_SUBSCRIBERS; ++i) {
         if (g_ev.subs[i].cb == cb && g_ev.subs[i].user == user) {
             g_ev.subs[i].cb = NULL;
             g_ev.subs[i].user = NULL;
@@ -156,22 +156,22 @@ int zms_device_event_unsubscribe(zms_device_event_cb cb, void *user)
     return -1;
 }
 
-const char *zms_device_event_type_name(int type)
+const char *zcs_device_event_type_name(int type)
 {
     switch (type) {
-    case ZMS_DEV_EVENT_ALARM:
+    case ZCS_DEV_EVENT_ALARM:
         return "alarm";
-    case ZMS_DEV_EVENT_MOTION:
+    case ZCS_DEV_EVENT_MOTION:
         return "motion";
-    case ZMS_DEV_EVENT_ONLINE:
+    case ZCS_DEV_EVENT_ONLINE:
         return "online";
-    case ZMS_DEV_EVENT_OFFLINE:
+    case ZCS_DEV_EVENT_OFFLINE:
         return "offline";
-    case ZMS_DEV_EVENT_STREAM_START:
+    case ZCS_DEV_EVENT_STREAM_START:
         return "stream_start";
-    case ZMS_DEV_EVENT_STREAM_STOP:
+    case ZCS_DEV_EVENT_STREAM_STOP:
         return "stream_stop";
-    case ZMS_DEV_EVENT_PTZ:
+    case ZCS_DEV_EVENT_PTZ:
         return "ptz";
     default:
         return "unknown";

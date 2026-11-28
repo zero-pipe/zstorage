@@ -2,7 +2,7 @@
  * @file record_index.c
  * @brief 通用录像索引：按通道/时间范围扫描 {root}/{stream}/{date}/{HHMMSS}.mp4。
  */
-#include "zms/device/core/device_core.h"
+#include "zcs/device/core/device_core.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,12 +21,12 @@
 
 static char g_record_root[512];
 
-void zms_device_core_set_record_root(const char *root)
+void zcs_device_core_set_record_root(const char *root)
 {
     snprintf(g_record_root, sizeof(g_record_root), "%s", root ? root : "");
 }
 
-const char *zms_device_core_record_root(void)
+const char *zcs_device_core_record_root(void)
 {
     return g_record_root;
 }
@@ -71,13 +71,13 @@ static int parse_time_str(const char *s, time_t *out)
  * 私有定义：对外是不透明句柄（见 device_core.h）。
  * 128 条 × 784B ≈ 98KB，只在查询时临时分配，不进调用方栈。
  */
-struct zms_device_record_list {
-    zms_device_record_entry items[ZMS_DEVICE_RECORD_MAX];
+struct zcs_device_record_list {
+    zcs_device_record_entry items[ZCS_DEVICE_RECORD_MAX];
     size_t count;
 };
 
 typedef struct record_scan_ctx {
-    zms_device_record_list *list;
+    zcs_device_record_list *list;
     const char *channel_id;
     const char *stream;
     time_t q_start;
@@ -87,13 +87,13 @@ typedef struct record_scan_ctx {
 
 static void add_record(record_scan_ctx *ctx, const char *date, const char *fname, time_t mtime)
 {
-    zms_device_record_entry *e;
+    zcs_device_record_entry *e;
     char ts[32];
     int Y = 0, M = 0, D = 0, h = 0, m = 0, s = 0;
     time_t start = mtime;
     time_t end = mtime;
 
-    if (ctx->list->count >= ZMS_DEVICE_RECORD_MAX) {
+    if (ctx->list->count >= ZCS_DEVICE_RECORD_MAX) {
         return;
     }
     /* 文件名即起录时刻（YYYYMMDDHHMMSS），比 mtime 更可靠 */
@@ -248,10 +248,10 @@ static void scan_dates_posix(record_scan_ctx *ctx, const char *root_stream)
 #endif
 
 static int collect_records(const char *channel_id, const char *start_time, const char *end_time,
-                           zms_device_record_list *out)
+                           zcs_device_record_list *out)
 {
-    zms_device_channel_info ch;
-    char stream[ZMS_DEVICE_STREAM_MAX];
+    zcs_device_channel_info ch;
+    char stream[ZCS_DEVICE_STREAM_MAX];
     char root_stream[768];
     const char *root = g_record_root;
     record_scan_ctx ctx;
@@ -262,7 +262,7 @@ static int collect_records(const char *channel_id, const char *start_time, const
         return -1;
     }
     memset(out, 0, sizeof(*out));
-    if (zms_device_core_get(channel_id, &ch) != 0 || !root[0]) {
+    if (zcs_device_core_get(channel_id, &ch) != 0 || !root[0]) {
         return -1;
     }
     snprintf(stream, sizeof(stream), "%s", ch.stream);
@@ -285,7 +285,7 @@ static int collect_records(const char *channel_id, const char *start_time, const
     if (out->count > 1) {
         size_t i;
         for (i = 1; i < out->count; ++i) {
-            zms_device_record_entry tmp = out->items[i];
+            zcs_device_record_entry tmp = out->items[i];
             size_t j = i;
             while (j > 0 && strcmp(out->items[j - 1].start_time, tmp.start_time) > 0) {
                 out->items[j] = out->items[j - 1];
@@ -297,10 +297,10 @@ static int collect_records(const char *channel_id, const char *start_time, const
     return 0;
 }
 
-zms_device_record_list *zms_device_record_query(const char *channel_id, const char *start_time,
+zcs_device_record_list *zcs_device_record_query(const char *channel_id, const char *start_time,
                                                 const char *end_time)
 {
-    zms_device_record_list *out = (zms_device_record_list *)calloc(1, sizeof(*out));
+    zcs_device_record_list *out = (zcs_device_record_list *)calloc(1, sizeof(*out));
 
     if (!out) {
         return NULL;
@@ -312,17 +312,17 @@ zms_device_record_list *zms_device_record_query(const char *channel_id, const ch
     return out;
 }
 
-void zms_device_record_list_free(zms_device_record_list *list)
+void zcs_device_record_list_free(zcs_device_record_list *list)
 {
     free(list);
 }
 
-size_t zms_device_record_list_count(const zms_device_record_list *list)
+size_t zcs_device_record_list_count(const zcs_device_record_list *list)
 {
     return list ? list->count : 0;
 }
 
-const zms_device_record_entry *zms_device_record_list_at(const zms_device_record_list *list,
+const zcs_device_record_entry *zcs_device_record_list_at(const zcs_device_record_list *list,
                                                          size_t index)
 {
     if (!list || index >= list->count) {
@@ -331,10 +331,10 @@ const zms_device_record_entry *zms_device_record_list_at(const zms_device_record
     return &list->items[index];
 }
 
-int zms_device_record_pick(const char *channel_id, const char *start_time, const char *end_time,
-                           zms_device_record_entry *out, int64_t *offset_ms)
+int zcs_device_record_pick(const char *channel_id, const char *start_time, const char *end_time,
+                           zcs_device_record_entry *out, int64_t *offset_ms)
 {
-    zms_device_record_list *list;
+    zcs_device_record_list *list;
     time_t qs = 0;
     time_t qe = 0;
     int rc = -1;
@@ -347,7 +347,7 @@ int zms_device_record_pick(const char *channel_id, const char *start_time, const
     if (offset_ms) {
         *offset_ms = 0;
     }
-    list = (zms_device_record_list *)calloc(1, sizeof(*list));
+    list = (zcs_device_record_list *)calloc(1, sizeof(*list));
     if (!list) {
         return -1;
     }
@@ -357,7 +357,7 @@ int zms_device_record_pick(const char *channel_id, const char *start_time, const
     }
     have_q = parse_time_str(start_time, &qs) == 0 && parse_time_str(end_time, &qe) == 0;
     {
-        const zms_device_record_entry *e = &list->items[0];
+        const zcs_device_record_entry *e = &list->items[0];
         time_t rs = 0;
 
         *out = *e;

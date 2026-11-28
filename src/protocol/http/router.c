@@ -2,21 +2,21 @@
  * @file router.c
  * @brief HTTP 路由注册汇总。
  */
-#include "zms/protocol/http/route.h"
+#include "zcs/protocol/http/route.h"
 #include <string.h>
 
-#define ZMS_HTTP_ROUTE_MAX 16
+#define ZCS_HTTP_ROUTE_MAX 16
 
-static const zms_http_route_ops *g_routes[ZMS_HTTP_ROUTE_MAX];
+static const zcs_http_route_ops *g_routes[ZCS_HTTP_ROUTE_MAX];
 static int g_route_count;
 
-void zms_webapi_http_routes_register(void);
-#if defined(ZMS_ENABLE_WEBRTC)
-void zms_webrtc_whep_routes_register(void);
-void zms_webrtc_whip_routes_register(void);
+void zcs_webapi_http_routes_register(void);
+#if defined(ZCS_ENABLE_WEBRTC)
+void zcs_webrtc_whep_routes_register(void);
+void zcs_webrtc_whip_routes_register(void);
 #endif
 
-void zms_http_route_register(const zms_http_route_ops *ops)
+void zcs_http_route_register(const zcs_http_route_ops *ops)
 {
     int i;
 
@@ -29,21 +29,21 @@ void zms_http_route_register(const zms_http_route_ops *ops)
             return;
         }
     }
-    if (g_route_count < ZMS_HTTP_ROUTE_MAX) {
+    if (g_route_count < ZCS_HTTP_ROUTE_MAX) {
         g_routes[g_route_count++] = ops;
     }
 }
 
-int zms_http_router_dispatch(zms_http_session *sess, const zms_http_request *req)
+int zcs_http_router_dispatch(zcs_http_session *sess, const zcs_http_request *req)
 {
     int i;
 
     if (!sess || !req) {
         return 0;
     }
-    zms_http_routes_register_all();
+    zcs_http_routes_register_all();
     for (i = 0; i < g_route_count; ++i) {
-        const zms_http_route_ops *route = g_routes[i];
+        const zcs_http_route_ops *route = g_routes[i];
         if (route && (!route->match || route->match(req))) {
             route->handle(sess, req);
             return 1;
@@ -52,7 +52,7 @@ int zms_http_router_dispatch(zms_http_session *sess, const zms_http_request *req
     return 0;
 }
 
-void zms_http_routes_register_all(void)
+void zcs_http_routes_register_all(void)
 {
     static int registered; /* 启动阶段，单线程 */
 
@@ -60,9 +60,9 @@ void zms_http_routes_register_all(void)
         return;
     }
     registered = 1;
-#if defined(ZMS_ENABLE_WEBRTC)
-    zms_webrtc_whep_routes_register();
-    zms_webrtc_whip_routes_register();
+#if defined(ZCS_ENABLE_WEBRTC)
+    zcs_webrtc_whep_routes_register();
+    zcs_webrtc_whip_routes_register();
 #endif
-    zms_webapi_http_routes_register();
+    zcs_webapi_http_routes_register();
 }

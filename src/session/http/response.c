@@ -12,18 +12,18 @@
  * 2. **文件 I/O 不得在 poller 线程上同步做。** open/close/fread/stat 全部
  *    投递到 VOD 后台线程池，poller 只负责发数据。否则一个大文件读取就能
  *    把整个 poller 上的所有会话冻住。
- *    见 zms_http_close_file_async / file_read_submit 及其 *_on_io 回调。
+ *    见 zcs_http_close_file_async / file_read_submit 及其 *_on_io 回调。
  *
- * 异步任务的会话生命周期：投递前调 zms_http_session_async_hold，回调里
+ * 异步任务的会话生命周期：投递前调 zcs_http_session_async_hold，回调里
  * 无条件 async_release。会话可能在异步期间被关闭，此时 hs->closed 已置位，
  * release 会在最后一个引用离开时真正释放。
  */
-#include "zms/play/vod_play_port.h"
+#include "zcs/play/vod_play_port.h"
 #include "session/http/session_internal.h"
 #include "zn/platform.h"
-#include "zms/core/event.h"
-#include "zms/util/thread_pool.h"
-#include "zms/media/container/flv/flv_index.h"
+#include "zcs/core/event.h"
+#include "zcs/util/thread_pool.h"
+#include "zcs/media/container/flv/flv_index.h"
 #include "zn/poller/poller.h"
 #include "zn/util/log.h"
 #include <stdarg.h>
@@ -31,11 +31,11 @@
 #include <string.h>
 #if defined(_WIN32)
 #include <sys/stat.h>
-#define zms_http_fseek _fseeki64
+#define zcs_http_fseek _fseeki64
 #else
 #include <strings.h>
 #include <sys/stat.h>
-#define zms_http_fseek fseeko
+#define zcs_http_fseek fseeko
 #endif
 
 
@@ -62,9 +62,9 @@ static int http_build_header(char *buf, size_t cap, const char *fmt, ...)
     return n;
 }
 
-void zms_http_response_send_error(zms_http_session *hs, int code, const char *reason)
+void zcs_http_response_send_error(zcs_http_session *hs, int code, const char *reason)
 {
-    char hdr[ZMS_HTTP_RESP_HDR_MAX];
+    char hdr[ZCS_HTTP_RESP_HDR_MAX];
     int n = http_build_header(hdr, sizeof(hdr),
                      "HTTP/1.1 %d %s\r\n"
                      "Connection: close\r\n"
@@ -80,13 +80,13 @@ void zms_http_response_send_error(zms_http_session *hs, int code, const char *re
     }
     zn_tcp_session_send(hs->tcp, hdr, (size_t)n);
     zn_tcp_session_flush(hs->tcp);
-    hs->state = ZMS_HTTP_SESSION_STATE_IDLE;
+    hs->state = ZCS_HTTP_SESSION_STATE_IDLE;
 }
 
-void zms_http_response_send_json(zms_http_session *hs, int status, const char *body,
+void zcs_http_response_send_json(zcs_http_session *hs, int status, const char *body,
                                  size_t body_len)
 {
-    char hdr[ZMS_HTTP_RESP_HDR_MAX];
+    char hdr[ZCS_HTTP_RESP_HDR_MAX];
     int n = http_build_header(hdr, sizeof(hdr),
                      "HTTP/1.1 %d %s\r\n"
                      "Connection: close\r\n"
@@ -106,7 +106,7 @@ void zms_http_response_send_json(zms_http_session *hs, int status, const char *b
         zn_tcp_session_send(hs->tcp, body, body_len);
     }
     zn_tcp_session_flush(hs->tcp);
-    hs->state = ZMS_HTTP_SESSION_STATE_IDLE;
+    hs->state = ZCS_HTTP_SESSION_STATE_IDLE;
 }
 
 static const char *http_reason_phrase(int status)
@@ -141,10 +141,10 @@ static const char *http_reason_phrase(int status)
     }
 }
 
-void zms_http_response_send_bytes(zms_http_session *hs, int status, const char *ctype,
+void zcs_http_response_send_bytes(zcs_http_session *hs, int status, const char *ctype,
                                   const void *body, size_t body_len)
 {
-    char hdr[ZMS_HTTP_RESP_HDR_MAX];
+    char hdr[ZCS_HTTP_RESP_HDR_MAX];
     int n = http_build_header(hdr, sizeof(hdr),
                      "HTTP/1.1 %d %s\r\n"
                      "Connection: close\r\n"
@@ -168,13 +168,13 @@ void zms_http_response_send_bytes(zms_http_session *hs, int status, const char *
         zn_tcp_session_send(hs->tcp, body, body_len);
     }
     zn_tcp_session_flush(hs->tcp);
-    hs->state = ZMS_HTTP_SESSION_STATE_IDLE;
+    hs->state = ZCS_HTTP_SESSION_STATE_IDLE;
 }
 
-void zms_http_response_send_bytes_buf(zms_http_session *hs, int status, const char *ctype,
+void zcs_http_response_send_bytes_buf(zcs_http_session *hs, int status, const char *ctype,
                                       zn_buf *body)
 {
-    char hdr[ZMS_HTTP_RESP_HDR_MAX];
+    char hdr[ZCS_HTTP_RESP_HDR_MAX];
     size_t body_len = body ? zn_buf_len(body) : 0;
     int n = http_build_header(hdr, sizeof(hdr),
                      "HTTP/1.1 %d %s\r\n"
@@ -199,7 +199,7 @@ void zms_http_response_send_bytes_buf(zms_http_session *hs, int status, const ch
         zn_tcp_session_send_buf(hs->tcp, body);
     }
     zn_tcp_session_flush(hs->tcp);
-    hs->state = ZMS_HTTP_SESSION_STATE_IDLE;
+    hs->state = ZCS_HTTP_SESSION_STATE_IDLE;
 }
 
 /*
@@ -270,9 +270,9 @@ static int parse_http_range(const char *range, uint64_t file_size, uint64_t *sta
     return 1;
 }
 
-typedef struct zms_http_vod_file_open_ctx {
-    zms_http_session *hs;
-    zms_media_source *src;
+typedef struct zcs_http_vod_file_open_ctx {
+    zcs_http_session *hs;
+    zcs_media_source *src;
     char path[512];
     char range_hdr[256];
     uint64_t query_seek_ms;
@@ -286,10 +286,10 @@ typedef struct zms_http_vod_file_open_ctx {
     uint64_t start;
     uint64_t end;
     int has_range;
-} zms_http_vod_file_open_ctx;
+} zcs_http_vod_file_open_ctx;
 
-static void http_file_done(zms_http_session *hs);
-static void flush_file(zms_http_session *hs);
+static void http_file_done(zcs_http_session *hs);
+static void flush_file(zcs_http_session *hs);
 
 /*
  * 后台线程侧：打开点播文件、取大小、算 Range/seek 参数。
@@ -300,7 +300,7 @@ static void flush_file(zms_http_session *hs);
  */
 static void vod_file_open_prep_blocking(void *user)
 {
-    zms_http_vod_file_open_ctx *ctx = (zms_http_vod_file_open_ctx *)user;
+    zcs_http_vod_file_open_ctx *ctx = (zcs_http_vod_file_open_ctx *)user;
     struct stat st;
 
     ctx->prep_ok = 0;
@@ -327,7 +327,7 @@ static void vod_file_open_prep_blocking(void *user)
                 ctx->http_reason = "Not Found";
                 return;
             }
-            if (ctx->has_range && zms_http_fseek(ctx->fp, (long long)ctx->start, SEEK_SET) != 0) {
+            if (ctx->has_range && zcs_http_fseek(ctx->fp, (long long)ctx->start, SEEK_SET) != 0) {
                 fclose(ctx->fp);
                 ctx->fp = NULL;
                 ctx->http_code = 416;
@@ -346,8 +346,8 @@ static void vod_file_open_prep_blocking(void *user)
     }
 
     if (ctx->query_seek_ms > 0 && (!ctx->range_hdr[0])) {
-        const zms_vod_flv_index *idx = zms_vod_source_flv_index(ctx->src);
-        ctx->start = (uint64_t)zms_vod_flv_index_byte_at_ms(idx, ctx->query_seek_ms);
+        const zcs_vod_flv_index *idx = zcs_vod_source_flv_index(ctx->src);
+        ctx->start = (uint64_t)zcs_vod_flv_index_byte_at_ms(idx, ctx->query_seek_ms);
         if (ctx->start >= ctx->file_size) {
             ctx->start = 0;
         }
@@ -362,7 +362,7 @@ static void vod_file_open_prep_blocking(void *user)
         ctx->http_reason = "Not Found";
         return;
     }
-    if (zms_http_fseek(ctx->fp, (long long)ctx->start, SEEK_SET) != 0) {
+    if (zcs_http_fseek(ctx->fp, (long long)ctx->start, SEEK_SET) != 0) {
         fclose(ctx->fp);
         ctx->fp = NULL;
         ctx->http_code = 416;
@@ -372,25 +372,25 @@ static void vod_file_open_prep_blocking(void *user)
     ctx->prep_ok = 1;
 }
 
-static void http_send_vod_mp4_finish(zms_http_session *hs, zms_media_source *src, int head_only,
+static void http_send_vod_mp4_finish(zcs_http_session *hs, zcs_media_source *src, int head_only,
                                      FILE *fp, uint64_t file_size, uint64_t start, uint64_t end,
                                      int has_range)
 {
     uint64_t body_len;
-    char hdr[ZMS_HTTP_RESP_HDR_MAX];
+    char hdr[ZCS_HTTP_RESP_HDR_MAX];
     int hn;
 
     if (src) {
-     if (!zms_http_session_authorize_play(hs, "http-mp4", src)) {
+     if (!zcs_http_session_authorize_play(hs, "http-mp4", src)) {
             if (fp) {
                 fclose(fp);
             }
-            zms_http_response_send_error(hs, 403, "Forbidden");
+            zcs_http_response_send_error(hs, 403, "Forbidden");
             return;
         }
-        zms_media_source_reader_add(src);
+        zcs_media_source_reader_add(src);
         hs->play_start_ms = zn_monotonic_ms();
-        zms_media_event_play(src, "http-mp4");
+        zcs_media_event_play(src, "http-mp4");
         hs->reader_attached = 1;
         hs->play_event = "http-mp4";
         hs->source = src;
@@ -423,7 +423,7 @@ static void http_send_vod_mp4_finish(zms_http_session *hs, zms_media_source *src
         if (fp) {
             fclose(fp);
         }
-        zms_http_response_send_error(hs, 500, "Internal Server Error");
+        zcs_http_response_send_error(hs, 500, "Internal Server Error");
         return;
     }
     zn_tcp_session_send(hs->tcp, hdr, (size_t)hn);
@@ -436,30 +436,30 @@ static void http_send_vod_mp4_finish(zms_http_session *hs, zms_media_source *src
 
     hs->file_fp = fp;
     hs->file_remain = body_len;
-    hs->state = ZMS_HTTP_SESSION_STATE_FILE_SENDING;
+    hs->state = ZCS_HTTP_SESSION_STATE_FILE_SENDING;
     flush_file(hs);
 }
 
-static void http_send_vod_flv_finish(zms_http_session *hs, zms_media_source *src, FILE *fp,
+static void http_send_vod_flv_finish(zcs_http_session *hs, zcs_media_source *src, FILE *fp,
                                      uint64_t file_size, uint64_t start, uint64_t end,
                                      int has_range)
 {
     uint64_t body_len = (size_t)(end - start + 1);
-    char hdr[ZMS_HTTP_RESP_HDR_MAX];
+    char hdr[ZCS_HTTP_RESP_HDR_MAX];
     int hn;
 
     {
 
 
-        if (!zms_http_session_authorize_play(hs, "http-flv", src)) {
+        if (!zcs_http_session_authorize_play(hs, "http-flv", src)) {
             fclose(fp);
-            zms_http_response_send_error(hs, 403, "Forbidden");
+            zcs_http_response_send_error(hs, 403, "Forbidden");
             return;
         }
     }
-    zms_media_source_reader_add(src);
+    zcs_media_source_reader_add(src);
     hs->play_start_ms = zn_monotonic_ms();
-    zms_media_event_play(src, "http-flv");
+    zcs_media_event_play(src, "http-flv");
     hs->reader_attached = 1;
     hs->play_event = "http-flv";
     hs->source = src;
@@ -491,14 +491,14 @@ static void http_send_vod_flv_finish(zms_http_session *hs, zms_media_source *src
         if (fp) {
             fclose(fp);
         }
-        zms_http_response_send_error(hs, 500, "Internal Server Error");
+        zcs_http_response_send_error(hs, 500, "Internal Server Error");
         return;
     }
     zn_tcp_session_send(hs->tcp, hdr, (size_t)hn);
     zn_tcp_session_flush(hs->tcp);
     hs->file_fp = fp;
     hs->file_remain = body_len;
-    hs->state = ZMS_HTTP_SESSION_STATE_FILE_SENDING;
+    hs->state = ZCS_HTTP_SESSION_STATE_FILE_SENDING;
     flush_file(hs);
 }
 
@@ -508,11 +508,11 @@ static void http_send_vod_flv_finish(zms_http_session *hs, zms_media_source *src
  * 注意 free_ctx 参数：正常回调路径会 free，但会话已死时外层可能已经释放过，
  * 这里必须尊重调用方传入的标志，不能无条件 free（否则 double free）。
  */
-static void vod_file_open_prep_finish(zms_http_vod_file_open_ctx *ctx, int free_ctx)
+static void vod_file_open_prep_finish(zcs_http_vod_file_open_ctx *ctx, int free_ctx)
 {
-    zms_http_session *hs = ctx->hs;
+    zcs_http_session *hs = ctx->hs;
 
-    if (!zms_http_session_is_live(hs)) {
+    if (!zcs_http_session_is_live(hs)) {
         if (ctx->fp) {
             fclose(ctx->fp);
         }
@@ -520,7 +520,7 @@ static void vod_file_open_prep_finish(zms_http_vod_file_open_ctx *ctx, int free_
         if (ctx->fp) {
             fclose(ctx->fp);
         }
-        zms_http_response_send_error(hs, ctx->http_code ? ctx->http_code : 404,
+        zcs_http_response_send_error(hs, ctx->http_code ? ctx->http_code : 404,
                                      ctx->http_reason ? ctx->http_reason : "Not Found");
     } else if (ctx->is_mp4) {
         http_send_vod_mp4_finish(hs, ctx->src, ctx->head_only, ctx->fp, ctx->file_size, ctx->start,
@@ -529,7 +529,7 @@ static void vod_file_open_prep_finish(zms_http_vod_file_open_ctx *ctx, int free_
         http_send_vod_flv_finish(hs, ctx->src, ctx->fp, ctx->file_size, ctx->start, ctx->end,
                                  ctx->has_range);
     }
-    zms_http_session_async_release(hs);
+    zcs_http_session_async_release(hs);
     if (free_ctx) {
         free(ctx);
     }
@@ -537,17 +537,17 @@ static void vod_file_open_prep_finish(zms_http_vod_file_open_ctx *ctx, int free_
 
 static void vod_file_open_prep_on_io(void *user)
 {
-    vod_file_open_prep_finish((zms_http_vod_file_open_ctx *)user, 1);
+    vod_file_open_prep_finish((zcs_http_vod_file_open_ctx *)user, 1);
 }
 
-static int vod_file_open_async(zms_http_session *hs, zms_media_source *src, const char *path,
+static int vod_file_open_async(zcs_http_session *hs, zcs_media_source *src, const char *path,
                                const char *range_hdr, uint64_t query_seek_ms, int head_only,
                                int is_mp4)
 {
     zn_poller *pol;
-    zms_http_vod_file_open_ctx *ctx;
+    zcs_http_vod_file_open_ctx *ctx;
 
-    if (!zms_vod_thread_pool_enabled() || !hs || !path || !path[0]) {
+    if (!zcs_vod_thread_pool_enabled() || !hs || !path || !path[0]) {
         return 0;
     }
     pol = hs->tcp ? zn_tcp_session_poller(hs->tcp) : NULL;
@@ -555,7 +555,7 @@ static int vod_file_open_async(zms_http_session *hs, zms_media_source *src, cons
         return 0;
     }
 
-    ctx = (zms_http_vod_file_open_ctx *)calloc(1, sizeof(*ctx));
+    ctx = (zcs_http_vod_file_open_ctx *)calloc(1, sizeof(*ctx));
     if (!ctx) {
         return 0;
     }
@@ -569,42 +569,42 @@ static int vod_file_open_async(zms_http_session *hs, zms_media_source *src, cons
     ctx->head_only = head_only;
     ctx->is_mp4 = is_mp4;
 
-    zms_http_session_async_hold(hs);
-    if (zms_vod_thread_pool_run(pol, vod_file_open_prep_blocking, vod_file_open_prep_on_io, ctx) !=
+    zcs_http_session_async_hold(hs);
+    if (zcs_vod_thread_pool_run(pol, vod_file_open_prep_blocking, vod_file_open_prep_on_io, ctx) !=
         ZN_OK) {
-        zms_http_session_async_release(hs);
+        zcs_http_session_async_release(hs);
         free(ctx);
         return 0;
     }
     return 1;
 }
 
-typedef struct zms_http_static_file_ctx {
-    zms_http_session *hs;
-    zms_media_source *src;
+typedef struct zcs_http_static_file_ctx {
+    zcs_http_session *hs;
+    zcs_media_source *src;
     char path[512];
     char ctype[96];
     char player[32];
     int prep_ok;
     FILE *fp;
     uint64_t file_size;
-} zms_http_static_file_ctx;
+} zcs_http_static_file_ctx;
 
-static void http_send_static_finish(zms_http_session *hs, zms_media_source *src, const char *ctype,
+static void http_send_static_finish(zcs_http_session *hs, zcs_media_source *src, const char *ctype,
                                     const char *player, FILE *fp, uint64_t file_size)
 {
-    char hdr[ZMS_HTTP_RESP_HDR_MAX];
+    char hdr[ZCS_HTTP_RESP_HDR_MAX];
     int hn;
 
     if (src) {
-     if (!zms_http_session_authorize_play(hs, player, src)) {
+     if (!zcs_http_session_authorize_play(hs, player, src)) {
             fclose(fp);
-            zms_http_response_send_error(hs, 403, "Forbidden");
+            zcs_http_response_send_error(hs, 403, "Forbidden");
             return;
         }
-        zms_media_source_reader_add(src);
+        zcs_media_source_reader_add(src);
         hs->play_start_ms = zn_monotonic_ms();
-        zms_media_event_play(src, player);
+        zcs_media_event_play(src, player);
         hs->reader_attached = 1;
         hs->play_event = player;
         hs->source = src;
@@ -621,20 +621,20 @@ static void http_send_static_finish(zms_http_session *hs, zms_media_source *src,
         if (fp) {
             fclose(fp);
         }
-        zms_http_response_send_error(hs, 500, "Internal Server Error");
+        zcs_http_response_send_error(hs, 500, "Internal Server Error");
         return;
     }
     zn_tcp_session_send(hs->tcp, hdr, (size_t)hn);
     zn_tcp_session_flush(hs->tcp);
     hs->file_fp = fp;
     hs->file_remain = file_size;
-    hs->state = ZMS_HTTP_SESSION_STATE_FILE_SENDING;
+    hs->state = ZCS_HTTP_SESSION_STATE_FILE_SENDING;
     flush_file(hs);
 }
 
 static void static_file_prep_blocking(void *user)
 {
-    zms_http_static_file_ctx *ctx = (zms_http_static_file_ctx *)user;
+    zcs_http_static_file_ctx *ctx = (zcs_http_static_file_ctx *)user;
     struct stat st;
 
     ctx->prep_ok = 0;
@@ -650,11 +650,11 @@ static void static_file_prep_blocking(void *user)
     ctx->prep_ok = 1;
 }
 
-static void static_file_prep_finish(zms_http_static_file_ctx *ctx, int free_ctx)
+static void static_file_prep_finish(zcs_http_static_file_ctx *ctx, int free_ctx)
 {
-    zms_http_session *hs = ctx->hs;
+    zcs_http_session *hs = ctx->hs;
 
-    if (!zms_http_session_is_live(hs)) {
+    if (!zcs_http_session_is_live(hs)) {
         if (ctx->fp) {
             fclose(ctx->fp);
         }
@@ -662,11 +662,11 @@ static void static_file_prep_finish(zms_http_static_file_ctx *ctx, int free_ctx)
         if (ctx->fp) {
             fclose(ctx->fp);
         }
-        zms_http_response_send_error(hs, 404, "Not Found");
+        zcs_http_response_send_error(hs, 404, "Not Found");
     } else {
         http_send_static_finish(hs, ctx->src, ctx->ctype, ctx->player, ctx->fp, ctx->file_size);
     }
-    zms_http_session_async_release(hs);
+    zcs_http_session_async_release(hs);
     if (free_ctx) {
         free(ctx);
     }
@@ -674,16 +674,16 @@ static void static_file_prep_finish(zms_http_static_file_ctx *ctx, int free_ctx)
 
 static void static_file_prep_on_io(void *user)
 {
-    static_file_prep_finish((zms_http_static_file_ctx *)user, 1);
+    static_file_prep_finish((zcs_http_static_file_ctx *)user, 1);
 }
 
-static int static_file_open_async(zms_http_session *hs, zms_media_source *src, const char *path,
+static int static_file_open_async(zcs_http_session *hs, zcs_media_source *src, const char *path,
                                   const char *ctype, const char *player)
 {
     zn_poller *pol;
-    zms_http_static_file_ctx *ctx;
+    zcs_http_static_file_ctx *ctx;
 
-    if (!zms_vod_thread_pool_enabled() || !hs || !path || !path[0]) {
+    if (!zcs_vod_thread_pool_enabled() || !hs || !path || !path[0]) {
         return 0;
     }
     pol = hs->tcp ? zn_tcp_session_poller(hs->tcp) : NULL;
@@ -691,7 +691,7 @@ static int static_file_open_async(zms_http_session *hs, zms_media_source *src, c
         return 0;
     }
 
-    ctx = (zms_http_static_file_ctx *)calloc(1, sizeof(*ctx));
+    ctx = (zcs_http_static_file_ctx *)calloc(1, sizeof(*ctx));
     if (!ctx) {
         return 0;
     }
@@ -705,10 +705,10 @@ static int static_file_open_async(zms_http_session *hs, zms_media_source *src, c
         strncpy(ctx->player, player, sizeof(ctx->player) - 1);
     }
 
-    zms_http_session_async_hold(hs);
-    if (zms_vod_thread_pool_run(pol, static_file_prep_blocking, static_file_prep_on_io, ctx) !=
+    zcs_http_session_async_hold(hs);
+    if (zcs_vod_thread_pool_run(pol, static_file_prep_blocking, static_file_prep_on_io, ctx) !=
         ZN_OK) {
-        zms_http_session_async_release(hs);
+        zcs_http_session_async_release(hs);
         free(ctx);
         return 0;
     }
@@ -716,14 +716,14 @@ static int static_file_open_async(zms_http_session *hs, zms_media_source *src, c
 }
 
 /* 关闭文件放进 IO 池：poller 上不做 fclose。 */
-typedef struct zms_http_file_close_job {
+typedef struct zcs_http_file_close_job {
     FILE *fp;
-} zms_http_file_close_job;
+} zcs_http_file_close_job;
 
 /* 后台线程侧：真正关闭文件。poller 回调只负责释放 job，不做 IO。 */
 static void file_close_work(void *user)
 {
-    zms_http_file_close_job *j = (zms_http_file_close_job *)user;
+    zcs_http_file_close_job *j = (zcs_http_file_close_job *)user;
 
     if (j && j->fp) {
         fclose(j->fp);
@@ -745,24 +745,24 @@ static void file_close_on_io(void *user)
  *
  * 注意：本函数不触碰会话，因此调用方无需持有 hs；会话销毁路径也能安全调用。
  */
-void zms_http_close_file_async(FILE *fp, zn_poller *pol)
+void zcs_http_close_file_async(FILE *fp, zn_poller *pol)
 {
-    zms_http_file_close_job *j;
+    zcs_http_file_close_job *j;
 
     if (!fp) {
         return;
     }
-    if (!zms_vod_thread_pool_enabled() || !pol) {
+    if (!zcs_vod_thread_pool_enabled() || !pol) {
         fclose(fp); /* 无异步环境：只能就地关闭（降级路径） */
         return;
     }
-    j = (zms_http_file_close_job *)calloc(1, sizeof(*j));
+    j = (zcs_http_file_close_job *)calloc(1, sizeof(*j));
     if (!j) {
         fclose(fp);
         return;
     }
     j->fp = fp;
-    if (zms_vod_thread_pool_run(pol, file_close_work, file_close_on_io, j) != ZN_OK) {
+    if (zcs_vod_thread_pool_run(pol, file_close_work, file_close_on_io, j) != ZN_OK) {
         fclose(fp);
         free(j);
     }
@@ -774,17 +774,17 @@ void zms_http_close_file_async(FILE *fp, zn_poller *pol)
  * poller 上换进 hs->file_rd_buf，再由 flush_file 走非阻塞发送。
  * 这样读盘再慢，也只是让这一路会话变慢，不会阻塞同 poller 的其它会话。
  */
-typedef struct zms_http_file_read_job {
-    zms_http_session *hs;
+typedef struct zcs_http_file_read_job {
+    zcs_http_session *hs;
     FILE *fp;
     uint8_t *buf;
     size_t want;
     size_t got;
-} zms_http_file_read_job;
+} zcs_http_file_read_job;
 
 static void file_read_work(void *user)
 {
-    zms_http_file_read_job *j = (zms_http_file_read_job *)user;
+    zcs_http_file_read_job *j = (zcs_http_file_read_job *)user;
 
     j->got = (j->fp && j->buf && j->want) ? fread(j->buf, 1, j->want, j->fp) : 0;
 }
@@ -801,15 +801,15 @@ static void file_read_work(void *user)
  */
 static void file_read_on_io(void *user)
 {
-    zms_http_file_read_job *j = (zms_http_file_read_job *)user;
-    zms_http_session *hs = j->hs;
+    zcs_http_file_read_job *j = (zcs_http_file_read_job *)user;
+    zcs_http_session *hs = j->hs;
 
     if (hs) {
         hs->file_reading = 0;
     }
-    if (!zms_http_session_is_live(hs)) {
+    if (!zcs_http_session_is_live(hs)) {
         free(j->buf);
-        zms_http_session_async_release(hs);
+        zcs_http_session_async_release(hs);
         free(j);
         return;
     }
@@ -823,7 +823,7 @@ static void file_read_on_io(void *user)
         hs->file_rd_off = 0;
         hs->file_remain = hs->file_remain > j->got ? hs->file_remain - j->got : 0;
     }
-    zms_http_session_async_release(hs);
+    zcs_http_session_async_release(hs);
     free(j->buf);
     free(j);
     flush_file(hs);
@@ -836,17 +836,17 @@ static void file_read_on_io(void *user)
  * 任何一步失败（无 poller / 线程池关闭 / 分配失败 / 投递失败）都置 file_eof，
  * 让上层按“读完”收尾并关闭会话——这里没有中间态可选，卡住比断开更糟。
  */
-static void file_read_submit(zms_http_session *hs)
+static void file_read_submit(zcs_http_session *hs)
 {
-    zms_http_file_read_job *j;
+    zcs_http_file_read_job *j;
     zn_poller *pol = hs->tcp ? zn_tcp_session_poller(hs->tcp) : NULL;
     size_t want = hs->file_remain > hs->send_cap ? hs->send_cap : (size_t)hs->file_remain;
 
-    if (!pol || !zms_vod_thread_pool_enabled() || want == 0) {
+    if (!pol || !zcs_vod_thread_pool_enabled() || want == 0) {
         hs->file_eof = 1;
         return;
     }
-    j = (zms_http_file_read_job *)calloc(1, sizeof(*j));
+    j = (zcs_http_file_read_job *)calloc(1, sizeof(*j));
     if (!j) {
         hs->file_eof = 1;
         return;
@@ -861,17 +861,17 @@ static void file_read_submit(zms_http_session *hs)
     j->fp = hs->file_fp;
     j->want = want;
     hs->file_reading = 1;
-    zms_http_session_async_hold(hs);
-    if (zms_vod_thread_pool_run(pol, file_read_work, file_read_on_io, j) != ZN_OK) {
+    zcs_http_session_async_hold(hs);
+    if (zcs_vod_thread_pool_run(pol, file_read_work, file_read_on_io, j) != ZN_OK) {
         hs->file_reading = 0;
-        zms_http_session_async_release(hs);
+        zcs_http_session_async_release(hs);
         free(j->buf);
         free(j);
         hs->file_eof = 1;
     }
 }
 
-static void http_file_done(zms_http_session *hs)
+static void http_file_done(zcs_http_session *hs)
 {
     zn_poller *pol;
 
@@ -880,7 +880,7 @@ static void http_file_done(zms_http_session *hs)
     }
     pol = hs->tcp ? zn_tcp_session_poller(hs->tcp) : NULL;
     if (hs->file_fp) {
-        zms_http_close_file_async(hs->file_fp, pol);
+        zcs_http_close_file_async(hs->file_fp, pol);
         hs->file_fp = NULL;
     }
     free(hs->file_rd_buf);
@@ -890,22 +890,22 @@ static void http_file_done(zms_http_session *hs)
     hs->file_eof = 0;
     hs->file_remain = 0;
     if (hs->reader_attached && hs->source) {
-        zms_media_source_reader_remove(hs->source);
-        zms_media_event_stop(hs->source, hs->play_event ? hs->play_event : "http-flv",
+        zcs_media_source_reader_remove(hs->source);
+        zcs_media_event_stop(hs->source, hs->play_event ? hs->play_event : "http-flv",
                              hs->play_start_ms);
         hs->reader_attached = 0;
         hs->play_start_ms = 0;
     }
     hs->play_event = NULL;
     hs->source = NULL;
-    hs->state = ZMS_HTTP_SESSION_STATE_IDLE;
+    hs->state = ZCS_HTTP_SESSION_STATE_IDLE;
 }
 
-static void flush_file(zms_http_session *hs)
+static void flush_file(zcs_http_session *hs)
 {
     int i;
 
-    if (!hs || hs->state != ZMS_HTTP_SESSION_STATE_FILE_SENDING || !hs->file_fp || !hs->tcp) {
+    if (!hs || hs->state != ZCS_HTTP_SESSION_STATE_FILE_SENDING || !hs->file_fp || !hs->tcp) {
         return;
     }
 
@@ -942,7 +942,7 @@ static void flush_file(zms_http_session *hs)
  * IDLE 等待下一个 keep-alive 请求，而不是关闭连接——播放器会连续发很多
  * 切片请求，复用连接能显著降低握手开销。
  */
-static void http_hls_send_done(zms_http_session *hs)
+static void http_hls_send_done(zcs_http_session *hs)
 {
     if (!hs) {
         return;
@@ -952,7 +952,7 @@ static void http_hls_send_done(zms_http_session *hs)
     if (hs->tcp) {
         zn_tcp_session_close(hs->tcp);
     }
-    hs->state = ZMS_HTTP_SESSION_STATE_IDLE;
+    hs->state = ZCS_HTTP_SESSION_STATE_IDLE;
 }
 
 /*
@@ -962,9 +962,9 @@ static void http_hls_send_done(zms_http_session *hs)
  * 超过缓冲上限，头被截断，播放器拿不到完整 Content-Length 就一直等。
  * 现在头构造失败会直接断开（见调用方对返回值的处理），不会留下半截响应。
  */
-static void start_hls_body_send(zms_http_session *hs, const char *ctype, size_t body_len)
+static void start_hls_body_send(zcs_http_session *hs, const char *ctype, size_t body_len)
 {
-    char hdr[ZMS_HTTP_RESP_HDR_MAX];
+    char hdr[ZCS_HTTP_RESP_HDR_MAX];
     int n;
 
     if (!hs || !hs->tcp || body_len == 0) {
@@ -988,17 +988,17 @@ static void start_hls_body_send(zms_http_session *hs, const char *ctype, size_t 
     zn_tcp_session_send(hs->tcp, hdr, (size_t)n);
     hs->hls_send_off = 0;
     hs->hls_send_len = body_len;
-    hs->state = ZMS_HTTP_SESSION_STATE_HLS_SENDING;
-    zms_http_session_flush(hs);
+    hs->state = ZCS_HTTP_SESSION_STATE_HLS_SENDING;
+    zcs_http_session_flush(hs);
 }
 
-static void flush_hls(zms_http_session *hs)
+static void flush_hls(zcs_http_session *hs)
 {
     size_t chunk;
     size_t remain;
     int i;
 
-    if (!hs || hs->state != ZMS_HTTP_SESSION_STATE_HLS_SENDING || !hs->tcp || !hs->send_buf) {
+    if (!hs || hs->state != ZCS_HTTP_SESSION_STATE_HLS_SENDING || !hs->tcp || !hs->send_buf) {
         return;
     }
 
@@ -1023,22 +1023,22 @@ static void flush_hls(zms_http_session *hs)
     }
 }
 
-void zms_http_session_flush(zms_http_session *hs)
+void zcs_http_session_flush(zcs_http_session *hs)
 {
     if (!hs) {
         return;
     }
-    if (hs->state == ZMS_HTTP_SESSION_STATE_FILE_SENDING) {
+    if (hs->state == ZCS_HTTP_SESSION_STATE_FILE_SENDING) {
         flush_file(hs);
-    } else if (hs->state == ZMS_HTTP_SESSION_STATE_HLS_SENDING) {
+    } else if (hs->state == ZCS_HTTP_SESSION_STATE_HLS_SENDING) {
         flush_hls(hs);
     }
 }
 
-void zms_http_response_send_static_file(zms_http_session *hs, zms_media_source *src,
+void zcs_http_response_send_static_file(zcs_http_session *hs, zcs_media_source *src,
                                         const char *path, const char *ctype, const char *player)
 {
-    zms_http_static_file_ctx sync;
+    zcs_http_static_file_ctx sync;
 
     if (!hs || !path || !path[0]) {
         return;
@@ -1063,11 +1063,11 @@ void zms_http_response_send_static_file(zms_http_session *hs, zms_media_source *
     static_file_prep_finish(&sync, 0);
 }
 
-void zms_http_response_send_vod_flv_file(zms_http_session *hs, zms_media_source *src,
+void zcs_http_response_send_vod_flv_file(zcs_http_session *hs, zcs_media_source *src,
                                          const char *flv_path, const char *range_hdr,
                                          uint64_t query_seek_ms)
 {
-    zms_http_vod_file_open_ctx sync;
+    zcs_http_vod_file_open_ctx sync;
 
     if (!hs || !flv_path || !flv_path[0]) {
         return;
@@ -1088,10 +1088,10 @@ void zms_http_response_send_vod_flv_file(zms_http_session *hs, zms_media_source 
     vod_file_open_prep_finish(&sync, 0);
 }
 
-void zms_http_response_send_vod_mp4_file(zms_http_session *hs, zms_media_source *src,
+void zcs_http_response_send_vod_mp4_file(zcs_http_session *hs, zcs_media_source *src,
                                          const char *mp4_path, const char *range_hdr, int head_only)
 {
-    zms_http_vod_file_open_ctx sync;
+    zcs_http_vod_file_open_ctx sync;
 
     if (!hs || !mp4_path || !mp4_path[0]) {
         return;
@@ -1113,16 +1113,16 @@ void zms_http_response_send_vod_mp4_file(zms_http_session *hs, zms_media_source 
     vod_file_open_prep_finish(&sync, 0);
 }
 
-void zms_http_response_send_hls_body(zms_http_session *hs, const char *ctype, size_t body_len)
+void zcs_http_response_send_hls_body(zcs_http_session *hs, const char *ctype, size_t body_len)
 {
     start_hls_body_send(hs, ctype, body_len);
 }
 
-void zms_http_response_send_download_file(zms_http_session *hs, const char *path)
+void zcs_http_response_send_download_file(zcs_http_session *hs, const char *path)
 {
     struct stat st;
     FILE *fp;
-    char hdr[ZMS_HTTP_RESP_HDR_MAX];
+    char hdr[ZCS_HTTP_RESP_HDR_MAX];
     const char *base;
     char fname[256];
     int hn;
@@ -1132,12 +1132,12 @@ void zms_http_response_send_download_file(zms_http_session *hs, const char *path
         return;
     }
     if (stat(path, &st) != 0 || st.st_size <= 0) {
-        zms_http_response_send_error(hs, 404, "Not Found");
+        zcs_http_response_send_error(hs, 404, "Not Found");
         return;
     }
     fp = fopen(path, "rb");
     if (!fp) {
-        zms_http_response_send_error(hs, 404, "Not Found");
+        zcs_http_response_send_error(hs, 404, "Not Found");
         return;
     }
     base = path;
@@ -1161,13 +1161,13 @@ void zms_http_response_send_download_file(zms_http_session *hs, const char *path
         if (fp) {
             fclose(fp);
         }
-        zms_http_response_send_error(hs, 500, "Internal Server Error");
+        zcs_http_response_send_error(hs, 500, "Internal Server Error");
         return;
     }
     zn_tcp_session_send(hs->tcp, hdr, (size_t)hn);
     zn_tcp_session_flush(hs->tcp);
     hs->file_fp = fp;
     hs->file_remain = (uint64_t)st.st_size;
-    hs->state = ZMS_HTTP_SESSION_STATE_FILE_SENDING;
+    hs->state = ZCS_HTTP_SESSION_STATE_FILE_SENDING;
     flush_file(hs);
 }

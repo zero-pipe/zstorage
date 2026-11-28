@@ -3,8 +3,8 @@
  * @brief SRT 会话生命周期与链接。
  */
 #include "poller.h"
-#include "zms/protocol/srt/streamid.h"
-#include "zms/play/dispatch.h"
+#include "zcs/protocol/srt/streamid.h"
+#include "zcs/play/dispatch.h"
 #include "zn/platform.h"
 #include "zn/util/log.h"
 #include <stdlib.h>
@@ -20,7 +20,7 @@ static void srt_sock_nonblock(SRTSOCKET sock)
     (void)srt_setsockopt(sock, 0, SRTO_RCVSYN, &no, sizeof(no));
 }
 
-static void srt_log_negotiated_opts(zms_srt_session *s)
+static void srt_log_negotiated_opts(zcs_srt_session *s)
 {
     int lat = 0;
     int peer = 0;
@@ -42,57 +42,57 @@ static void srt_log_negotiated_opts(zms_srt_session *s)
              plsize);
 }
 
-static int srt_session_setup(zms_srt_session *s, const char *streamid)
+static int srt_session_setup(zcs_srt_session *s, const char *streamid)
 {
-    char app[ZMS_APP_MAX];
-    char stream[ZMS_STREAM_MAX];
-    zms_srt_stream_mode mode = ZMS_SRT_MODE_PUBLISH;
+    char app[ZCS_APP_MAX];
+    char stream[ZCS_STREAM_MAX];
+    zcs_srt_stream_mode mode = ZCS_SRT_MODE_PUBLISH;
 
     if (!s) {
         return -1;
     }
     {
-        char vh[ZMS_VHOST_MAX];
+        char vh[ZCS_VHOST_MAX];
 
-        if (zms_srt_streamid_vhost(streamid, vh, sizeof(vh))) {
-            zms_vhost_normalize(vh, s->vhost, sizeof(s->vhost));
+        if (zcs_srt_streamid_vhost(streamid, vh, sizeof(vh))) {
+            zcs_vhost_normalize(vh, s->vhost, sizeof(s->vhost));
         } else {
-            zms_vhost_normalize(NULL, s->vhost, sizeof(s->vhost));
+            zcs_vhost_normalize(NULL, s->vhost, sizeof(s->vhost));
         }
     }
-    if (zms_srt_streamid_parse(streamid, app, stream, &mode) != 0) {
+    if (zcs_srt_streamid_parse(streamid, app, stream, &mode) != 0) {
         zn_warn("SRT #%d bad streamid: %s", s->session_no, streamid ? streamid : "");
         return -1;
     }
-    if (mode == ZMS_SRT_MODE_PLAY) {
-        return zms_srt_session_begin_play(s, app, stream, streamid);
+    if (mode == ZCS_SRT_MODE_PLAY) {
+        return zcs_srt_session_begin_play(s, app, stream, streamid);
     }
-    if (mode != ZMS_SRT_MODE_PUBLISH) {
+    if (mode != ZCS_SRT_MODE_PUBLISH) {
         zn_warn("SRT #%d invalid streamid mode: %s", s->session_no, streamid ? streamid : "");
         return -1;
     }
-    return zms_srt_session_begin_publish(s, app, stream, streamid);
+    return zcs_srt_session_begin_publish(s, app, stream, streamid);
 }
 
 static void srt_session_finish_publish_async(void *user)
 {
-    zms_srt_session_finish_publish((zms_srt_session *)user);
+    zcs_srt_session_finish_publish((zcs_srt_session *)user);
 }
 
 static void srt_session_finish_play_async(void *user)
 {
-    zms_srt_session_finish_play((zms_srt_session *)user);
+    zcs_srt_session_finish_play((zcs_srt_session *)user);
 }
 
 static void srt_session_destroy_task(void *user)
 {
-    zms_srt_session_destroy_now((zms_srt_session *)user);
+    zcs_srt_session_destroy_now((zcs_srt_session *)user);
 }
 
-void zms_srt_session_destroy_now(zms_srt_session *s)
+void zcs_srt_session_destroy_now(zcs_srt_session *s)
 {
-    const zms_session_dispatch_ops *ops;
-    zms_srt_server *srv;
+    const zcs_session_dispatch_ops *ops;
+    zcs_srt_server *srv;
 
     if (!s) {
         return;
@@ -112,21 +112,21 @@ void zms_srt_session_destroy_now(zms_srt_session *s)
         s->sock = SRT_INVALID_SOCK;
     }
 
-    ops = zms_session_dispatch_find(ZMS_SESSION_SRT);
+    ops = zcs_session_dispatch_find(ZCS_SESSION_SRT);
     if (ops && ops->on_teardown) {
         ops->on_teardown(s);
     }
-    if (s->mode == ZMS_SRT_SESSION_MODE_PUBLISH) {
-        zms_srt_session_teardown_publish(s);
+    if (s->mode == ZCS_SRT_SESSION_MODE_PUBLISH) {
+        zcs_srt_session_teardown_publish(s);
     } else {
-        zms_srt_session_teardown_play(s);
+        zcs_srt_session_teardown_play(s);
     }
 
     if (srv) {
-        zms_srt_session_unlink(srv, s);
+        zcs_srt_session_unlink(srv, s);
     }
     if (s->ingress) {
-        zms_live_ingest_destroy(s->ingress);
+        zcs_live_ingest_destroy(s->ingress);
         s->ingress = NULL;
     }
     s->source = NULL;
@@ -136,24 +136,24 @@ void zms_srt_session_destroy_now(zms_srt_session *s)
     free(s);
 }
 
-void zms_srt_session_schedule_destroy(zms_srt_session *sess)
+void zcs_srt_session_schedule_destroy(zcs_srt_session *sess)
 {
     if (!sess || sess->destroy_scheduled) {
         return;
     }
     sess->stopping = 1;
     if (sess->poller && zn_poller_is_current_thread(sess->poller)) {
-        zms_srt_session_destroy_now(sess);
+        zcs_srt_session_destroy_now(sess);
     } else if (sess->poller) {
         (void)zn_poller_async(sess->poller, srt_session_destroy_task, sess, 0);
     } else {
-        zms_srt_session_destroy_now(sess);
+        zcs_srt_session_destroy_now(sess);
     }
 }
 
-void zms_srt_session_publisher_kick(void *ctx, int force)
+void zcs_srt_session_publisher_kick(void *ctx, int force)
 {
-    zms_srt_session *s = (zms_srt_session *)ctx;
+    zcs_srt_session *s = (zcs_srt_session *)ctx;
 
     (void)force;
     if (!s) {
@@ -165,13 +165,13 @@ void zms_srt_session_publisher_kick(void *ctx, int force)
     }
 }
 
-zms_srt_session *zms_srt_session_accept(zms_srt_server *srv, SRTSOCKET client,
+zcs_srt_session *zcs_srt_session_accept(zcs_srt_server *srv, SRTSOCKET client,
                                         const char *streamid)
 {
-    zms_srt_session *s;
+    zcs_srt_session *s;
     int events = SRT_EPOLL_IN | SRT_EPOLL_OUT | SRT_EPOLL_ERR;
 
-    s = (zms_srt_session *)calloc(1, sizeof(*s));
+    s = (zcs_srt_session *)calloc(1, sizeof(*s));
     if (!s) {
         return NULL;
     }
@@ -179,45 +179,45 @@ zms_srt_session *zms_srt_session_accept(zms_srt_server *srv, SRTSOCKET client,
     s->session_no = ++srv->session_serial;
     s->sock = client;
     s->poller = srv->poller;
-    zms_srt_apply_session_opts(client);
+    zcs_srt_apply_session_opts(client);
     srt_sock_nonblock(client);
 
     if (srt_session_setup(s, streamid) != 0) {
         free(s);
         return NULL;
     }
-    if (s->mode == ZMS_SRT_SESSION_MODE_PUBLISH) {
+    if (s->mode == ZCS_SRT_SESSION_MODE_PUBLISH) {
         events = SRT_EPOLL_IN | SRT_EPOLL_ERR;
     }
     if (srt_epoll_add_usock(srv->epoll_id, client, &events) == SRT_ERROR) {
-        const zms_session_dispatch_ops *ops = zms_session_dispatch_find(ZMS_SESSION_SRT);
+        const zcs_session_dispatch_ops *ops = zcs_session_dispatch_find(ZCS_SESSION_SRT);
         if (ops && ops->on_teardown) {
             ops->on_teardown(s);
         }
-        if (s->mode == ZMS_SRT_SESSION_MODE_PUBLISH) {
-            zms_srt_session_teardown_publish(s);
+        if (s->mode == ZCS_SRT_SESSION_MODE_PUBLISH) {
+            zcs_srt_session_teardown_publish(s);
         } else {
-            zms_srt_session_teardown_play(s);
+            zcs_srt_session_teardown_play(s);
         }
         if (s->ingress) {
-            zms_live_ingest_destroy(s->ingress);
+            zcs_live_ingest_destroy(s->ingress);
         }
         free(s);
         return NULL;
     }
-    zms_srt_session_link(srv, s);
+    zcs_srt_session_link(srv, s);
     srt_log_negotiated_opts(s);
-    if (s->mode == ZMS_SRT_SESSION_MODE_PUBLISH) {
-        zms_srt_session_drain_recv(s);
+    if (s->mode == ZCS_SRT_SESSION_MODE_PUBLISH) {
+        zcs_srt_session_drain_recv(s);
         if (s->poller && zn_poller_is_current_thread(s->poller)) {
-            zms_srt_session_finish_publish(s);
+            zcs_srt_session_finish_publish(s);
         } else if (zn_poller_async(s->poller, srt_session_finish_publish_async, s, 0) != ZN_OK) {
             srt_session_finish_publish_async(s);
         }
     } else {
-        zms_srt_session_pump_send(s);
+        zcs_srt_session_pump_send(s);
         if (s->poller && zn_poller_is_current_thread(s->poller)) {
-            zms_srt_session_finish_play(s);
+            zcs_srt_session_finish_play(s);
         } else if (zn_poller_async(s->poller, srt_session_finish_play_async, s, 0) != ZN_OK) {
             srt_session_finish_play_async(s);
         }
@@ -225,9 +225,9 @@ zms_srt_session *zms_srt_session_accept(zms_srt_server *srv, SRTSOCKET client,
     return s;
 }
 
-zms_srt_session *zms_srt_session_find(zms_srt_server *srv, SRTSOCKET sock)
+zcs_srt_session *zcs_srt_session_find(zcs_srt_server *srv, SRTSOCKET sock)
 {
-    zms_srt_session *s;
+    zcs_srt_session *s;
 
     if (!srv) {
         return NULL;
@@ -240,7 +240,7 @@ zms_srt_session *zms_srt_session_find(zms_srt_server *srv, SRTSOCKET sock)
     return NULL;
 }
 
-void zms_srt_session_link(zms_srt_server *srv, zms_srt_session *sess)
+void zcs_srt_session_link(zcs_srt_server *srv, zcs_srt_session *sess)
 {
     if (!srv || !sess) {
         return;
@@ -249,9 +249,9 @@ void zms_srt_session_link(zms_srt_server *srv, zms_srt_session *sess)
     srv->sessions = sess;
 }
 
-void zms_srt_session_unlink(zms_srt_server *srv, zms_srt_session *sess)
+void zcs_srt_session_unlink(zcs_srt_server *srv, zcs_srt_session *sess)
 {
-    zms_srt_session **pp;
+    zcs_srt_session **pp;
 
     if (!srv || !sess) {
         return;

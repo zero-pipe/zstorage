@@ -2,8 +2,8 @@
  * @file amf3_decode.c
  * @brief AMF3 解码：解析 RTMP connect 命令对象里的 app/tcUrl 等字段。
  */
-#include "zms/protocol/rtmp/amf3_decode.h"
-#include "zms/media/wire/amf.h"
+#include "zcs/protocol/rtmp/amf3_decode.h"
+#include "zcs/media/wire/amf.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -262,26 +262,26 @@ static int amf0_extract_connect_scan(const uint8_t *data, size_t len, char *app,
     return got;
 }
 
-static zms_amf_value *amf0_decode_object_arg(const uint8_t *data, size_t len)
+static zcs_amf_value *amf0_decode_object_arg(const uint8_t *data, size_t len)
 {
     size_t off = 0;
     while (off < len) {
         size_t step = 0;
-        zms_amf_value *v = NULL;
-        if (zms_amf_decode(data + off, len - off, &v, &step) != ZN_OK || !v) {
+        zcs_amf_value *v = NULL;
+        if (zcs_amf_decode(data + off, len - off, &v, &step) != ZN_OK || !v) {
             break;
         }
         off += step;
-        zms_amf_type t = zms_amf_value_type(v);
-        if (t == ZMS_AMF_OBJECT || t == ZMS_AMF_ECMA_ARRAY) {
+        zcs_amf_type t = zcs_amf_value_type(v);
+        if (t == ZCS_AMF_OBJECT || t == ZCS_AMF_ECMA_ARRAY) {
             return v;
         }
-        zms_amf_value_free(v);
+        zcs_amf_value_free(v);
     }
     return NULL;
 }
 
-int zms_amf_extract_connect(const uint8_t *data, size_t len, char *app, size_t app_cap,
+int zcs_amf_extract_connect(const uint8_t *data, size_t len, char *app, size_t app_cap,
                             char *tc_url, size_t tc_cap)
 {
     if (!data || !len) {
@@ -306,27 +306,27 @@ int zms_amf_extract_connect(const uint8_t *data, size_t len, char *app, size_t a
         if (data[start] != 0x03 && data[start] != 0x08) {
             continue;
         }
-        zms_amf_value *try = NULL;
+        zcs_amf_value *try = NULL;
         size_t step = 0;
-        if (zms_amf_decode(data + start, len - start, &try, &step) != ZN_OK || !try) {
+        if (zcs_amf_decode(data + start, len - start, &try, &step) != ZN_OK || !try) {
             continue;
         }
-        zms_amf_type t = zms_amf_value_type(try);
-        if (t == ZMS_AMF_OBJECT || t == ZMS_AMF_ECMA_ARRAY) {
-            const zms_amf_value *av = zms_amf_object_get(try, "app");
-            if (av && zms_amf_value_str(av)[0] && app && app_cap) {
-                strncpy(app, zms_amf_value_str(av), app_cap - 1);
+        zcs_amf_type t = zcs_amf_value_type(try);
+        if (t == ZCS_AMF_OBJECT || t == ZCS_AMF_ECMA_ARRAY) {
+            const zcs_amf_value *av = zcs_amf_object_get(try, "app");
+            if (av && zcs_amf_value_str(av)[0] && app && app_cap) {
+                strncpy(app, zcs_amf_value_str(av), app_cap - 1);
             }
-            const zms_amf_value *tc = zms_amf_object_get(try, "tcUrl");
-            if (tc && zms_amf_value_str(tc)[0] && tc_url && tc_cap) {
-                strncpy(tc_url, zms_amf_value_str(tc), tc_cap - 1);
+            const zcs_amf_value *tc = zcs_amf_object_get(try, "tcUrl");
+            if (tc && zcs_amf_value_str(tc)[0] && tc_url && tc_cap) {
+                strncpy(tc_url, zcs_amf_value_str(tc), tc_cap - 1);
             }
-            zms_amf_value_free(try);
+            zcs_amf_value_free(try);
             if ((app && app[0]) || (tc_url && tc_url[0])) {
                 return 1;
             }
         } else {
-            zms_amf_value_free(try);
+            zcs_amf_value_free(try);
         }
     }
 
@@ -334,18 +334,18 @@ int zms_amf_extract_connect(const uint8_t *data, size_t len, char *app, size_t a
         return 1;
     }
 
-    zms_amf_value *obj = amf0_decode_object_arg(data, len);
+    zcs_amf_value *obj = amf0_decode_object_arg(data, len);
     if (!obj) {
         return 0;
     }
-    const zms_amf_value *av = zms_amf_object_get(obj, "app");
-    if (av && zms_amf_value_str(av)[0] && app && app_cap) {
-        strncpy(app, zms_amf_value_str(av), app_cap - 1);
+    const zcs_amf_value *av = zcs_amf_object_get(obj, "app");
+    if (av && zcs_amf_value_str(av)[0] && app && app_cap) {
+        strncpy(app, zcs_amf_value_str(av), app_cap - 1);
     }
-    const zms_amf_value *tc = zms_amf_object_get(obj, "tcUrl");
-    if (tc && zms_amf_value_str(tc)[0] && tc_url && tc_cap) {
-        strncpy(tc_url, zms_amf_value_str(tc), tc_cap - 1);
+    const zcs_amf_value *tc = zcs_amf_object_get(obj, "tcUrl");
+    if (tc && zcs_amf_value_str(tc)[0] && tc_url && tc_cap) {
+        strncpy(tc_url, zcs_amf_value_str(tc), tc_cap - 1);
     }
-    zms_amf_value_free(obj);
+    zcs_amf_value_free(obj);
     return (app && app[0]) || (tc_url && tc_url[0]);
 }

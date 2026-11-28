@@ -3,11 +3,11 @@
  * @brief Web API 运行状态：健康检查、getStatistic、缓冲池与进程指标。
  */
 #include "ops/api/webapi/webapi_internal.h"
-#include "zms/version.h"
-#include "zms/core/stream/hub.h"
-#include "zms/ops/api/json/media_json.h"
+#include "zcs/version.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/ops/api/json/media_json.h"
 #include "zn/platform.h"
-#include "zms/util/buf_pool.h"
+#include "zcs/util/buf_pool.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,7 +18,7 @@
 
 static uint64_t g_webapi_boot_ms;
 
-void zms_web_api_note_boot(void)
+void zcs_web_api_note_boot(void)
 {
     if (g_webapi_boot_ms == 0) {
         g_webapi_boot_ms = zn_monotonic_ms();
@@ -48,25 +48,25 @@ double webapi_buf_pool_hit_rate(const zn_buf_pool_stats *st)
     }
     return (double)st->acquire_hit * 100.0 / (double)denom;
 }
-typedef struct zms_webapi_health_ctx {
+typedef struct zcs_webapi_health_ctx {
     int media_source;
     int total_reader;
     size_t max_gop_queue_lag;
     size_t total_pending;
     uint64_t total_dropped;
-} zms_webapi_health_ctx;
+} zcs_webapi_health_ctx;
 
-static int health_visit(zms_media_source *src, void *user)
+static int health_visit(zcs_media_source *src, void *user)
 {
-    zms_webapi_health_ctx *ctx = (zms_webapi_health_ctx *)user;
-    zms_media_stats_view st;
+    zcs_webapi_health_ctx *ctx = (zcs_webapi_health_ctx *)user;
+    zcs_media_stats_view st;
 
-    if (!zms_media_source_is_online(src)) {
+    if (!zcs_media_source_is_online(src)) {
         return 0;
     }
     ++ctx->media_source;
     ctx->total_reader += src->reader_count;
-    zms_media_stats_fill(src, src->gop_queue, &st);
+    zcs_media_stats_fill(src, src->gop_queue, &st);
     ctx->total_pending += st.gop_queue_pending;
     ctx->total_dropped += st.dropped_frames;
     if (st.gop_queue_max_lag > ctx->max_gop_queue_lag) {
@@ -125,14 +125,14 @@ uint64_t webapi_proc_fd_count(void)
 
 size_t webapi_handle_health(char *body, size_t body_cap, int *http_status)
 {
-    zms_webapi_health_ctx ctx;
+    zcs_webapi_health_ctx ctx;
     zn_buf_pool_stats st;
     int have_pool;
 
     memset(&ctx, 0, sizeof(ctx));
     memset(&st, 0, sizeof(st));
-    zms_media_source_foreach(health_visit, &ctx, NULL);
-    have_pool = zms_buf_pool_get_stats(&st);
+    zcs_media_source_foreach(health_visit, &ctx, NULL);
+    have_pool = zcs_buf_pool_get_stats(&st);
     *http_status = 200;
     return (size_t)snprintf(
         body, body_cap,
@@ -153,7 +153,7 @@ size_t webapi_handle_health(char *body, size_t body_cap, int *http_status)
         "\"cached\":%llu,\"dropped\":%llu,"
         "\"hitRate\":%.2f"
         "}}}",
-        ZMS_VERSION_STRING, (unsigned long long)webapi_uptime_sec(), ctx.media_source,
+        ZCS_VERSION_STRING, (unsigned long long)webapi_uptime_sec(), ctx.media_source,
         ctx.total_reader, ctx.total_pending, ctx.max_gop_queue_lag,
         (unsigned long long)ctx.total_dropped, (unsigned long long)webapi_proc_rss_bytes(),
         (unsigned long long)webapi_proc_fd_count(), have_pool ? "true" : "false",
@@ -168,7 +168,7 @@ size_t webapi_handle_buf_pool_stats(char *body, size_t body_cap, int *http_statu
     int have_pool;
 
     memset(&st, 0, sizeof(st));
-    have_pool = zms_buf_pool_get_stats(&st);
+    have_pool = zcs_buf_pool_get_stats(&st);
     *http_status = 200;
     if (!have_pool) {
         return (size_t)snprintf(body, body_cap,
@@ -183,13 +183,13 @@ size_t webapi_handle_buf_pool_stats(char *body, size_t body_cap, int *http_statu
                             "\"cached\":%llu,\"dropped\":%llu,"
                             "\"hitRate\":%.2f"
                             "}}",
-                            zms_buf_pool_mode(), (unsigned long long)st.acquire_hit,
+                            zcs_buf_pool_mode(), (unsigned long long)st.acquire_hit,
                             (unsigned long long)st.acquire_miss,
                             (unsigned long long)st.acquire_oversize,
                             (unsigned long long)st.release_cached,
                             (unsigned long long)st.release_dropped, webapi_buf_pool_hit_rate(&st));
 }
-typedef struct zms_webapi_stat_ctx {
+typedef struct zcs_webapi_stat_ctx {
     int media_source;
     int total_reader;
     uint64_t total_ingress_bytes;
@@ -201,19 +201,19 @@ typedef struct zms_webapi_stat_ctx {
     size_t max_pending;
     size_t total_gop_count;
     uint64_t total_dropped;
-} zms_webapi_stat_ctx;
+} zcs_webapi_stat_ctx;
 
-static int stat_visit(zms_media_source *src, void *user)
+static int stat_visit(zcs_media_source *src, void *user)
 {
-    zms_webapi_stat_ctx *ctx = (zms_webapi_stat_ctx *)user;
-    zms_media_stats_view st;
+    zcs_webapi_stat_ctx *ctx = (zcs_webapi_stat_ctx *)user;
+    zcs_media_stats_view st;
 
-    if (!zms_media_source_is_online(src)) {
+    if (!zcs_media_source_is_online(src)) {
         return 0;
     }
     ++ctx->media_source;
     ctx->total_reader += src->reader_count;
-    zms_media_stats_fill(src, src->gop_queue, &st);
+    zcs_media_stats_fill(src, src->gop_queue, &st);
     ctx->total_ingress_bytes += st.ingress_bytes;
     ctx->total_egress_bytes += st.egress_bytes;
     ctx->total_bytes_speed += st.bytes_speed;
@@ -231,14 +231,14 @@ static int stat_visit(zms_media_source *src, void *user)
 }
 size_t webapi_handle_statistic(char *body, size_t body_cap, int *http_status)
 {
-    zms_webapi_stat_ctx ctx;
+    zcs_webapi_stat_ctx ctx;
     zn_buf_pool_stats pst;
     int have_pool;
 
     memset(&ctx, 0, sizeof(ctx));
     memset(&pst, 0, sizeof(pst));
-    zms_media_source_foreach(stat_visit, &ctx, NULL);
-    have_pool = zms_buf_pool_get_stats(&pst);
+    zcs_media_source_foreach(stat_visit, &ctx, NULL);
+    have_pool = zcs_buf_pool_get_stats(&pst);
     *http_status = 200;
     return (size_t)snprintf(
         body, body_cap,

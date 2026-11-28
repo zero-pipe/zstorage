@@ -7,7 +7,7 @@
  *   demo_onvif_probe --addr http://192.168.1.64/onvif/device_service \
  *                    [--user admin --pass 12345]
  */
-#include "zms/device/onvif/onvif.h"
+#include "zcs/device/onvif/onvif.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,7 +18,7 @@ static void usage(const char *argv0)
            argv0);
 }
 
-static void print_device(const zms_onvif_device *d)
+static void print_device(const zcs_onvif_device *d)
 {
     printf("device: xaddr=%s\n", d->xaddr);
     if (d->uuid[0]) {
@@ -42,20 +42,20 @@ static void print_device(const zms_onvif_device *d)
 static int probe(const char *xaddr, const char *user, const char *pass, int timeout_ms,
                  const float *ptz)
 {
-    zms_onvif_client *c;
-    zms_onvif_profile profiles[16];
+    zcs_onvif_client *c;
+    zcs_onvif_profile profiles[16];
     size_t count = 0;
     size_t i;
 
-    c = zms_onvif_connect(xaddr, user, pass, timeout_ms);
+    c = zcs_onvif_connect(xaddr, user, pass, timeout_ms);
     if (!c) {
         fprintf(stderr, "connect failed: %s\n", xaddr);
         return 1;
     }
-    print_device(zms_onvif_device_info(c));
-    if (zms_onvif_get_profiles(c, profiles, sizeof(profiles) / sizeof(profiles[0]), &count) != 0) {
+    print_device(zcs_onvif_device_info(c));
+    if (zcs_onvif_get_profiles(c, profiles, sizeof(profiles) / sizeof(profiles[0]), &count) != 0) {
         fprintf(stderr, "GetProfiles failed\n");
-        zms_onvif_close(c);
+        zcs_onvif_close(c);
         return 1;
     }
     for (i = 0; i < count; ++i) {
@@ -65,15 +65,15 @@ static int probe(const char *xaddr, const char *user, const char *pass, int time
         printf("            uri=%s\n", profiles[i].uri[0] ? profiles[i].uri : "(none)");
     }
     if (ptz && count > 0) {
-        if (zms_onvif_ptz_move(c, profiles[0].token, ptz[0], ptz[1], ptz[2]) == 0) {
+        if (zcs_onvif_ptz_move(c, profiles[0].token, ptz[0], ptz[1], ptz[2]) == 0) {
             printf("ptz: move ok (%s p=%.2f t=%.2f z=%.2f)\n", profiles[0].token, ptz[0], ptz[1],
                    ptz[2]);
-            (void)zms_onvif_ptz_stop(c, profiles[0].token);
+            (void)zcs_onvif_ptz_stop(c, profiles[0].token);
         } else {
             fprintf(stderr, "ptz: move failed\n");
         }
     }
-    zms_onvif_close(c);
+    zcs_onvif_close(c);
     return count > 0 ? 0 : 1;
 }
 
@@ -116,10 +116,10 @@ int main(int argc, char **argv)
     }
 
     if (!addr || discover) {
-        zms_onvif_device found[32];
+        zcs_onvif_device found[32];
         size_t count = 0;
         size_t k;
-        if (zms_onvif_discover(timeout_ms, found, sizeof(found) / sizeof(found[0]), &count) != 0) {
+        if (zcs_onvif_discover(timeout_ms, found, sizeof(found) / sizeof(found[0]), &count) != 0) {
             fprintf(stderr, "discover failed\n");
             return 1;
         }

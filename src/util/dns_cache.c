@@ -2,7 +2,7 @@
  * @file dns_cache.c
  * @brief 主机名解析缓存实现。
  */
-#include "zms/util/dns_cache.h"
+#include "zcs/util/dns_cache.h"
 #include "zb/os/sync.h"
 #include "zn/util/log.h"
 
@@ -99,7 +99,7 @@ static int resolve_uncached(const char *host, char *out, size_t cap)
     return picked ? 0 : -1;
 }
 
-int zms_dns_resolve(const char *host, char *out_ip, size_t cap)
+int zcs_dns_resolve(const char *host, char *out_ip, size_t cap)
 {
     char ip[64];
 
@@ -153,18 +153,18 @@ int zms_dns_resolve(const char *host, char *out_ip, size_t cap)
     return 0;
 }
 
-const char *zms_dns_target(const char *host, char *buf, size_t cap)
+const char *zcs_dns_target(const char *host, char *buf, size_t cap)
 {
     if (!host || !buf || cap == 0) {
         return host;
     }
-    if (zms_dns_resolve(host, buf, cap) == 0) {
+    if (zcs_dns_resolve(host, buf, cap) == 0) {
         return buf;
     }
     return host;
 }
 
-void zms_dns_cache_warm(const char *url)
+void zcs_dns_cache_warm(const char *url)
 {
     const char *host;
     const char *p;
@@ -216,12 +216,12 @@ void zms_dns_cache_warm(const char *url)
         memcpy(hostbuf, host, n);
         hostbuf[n] = '\0';
     }
-    if (zms_dns_resolve(hostbuf, ip, sizeof(ip)) == 0) {
+    if (zcs_dns_resolve(hostbuf, ip, sizeof(ip)) == 0) {
         zn_info("dns: warm %s -> %s", hostbuf, ip);
     }
 }
 
-void zms_dns_cache_flush(void)
+void zcs_dns_cache_flush(void)
 {
     cache_lock();
     memset(g_entries, 0, sizeof(g_entries));

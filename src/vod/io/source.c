@@ -2,11 +2,11 @@
  * @file source.c
  * @brief VOD 源配置、URL/格式判定与打开。
  */
-#include "zms/vod/io/source.h"
-#include "zms/vod/io/format.h"
-#include "zms/vod/io/reader.h"
-#include "zms/media/container/flv/flv_index.h"
-#include "zms/core/event.h"
+#include "zcs/vod/io/source.h"
+#include "zcs/vod/io/format.h"
+#include "zcs/vod/io/reader.h"
+#include "zcs/media/container/flv/flv_index.h"
+#include "zcs/core/event.h"
 #include "zn/util/log.h"
 #include <stdio.h>
 #include <string.h>
@@ -14,19 +14,19 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
-#define ZMS_VOD_ACCESS _access
+#define ZCS_VOD_ACCESS _access
 #else
 #include <dirent.h>
 #include <unistd.h>
-#define ZMS_VOD_ACCESS access
+#define ZCS_VOD_ACCESS access
 #endif
 
-#define ZMS_VOD_DIR_PATH_MAX (ZMS_CFG_PATH_MAX + ZMS_APP_MAX + ZMS_STREAM_MAX + 4)
-#define ZMS_VOD_M3U8_REL_MAX (ZMS_STREAM_MAX * 2 + 4)
+#define ZCS_VOD_DIR_PATH_MAX (ZCS_CFG_PATH_MAX + ZCS_APP_MAX + ZCS_STREAM_MAX + 4)
+#define ZCS_VOD_M3U8_REL_MAX (ZCS_STREAM_MAX * 2 + 4)
 
-static zms_vod_config g_vod_cfg;
+static zcs_vod_config g_vod_cfg;
 
-void zms_vod_config_default(zms_vod_config *cfg)
+void zcs_vod_config_default(zcs_vod_config *cfg)
 {
     if (!cfg) {
         return;
@@ -37,12 +37,12 @@ void zms_vod_config_default(zms_vod_config *cfg)
     cfg->file_repeat = 0;
 }
 
-void zms_vod_config_apply(zms_config *cfg)
+void zcs_vod_config_apply(zcs_config *cfg)
 {
     if (!cfg) {
         return;
     }
-    zms_vod_config_default(&g_vod_cfg);
+    zcs_vod_config_default(&g_vod_cfg);
     if (cfg->record.app[0]) {
         strncpy(g_vod_cfg.record_app, cfg->record.app, sizeof(g_vod_cfg.record_app) - 1);
     }
@@ -59,7 +59,7 @@ void zms_vod_config_apply(zms_config *cfg)
     g_vod_cfg.file_repeat = cfg->record.file_repeat;
 }
 
-const zms_vod_config *zms_vod_config_get(void)
+const zcs_vod_config *zcs_vod_config_get(void)
 {
     return &g_vod_cfg;
 }
@@ -80,7 +80,7 @@ static void vod_strip_media_suffix(char *stream)
     if (!stream) {
         return;
     }
-    if (!zms_vod_format_stream_has_supported_ext(stream)) {
+    if (!zcs_vod_format_stream_has_supported_ext(stream)) {
         return;
     }
     dot = strrchr(stream, '.');
@@ -113,22 +113,22 @@ static void vod_strip_rtmp_type_prefix(char *stream)
     }
 }
 
-int zms_vod_stream_is_vod_flv_wrap_suffix(const char *stream)
+int zcs_vod_stream_is_vod_flv_wrap_suffix(const char *stream)
 {
-    return zms_vod_format_stream_is_flv_wrap_suffix(stream);
+    return zcs_vod_format_stream_is_flv_wrap_suffix(stream);
 }
 
-int zms_vod_stream_is_native_flv_file(const char *stream)
+int zcs_vod_stream_is_native_flv_file(const char *stream)
 {
-    return stream && !zms_vod_stream_is_vod_flv_wrap_suffix(stream) &&
-           zms_vod_format_stream_is_native_file(stream);
+    return stream && !zcs_vod_stream_is_vod_flv_wrap_suffix(stream) &&
+           zcs_vod_format_stream_is_native_file(stream);
 }
 
 static void vod_strip_vod_flv_wrap_suffix(char *stream)
 {
     size_t n;
 
-    if (!stream || !zms_vod_stream_is_vod_flv_wrap_suffix(stream)) {
+    if (!stream || !zcs_vod_stream_is_vod_flv_wrap_suffix(stream)) {
         return;
     }
     n = strlen(stream);
@@ -137,12 +137,12 @@ static void vod_strip_vod_flv_wrap_suffix(char *stream)
 
 static int vod_has_media_ext(const char *stream)
 {
-    return zms_vod_format_stream_has_supported_ext(stream);
+    return zcs_vod_format_stream_has_supported_ext(stream);
 }
 
-int zms_vod_stream_has_disk_container_ext(const char *stream)
+int zcs_vod_stream_has_disk_container_ext(const char *stream)
 {
-    return vod_has_media_ext(stream) && !zms_vod_format_stream_is_native_file(stream);
+    return vod_has_media_ext(stream) && !zcs_vod_format_stream_is_native_file(stream);
 }
 
 /*
@@ -152,7 +152,7 @@ int zms_vod_stream_has_disk_container_ext(const char *stream)
  *   3. 已带受支持的媒体扩展名则原样返回；
  *   4. 都没有就补默认扩展名（与后续按扩展名探测保持一致）。
  */
-void zms_vod_canonical_stream(const char *stream_in, char *stream_out, size_t out_cap)
+void zcs_vod_canonical_stream(const char *stream_in, char *stream_out, size_t out_cap)
 {
     size_t n;
 
@@ -166,7 +166,7 @@ void zms_vod_canonical_stream(const char *stream_in, char *stream_out, size_t ou
     strncpy(stream_out, stream_in, out_cap - 1);
     stream_out[out_cap - 1] = '\0';
     vod_strip_rtmp_type_prefix(stream_out);
-    if (zms_vod_stream_is_vod_flv_wrap_suffix(stream_out)) {
+    if (zcs_vod_stream_is_vod_flv_wrap_suffix(stream_out)) {
         vod_strip_vod_flv_wrap_suffix(stream_out);
         return;
     }
@@ -174,7 +174,7 @@ void zms_vod_canonical_stream(const char *stream_in, char *stream_out, size_t ou
         return;
     }
     {
-        const char *def_ext = zms_vod_format_default_extension();
+        const char *def_ext = zcs_vod_format_default_extension();
         n = strlen(stream_out);
         if (!def_ext || n + strlen(def_ext) >= out_cap) {
             return;
@@ -188,7 +188,7 @@ void zms_vod_canonical_stream(const char *stream_in, char *stream_out, size_t ou
  * 因为 app/stream 来自客户端请求，若不加约束，构造 "../../etc/passwd" 就能
  * 读出根目录 root 之外的任意文件。这是 VOD 路径解析的唯一安全闸门。
  */
-int zms_vod_rel_path_safe(const char *rel)
+int zcs_vod_rel_path_safe(const char *rel)
 {
     if (!rel || !rel[0]) {
         return 0;
@@ -202,23 +202,23 @@ int zms_vod_rel_path_safe(const char *rel)
     return 1;
 }
 
-int zms_vod_resolve_rel_path(const char *app, const char *rel, char *out, size_t out_cap)
+int zcs_vod_resolve_rel_path(const char *app, const char *rel, char *out, size_t out_cap)
 {
-    const zms_vod_config *cfg = zms_vod_config_get();
+    const zcs_vod_config *cfg = zcs_vod_config_get();
     size_t n;
 
-    if (!app || !rel || !out || out_cap == 0 || !zms_vod_rel_path_safe(rel)) {
+    if (!app || !rel || !out || out_cap == 0 || !zcs_vod_rel_path_safe(rel)) {
         return 0;
     }
     n = (size_t)snprintf(out, out_cap, "%s/%s/%s", cfg->record_root, app, rel);
     return n > 0 && n < out_cap;
 }
 
-int zms_vod_m3u8_rel_to_mp4_stream(const char *m3u8_rel, char *stream_out, size_t out_cap)
+int zcs_vod_m3u8_rel_to_mp4_stream(const char *m3u8_rel, char *stream_out, size_t out_cap)
 {
     size_t n;
 
-    if (!m3u8_rel || !stream_out || out_cap == 0 || !zms_vod_rel_path_safe(m3u8_rel)) {
+    if (!m3u8_rel || !stream_out || out_cap == 0 || !zcs_vod_rel_path_safe(m3u8_rel)) {
         return 0;
     }
     n = strlen(m3u8_rel);
@@ -240,7 +240,7 @@ int zms_vod_m3u8_rel_to_mp4_stream(const char *m3u8_rel, char *stream_out, size_
     return stream_out[0] != '\0';
 }
 
-int zms_vod_mp4_stream_to_m3u8_rel(const char *mp4_stream, char *m3u8_rel, size_t rel_cap)
+int zcs_vod_mp4_stream_to_m3u8_rel(const char *mp4_stream, char *m3u8_rel, size_t rel_cap)
 {
     size_t n;
 
@@ -270,18 +270,18 @@ int zms_vod_mp4_stream_to_m3u8_rel(const char *mp4_stream, char *m3u8_rel, size_
  *     直接放弃返回 0，宁可不播放也不猜错；
  *   - 跳过以 '.' 开头的条目，避免把隐藏文件/元数据当成 playlist。
  */
-int zms_vod_infer_stream_from_ts(const char *app, const char *ts_rel, char *stream_out,
+int zcs_vod_infer_stream_from_ts(const char *app, const char *ts_rel, char *stream_out,
                                  size_t out_cap)
 {
-    const zms_vod_config *cfg = zms_vod_config_get();
-    char dir_rel[ZMS_STREAM_MAX];
-    char dir_path[ZMS_VOD_DIR_PATH_MAX];
-    char m3u8_name[ZMS_STREAM_MAX];
-    char m3u8_rel[ZMS_VOD_M3U8_REL_MAX];
+    const zcs_vod_config *cfg = zcs_vod_config_get();
+    char dir_rel[ZCS_STREAM_MAX];
+    char dir_path[ZCS_VOD_DIR_PATH_MAX];
+    char m3u8_name[ZCS_STREAM_MAX];
+    char m3u8_rel[ZCS_VOD_M3U8_REL_MAX];
     char *slash;
     int found = 0;
 
-    if (!app || !ts_rel || !stream_out || out_cap == 0 || !zms_vod_rel_path_safe(ts_rel)) {
+    if (!app || !ts_rel || !stream_out || out_cap == 0 || !zcs_vod_rel_path_safe(ts_rel)) {
         return 0;
     }
 
@@ -309,7 +309,7 @@ int zms_vod_infer_stream_from_ts(const char *app, const char *ts_rel, char *stre
 
 #if defined(_WIN32)
     {
-        char pattern[ZMS_CFG_PATH_MAX + 8];
+        char pattern[ZCS_CFG_PATH_MAX + 8];
         struct _finddata_t fd;
         intptr_t h;
 
@@ -374,12 +374,12 @@ int zms_vod_infer_stream_from_ts(const char *app, const char *ts_rel, char *stre
             return 0;
         }
     }
-    return zms_vod_m3u8_rel_to_mp4_stream(m3u8_rel, stream_out, out_cap);
+    return zcs_vod_m3u8_rel_to_mp4_stream(m3u8_rel, stream_out, out_cap);
 }
 
-void zms_vod_stream_basename(const char *stream_in, char *base_out, size_t out_cap)
+void zcs_vod_stream_basename(const char *stream_in, char *base_out, size_t out_cap)
 {
-    char tmp[ZMS_STREAM_MAX];
+    char tmp[ZCS_STREAM_MAX];
 
     if (!base_out || out_cap == 0) {
         return;
@@ -395,19 +395,19 @@ void zms_vod_stream_basename(const char *stream_in, char *base_out, size_t out_c
     base_out[out_cap - 1] = '\0';
 }
 
-typedef struct zms_vod_resolve_ctx {
+typedef struct zcs_vod_resolve_ctx {
     const char *app;
     const char *canon;
     char *out;
     size_t out_cap;
     int found;
-} zms_vod_resolve_ctx;
+} zcs_vod_resolve_ctx;
 
 static int vod_resolve_candidate(const char *app, const char *rel, char *out, size_t out_cap)
 {
-    char path[ZMS_CFG_PATH_MAX];
+    char path[ZCS_CFG_PATH_MAX];
 
-    if (!rel || !rel[0] || !zms_vod_resolve_rel_path(app, rel, path, sizeof(path))) {
+    if (!rel || !rel[0] || !zcs_vod_resolve_rel_path(app, rel, path, sizeof(path))) {
         return 0;
     }
     if (!file_exists(path)) {
@@ -417,11 +417,11 @@ static int vod_resolve_candidate(const char *app, const char *rel, char *out, si
     return 1;
 }
 
-static int vod_resolve_registered_ext_cb(const zms_vod_format_desc *fmt, const char *ext,
+static int vod_resolve_registered_ext_cb(const zcs_vod_format_desc *fmt, const char *ext,
                                          void *user)
 {
-    zms_vod_resolve_ctx *ctx = (zms_vod_resolve_ctx *)user;
-    char base[ZMS_STREAM_MAX];
+    zcs_vod_resolve_ctx *ctx = (zcs_vod_resolve_ctx *)user;
+    char base[ZCS_STREAM_MAX];
 
     (void)fmt;
     if (!ctx || !ext || !ext[0] || vod_has_media_ext(ctx->canon)) {
@@ -440,9 +440,9 @@ static int vod_resolve_registered_ext_cb(const zms_vod_format_desc *fmt, const c
     return 0;
 }
 
-int zms_vod_is_record_app(const char *app)
+int zcs_vod_is_record_app(const char *app)
 {
-    const zms_vod_config *cfg = zms_vod_config_get();
+    const zcs_vod_config *cfg = zcs_vod_config_get();
     return app && cfg && cfg->record_app[0] && strcmp(app, cfg->record_app) == 0;
 }
 
@@ -455,10 +455,10 @@ int zms_vod_is_record_app(const char *app)
  *   5. 最后按规范流名（补默认扩展名）再试一次。
  * 越靠前越精确，避免两个不同扩展名文件误指同一个流。
  */
-int zms_vod_resolve_file_path(const char *app, const char *stream, char *out, size_t out_cap)
+int zcs_vod_resolve_file_path(const char *app, const char *stream, char *out, size_t out_cap)
 {
-    char canon[ZMS_STREAM_MAX];
-    zms_vod_resolve_ctx ctx;
+    char canon[ZCS_STREAM_MAX];
+    zcs_vod_resolve_ctx ctx;
 
     if (!app || !stream || !out || out_cap == 0) {
         return 0;
@@ -468,8 +468,8 @@ int zms_vod_resolve_file_path(const char *app, const char *stream, char *out, si
     canon[sizeof(canon) - 1] = '\0';
     vod_strip_rtmp_type_prefix(canon);
 
-    if (zms_vod_stream_is_vod_flv_wrap_suffix(canon)) {
-        char disk[ZMS_STREAM_MAX];
+    if (zcs_vod_stream_is_vod_flv_wrap_suffix(canon)) {
+        char disk[ZCS_STREAM_MAX];
 
         strncpy(disk, canon, sizeof(disk) - 1);
         disk[sizeof(disk) - 1] = '\0';
@@ -480,7 +480,7 @@ int zms_vod_resolve_file_path(const char *app, const char *stream, char *out, si
         return 0;
     }
 
-    if (zms_vod_stream_is_native_flv_file(canon)) {
+    if (zcs_vod_stream_is_native_flv_file(canon)) {
         return vod_resolve_candidate(app, canon, out, out_cap);
     }
 
@@ -493,37 +493,37 @@ int zms_vod_resolve_file_path(const char *app, const char *stream, char *out, si
     ctx.canon = canon;
     ctx.out = out;
     ctx.out_cap = out_cap;
-    zms_vod_format_foreach_extension(vod_resolve_registered_ext_cb, &ctx);
+    zcs_vod_format_foreach_extension(vod_resolve_registered_ext_cb, &ctx);
     if (ctx.found) {
         return 1;
     }
 
-    zms_vod_canonical_stream(stream, canon, sizeof(canon));
+    zcs_vod_canonical_stream(stream, canon, sizeof(canon));
     return vod_resolve_candidate(app, canon, out, out_cap);
 }
 
-zms_media_source *zms_vod_source_open_vhost(const char *vhost, const char *app,
+zcs_media_source *zcs_vod_source_open_vhost(const char *vhost, const char *app,
                                            const char *stream, const char *file_path,
                                            zn_poller *poller)
 {
-    zms_vod_reader_opts opts;
-    zms_vod_reader *reader;
-    zms_media_source *src;
-    char resolved[ZMS_CFG_PATH_MAX];
-    char norm_stream[ZMS_STREAM_MAX];
+    zcs_vod_reader_opts opts;
+    zcs_vod_reader *reader;
+    zcs_media_source *src;
+    char resolved[ZCS_CFG_PATH_MAX];
+    char norm_stream[ZCS_STREAM_MAX];
     const char *path = file_path;
 
     if (!app || !stream || !poller) {
         return NULL;
     }
 
-    zms_vod_canonical_stream(stream, norm_stream, sizeof(norm_stream));
+    zcs_vod_canonical_stream(stream, norm_stream, sizeof(norm_stream));
     if (!norm_stream[0]) {
         return NULL;
     }
 
     if (!path || !path[0]) {
-        if (!zms_vod_resolve_file_path(app, norm_stream, resolved, sizeof(resolved))) {
+        if (!zcs_vod_resolve_file_path(app, norm_stream, resolved, sizeof(resolved))) {
             zn_warn("vod: file not found app=%s stream=%s root=%s", app, norm_stream,
                      g_vod_cfg.record_root);
             return NULL;
@@ -531,7 +531,7 @@ zms_media_source *zms_vod_source_open_vhost(const char *vhost, const char *app,
         path = resolved;
     }
 
-    src = zms_media_source_register_vod_ex(ZMS_SCHEMA_RTMP, vhost, app, norm_stream);
+    src = zcs_media_source_register_vod_ex(ZCS_SCHEMA_RTMP, vhost, app, norm_stream);
     if (!src) {
         return NULL;
     }
@@ -545,104 +545,104 @@ zms_media_source *zms_vod_source_open_vhost(const char *vhost, const char *app,
     opts.fifo = src->vod_buffer;
     opts.source = src;
 
-    reader = zms_vod_reader_open(&opts);
+    reader = zcs_vod_reader_open(&opts);
     if (!reader) {
-        zms_media_source_unregister_vod(src);
+        zcs_media_source_unregister_vod(src);
         return NULL;
     }
 
     src->publisher_ctx = reader;
-    zms_media_source_set_publisher(src, reader, NULL);
-    zms_media_event_publish(src, ZMS_ORIGIN_MP4_VOD);
-    zms_vod_reader_bind_poller(reader, poller);
+    zcs_media_source_set_publisher(src, reader, NULL);
+    zcs_media_event_publish(src, ZCS_ORIGIN_MP4_VOD);
+    zcs_vod_reader_bind_poller(reader, poller);
     zn_info("vod: started %s -> vhost=%s %s/%s", path, src->vhost, app, norm_stream);
     return src;
 }
 
-zms_media_source *zms_vod_source_open(const char *app, const char *stream, const char *file_path,
+zcs_media_source *zcs_vod_source_open(const char *app, const char *stream, const char *file_path,
                                       zn_poller *poller)
 {
-    return zms_vod_source_open_vhost(ZMS_DEFAULT_VHOST, app, stream, file_path, poller);
+    return zcs_vod_source_open_vhost(ZCS_DEFAULT_VHOST, app, stream, file_path, poller);
 }
 
 /* 停止并注销点播源。先广播 fini 事件（通知订阅者源要消失），再关闭 reader、
  * 解注册——顺序很重要：若先解注册，订阅者收到 fini 时已找不到源易出竞态。 */
-void zms_vod_source_stop(zms_media_source *src)
+void zcs_vod_source_stop(zcs_media_source *src)
 {
-    zms_vod_reader *reader;
+    zcs_vod_reader *reader;
 
-    if (!src || !zms_media_source_is_vod(src)) {
+    if (!src || !zcs_media_source_is_vod(src)) {
         return;
     }
-    reader = (zms_vod_reader *)src->publisher_ctx;
+    reader = (zcs_vod_reader *)src->publisher_ctx;
     if (reader) {
-        zms_media_event_publish_fini(src, ZMS_ORIGIN_MP4_VOD);
+        zcs_media_event_publish_fini(src, ZCS_ORIGIN_MP4_VOD);
         src->publisher_ctx = NULL;
-        zms_vod_reader_close(reader);
+        zcs_vod_reader_close(reader);
     }
-    zms_media_source_unregister_vod(src);
+    zcs_media_source_unregister_vod(src);
 }
 
-zms_media_source *zms_vod_source_find_or_open_ex(const char *schema, const char *vhost,
+zcs_media_source *zcs_vod_source_find_or_open_ex(const char *schema, const char *vhost,
                                                   const char *app, const char *stream,
                                                   zn_poller *poller)
 {
-    zms_media_source *s;
-    const zms_vod_config *cfg;
-    char canon[ZMS_STREAM_MAX];
+    zcs_media_source *s;
+    const zcs_vod_config *cfg;
+    char canon[ZCS_STREAM_MAX];
 
     if (!app || !stream || !stream[0]) {
         return NULL;
     }
 
-    s = zms_media_source_find_api_ex(schema, vhost, app, stream);
+    s = zcs_media_source_find_api_ex(schema, vhost, app, stream);
     if (s) {
         return s;
     }
 
-    zms_vod_canonical_stream(stream, canon, sizeof(canon));
+    zcs_vod_canonical_stream(stream, canon, sizeof(canon));
     if (canon[0] && strcmp(canon, stream) != 0) {
-        s = zms_media_source_find_api_ex(schema, vhost, app, canon);
+        s = zcs_media_source_find_api_ex(schema, vhost, app, canon);
         if (s) {
             return s;
         }
     }
 
-    cfg = zms_vod_config_get();
+    cfg = zcs_vod_config_get();
     /* 只有“点播 app”（默认 vod）才按需从磁盘拉起；其他 app 视作纯直播/推流，
      * 找不到源就如实返回 NULL，绝不擅自读盘。 */
     if (strcmp(app, cfg->record_app) != 0) {
         return NULL;
     }
     if (!poller) {
-        poller = zms_media_events_poller();
+        poller = zcs_media_events_poller();
     }
     if (!poller) {
         return NULL;
     }
-    return zms_vod_source_open_vhost(vhost, app, canon[0] ? canon : stream, NULL, poller);
+    return zcs_vod_source_open_vhost(vhost, app, canon[0] ? canon : stream, NULL, poller);
 }
 
-zms_media_source *zms_vod_source_find_or_open(const char *schema, const char *app,
+zcs_media_source *zcs_vod_source_find_or_open(const char *schema, const char *app,
                                               const char *stream, zn_poller *poller)
 {
-    return zms_vod_source_find_or_open_ex(schema, ZMS_DEFAULT_VHOST, app, stream, poller);
+    return zcs_vod_source_find_or_open_ex(schema, ZCS_DEFAULT_VHOST, app, stream, poller);
 }
 
-void zms_vod_source_prepare_play(zms_media_source *src)
+void zcs_vod_source_prepare_play(zcs_media_source *src)
 {
     if (!src || !src->publisher_ctx) {
         return;
     }
-    zms_vod_reader_prepare_play((zms_vod_reader *)src->publisher_ctx);
+    zcs_vod_reader_prepare_play((zcs_vod_reader *)src->publisher_ctx);
 }
 
-uint64_t zms_vod_source_seek_ms(zms_media_source *src, uint64_t ms)
+uint64_t zcs_vod_source_seek_ms(zcs_media_source *src, uint64_t ms)
 {
     if (!src || !src->publisher_ctx) {
         return 0;
     }
-    return zms_vod_reader_seek_ms((zms_vod_reader *)src->publisher_ctx, ms);
+    return zcs_vod_reader_seek_ms((zcs_vod_reader *)src->publisher_ctx, ms);
 }
 
 /*
@@ -656,7 +656,7 @@ uint64_t zms_vod_source_seek_ms(zms_media_source *src, uint64_t ms)
  * seek 会改变所有人的数据位置，这是需要留意的副作用，不是 bug。
  * demux 重定位后把读者拉到起点并 seek 到最近关键帧，保证从可解码处起播。
  */
-uint64_t zms_vod_source_seek_for_reader(zms_media_source *src, zms_vod_buffer_reader *rd,
+uint64_t zcs_vod_source_seek_for_reader(zcs_media_source *src, zcs_vod_buffer_reader *rd,
                                         uint64_t ms)
 {
     uint64_t actual = ms;
@@ -665,39 +665,39 @@ uint64_t zms_vod_source_seek_for_reader(zms_media_source *src, zms_vod_buffer_re
     if (!src || !src->publisher_ctx) {
         return 0;
     }
-    if (rd && zms_vod_buffer_reader_seek_ms(rd, ms, &actual)) {
+    if (rd && zcs_vod_buffer_reader_seek_ms(rd, ms, &actual)) {
         zn_info("vod: fifo seek reader -> %llu ms", (unsigned long long)actual);
         return actual;
     }
-    readers = zms_media_source_reader_count(src);
+    readers = zcs_media_source_reader_count(src);
     if (readers > 1) {
         zn_info("vod: demux seek %llu ms (%d readers share fifo)", (unsigned long long)ms,
                  readers);
     }
-    actual = zms_vod_reader_seek_ms((zms_vod_reader *)src->publisher_ctx, ms);
+    actual = zcs_vod_reader_seek_ms((zcs_vod_reader *)src->publisher_ctx, ms);
     if (rd) {
-        zms_vod_buffer_reader_seek_beginning(rd);
-        zms_vod_buffer_reader_seek_video_key(rd);
+        zcs_vod_buffer_reader_seek_beginning(rd);
+        zcs_vod_buffer_reader_seek_video_key(rd);
     }
     return actual;
 }
 
-uint64_t zms_vod_source_duration_ms(const zms_media_source *src)
+uint64_t zcs_vod_source_duration_ms(const zcs_media_source *src)
 {
     if (!src || !src->publisher_ctx) {
         return 0;
     }
-    return zms_vod_reader_duration_ms((const zms_vod_reader *)src->publisher_ctx);
+    return zcs_vod_reader_duration_ms((const zcs_vod_reader *)src->publisher_ctx);
 }
 
-int zms_vod_source_file_path(const zms_media_source *src, char *out, size_t out_cap)
+int zcs_vod_source_file_path(const zcs_media_source *src, char *out, size_t out_cap)
 {
     const char *path;
 
     if (!src || !out || out_cap == 0 || !src->publisher_ctx) {
         return 0;
     }
-    path = zms_vod_reader_file_path((const zms_vod_reader *)src->publisher_ctx);
+    path = zcs_vod_reader_file_path((const zcs_vod_reader *)src->publisher_ctx);
     if (!path || !path[0]) {
         return 0;
     }
@@ -708,20 +708,20 @@ int zms_vod_source_file_path(const zms_media_source *src, char *out, size_t out_
 
 /* 从 (app, stream) 解析出磁盘路径并只做原子读取 dmx 的探测时长（不真正起播）。
  * 找不到文件或探测失败返回 0——调用方（如 RTSP 时长上报）据此省略 duration。 */
-uint64_t zms_vod_probe_duration_ms(const char *app, const char *stream)
+uint64_t zcs_vod_probe_duration_ms(const char *app, const char *stream)
 {
-    char path[ZMS_CFG_PATH_MAX];
+    char path[ZCS_CFG_PATH_MAX];
 
-    if (!zms_vod_resolve_file_path(app, stream, path, sizeof(path))) {
+    if (!zcs_vod_resolve_file_path(app, stream, path, sizeof(path))) {
         return 0;
     }
-    return zms_vod_format_probe_duration_ms(path);
+    return zcs_vod_format_probe_duration_ms(path);
 }
 
-const zms_vod_flv_index *zms_vod_source_flv_index(const zms_media_source *src)
+const zcs_vod_flv_index *zcs_vod_source_flv_index(const zcs_media_source *src)
 {
     if (!src || !src->publisher_ctx) {
         return NULL;
     }
-    return zms_vod_reader_flv_index((zms_vod_reader *)src->publisher_ctx);
+    return zcs_vod_reader_flv_index((zcs_vod_reader *)src->publisher_ctx);
 }

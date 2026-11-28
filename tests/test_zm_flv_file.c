@@ -13,8 +13,8 @@
 #include <string.h>
 #include <stdint.h>
 
-#ifndef ZMS_FIXTURE_DIR
-#define ZMS_FIXTURE_DIR "tests/fixtures"
+#ifndef ZCS_FIXTURE_DIR
+#define ZCS_FIXTURE_DIR "tests/fixtures"
 #endif
 
 static int g_failures;
@@ -244,7 +244,7 @@ static void test_file_mode(const char *path)
 
 int main(void)
 {
-    const char *path = getenv("ZMS_FIXTURE");
+    const char *path = getenv("ZCS_FIXTURE");
     zm_reader_cfg rcfg;
     zm_writer_cfg wcfg;
     zm_reader *r1;
@@ -262,7 +262,7 @@ int main(void)
     int i;
 
     if (!path || !*path) {
-        path = ZMS_FIXTURE_DIR "/h264_aac.flv";
+        path = ZCS_FIXTURE_DIR "/h264_aac.flv";
     }
     fr = flv_reader_create(path);
     if (!fr) {

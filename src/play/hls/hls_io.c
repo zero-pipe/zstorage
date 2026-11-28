@@ -75,7 +75,7 @@ static void hls_io_drain(void *user)
     }
 }
 
-void zms_hls_io_init(void)
+void zcs_hls_io_init(void)
 {
     zn_thread_pool_opts_t opts;
 
@@ -96,7 +96,7 @@ void zms_hls_io_init(void)
     }
 }
 
-void zms_hls_io_fini(void)
+void zcs_hls_io_fini(void)
 {
     int i;
 
@@ -130,7 +130,7 @@ void zms_hls_io_fini(void)
     zb_mutex_unlock(g_mu);
 }
 
-void zms_hls_io_enqueue(const char *save_dir, const char *name, const void *data, size_t len)
+void zcs_hls_io_enqueue(const char *save_dir, const char *name, const void *data, size_t len)
 {
     hls_io_job *job;
     int kick = 0;

@@ -13,45 +13,45 @@
  * 浮点字节序用运行期探针（k_endian_probe）判断，避免依赖编译期宏；大端机直接
  * memcpy，小端机逐字节反转。编码端对称处理。
  */
-#include "zms/media/wire/amf.h"
+#include "zcs/media/wire/amf.h"
 #include <stdlib.h>
 #include <string.h>
 
-struct zms_amf_value {
-    zms_amf_type type;
+struct zcs_amf_value {
+    zcs_amf_type type;
     char *str;
     double num;
     int boolean;
-    struct zms_amf_pair {
+    struct zcs_amf_pair {
         char key[64];
-        zms_amf_value *val;
+        zcs_amf_value *val;
     } *pairs;
     unsigned pair_count;
 };
 
-static zms_amf_value *amf_new(zms_amf_type t)
+static zcs_amf_value *amf_new(zcs_amf_type t)
 {
-    zms_amf_value *v = (zms_amf_value *)calloc(1, sizeof(*v));
+    zcs_amf_value *v = (zcs_amf_value *)calloc(1, sizeof(*v));
     if (v) {
         v->type = t;
     }
     return v;
 }
 
-void zms_amf_value_free(zms_amf_value *v)
+void zcs_amf_value_free(zcs_amf_value *v)
 {
     if (!v) {
         return;
     }
     free(v->str);
     for (unsigned i = 0; i < v->pair_count; ++i) {
-        zms_amf_value_free(v->pairs[i].val);
+        zcs_amf_value_free(v->pairs[i].val);
     }
     free(v->pairs);
     free(v);
 }
 
-static zn_err_t decode_one(const uint8_t *data, size_t len, size_t *off, zms_amf_value **out);
+static zn_err_t decode_one(const uint8_t *data, size_t len, size_t *off, zcs_amf_value **out);
 
 /* 读一个 AMF0 短字符串：U16 大端长度 + UTF-8 字节。分配 len+1 并补 '\0'，让上层能
  * 直接当 C 字符串用（AMF 字符串本身不带终止符）。 */
@@ -87,21 +87,21 @@ static zn_err_t read_string(const uint8_t *data, size_t len, size_t *off, char *
  *     数组内容基本不用，保留类型可用于判断“这里有个数组”；
  *   - OBJECT / ECMA_ARRAY 用 key 长度 0 + 单字节 0x09(marker) 作为终止（"00 00 09"）。
  */
-static zn_err_t decode_one(const uint8_t *data, size_t len, size_t *off, zms_amf_value **out)
+static zn_err_t decode_one(const uint8_t *data, size_t len, size_t *off, zcs_amf_value **out)
 {
     if (*off >= len) {
         return ZN_ERR_INVALID;
     }
     uint8_t t = data[(*off)++];
-    zms_amf_value *v = amf_new((zms_amf_type)t);
+    zcs_amf_value *v = amf_new((zcs_amf_type)t);
     if (!v) {
         return ZN_ERR_NOMEM;
     }
 
     switch (t) {
-    case ZMS_AMF_NUMBER:
+    case ZCS_AMF_NUMBER:
         if (*off + 8 > len) {
-            zms_amf_value_free(v);
+            zcs_amf_value_free(v);
             return ZN_ERR_INVALID;
         }
         {
@@ -124,38 +124,38 @@ static zn_err_t decode_one(const uint8_t *data, size_t len, size_t *off, zms_amf
         }
         *off += 8;
         break;
-    case ZMS_AMF_BOOLEAN:
+    case ZCS_AMF_BOOLEAN:
         if (*off + 1 > len) {
-            zms_amf_value_free(v);
+            zcs_amf_value_free(v);
             return ZN_ERR_INVALID;
         }
         v->boolean = data[(*off)++] ? 1 : 0;
         break;
-    case ZMS_AMF_STRING:
+    case ZCS_AMF_STRING:
         if (read_string(data, len, off, &v->str) != ZN_OK) {
-            zms_amf_value_free(v);
+            zcs_amf_value_free(v);
             return ZN_ERR_INVALID;
         }
         break;
-    case ZMS_AMF_NULL:
+    case ZCS_AMF_NULL:
         break;
     case 0x06: /* AMF0_UNDEFINED */
         break;
     case 0x0c: { /* AMF0_LONG_STRING */
         if (*off + 4 > len) {
-            zms_amf_value_free(v);
+            zcs_amf_value_free(v);
             return ZN_ERR_INVALID;
         }
         uint32_t slen = ((uint32_t)data[*off] << 24) | ((uint32_t)data[*off + 1] << 16) |
                         ((uint32_t)data[*off + 2] << 8) | (uint32_t)data[*off + 3];
         *off += 4;
         if (*off + slen > len) {
-            zms_amf_value_free(v);
+            zcs_amf_value_free(v);
             return ZN_ERR_INVALID;
         }
         v->str = (char *)malloc((size_t)slen + 1);
         if (!v->str) {
-            zms_amf_value_free(v);
+            zcs_amf_value_free(v);
             return ZN_ERR_NOMEM;
         }
         if (slen) {
@@ -163,54 +163,54 @@ static zn_err_t decode_one(const uint8_t *data, size_t len, size_t *off, zms_amf
         }
         v->str[slen] = '\0';
         *off += slen;
-        v->type = ZMS_AMF_STRING;
+        v->type = ZCS_AMF_STRING;
         break;
     }
-    case ZMS_AMF_STRICT_ARRAY: {
+    case ZCS_AMF_STRICT_ARRAY: {
         if (*off + 4 > len) {
-            zms_amf_value_free(v);
+            zcs_amf_value_free(v);
             return ZN_ERR_INVALID;
         }
         uint32_t count = ((uint32_t)data[*off] << 24) | ((uint32_t)data[*off + 1] << 16) |
                          ((uint32_t)data[*off + 2] << 8) | (uint32_t)data[*off + 3];
         *off += 4;
         for (uint32_t i = 0; i < count; ++i) {
-            zms_amf_value *elem = NULL;
+            zcs_amf_value *elem = NULL;
             if (decode_one(data, len, off, &elem) != ZN_OK) {
-                zms_amf_value_free(v);
+                zcs_amf_value_free(v);
                 return ZN_ERR_INVALID;
             }
-            zms_amf_value_free(elem);
+            zcs_amf_value_free(elem);
         }
-        v->type = ZMS_AMF_NULL;
+        v->type = ZCS_AMF_NULL;
         break;
     }
-    case ZMS_AMF_OBJECT:
-    case ZMS_AMF_ECMA_ARRAY:
-        if (t == ZMS_AMF_ECMA_ARRAY) {
+    case ZCS_AMF_OBJECT:
+    case ZCS_AMF_ECMA_ARRAY:
+        if (t == ZCS_AMF_ECMA_ARRAY) {
             if (*off + 4 > len) {
-                zms_amf_value_free(v);
+                zcs_amf_value_free(v);
                 return ZN_ERR_INVALID;
             }
             *off += 4;
         }
         for (;;) {
             if (*off + 3 > len) {
-                zms_amf_value_free(v);
+                zcs_amf_value_free(v);
                 return ZN_ERR_INVALID;
             }
             uint16_t klen = (uint16_t)((data[*off] << 8) | data[*off + 1]);
             *off += 2;
             if (klen == 0) {
                 if (*off + 1 > len || data[*off] != 9) {
-                    zms_amf_value_free(v);
+                    zcs_amf_value_free(v);
                     return ZN_ERR_INVALID;
                 }
                 *off += 1;
                 break;
             }
             if (*off + klen > len) {
-                zms_amf_value_free(v);
+                zcs_amf_value_free(v);
                 return ZN_ERR_INVALID;
             }
             char key[64];
@@ -218,16 +218,16 @@ static zn_err_t decode_one(const uint8_t *data, size_t len, size_t *off, zms_amf
             memcpy(key, data + *off, copy);
             key[copy] = '\0';
             *off += klen;
-            zms_amf_value *child = NULL;
+            zcs_amf_value *child = NULL;
             if (decode_one(data, len, off, &child) != ZN_OK) {
-                zms_amf_value_free(v);
+                zcs_amf_value_free(v);
                 return ZN_ERR_INVALID;
             }
             v->pairs =
-                (struct zms_amf_pair *)realloc(v->pairs, (v->pair_count + 1) * sizeof(*v->pairs));
+                (struct zcs_amf_pair *)realloc(v->pairs, (v->pair_count + 1) * sizeof(*v->pairs));
             if (!v->pairs) {
-                zms_amf_value_free(child);
-                zms_amf_value_free(v);
+                zcs_amf_value_free(child);
+                zcs_amf_value_free(v);
                 return ZN_ERR_NOMEM;
             }
             strncpy(v->pairs[v->pair_count].key, key, sizeof(v->pairs[0].key) - 1);
@@ -236,14 +236,14 @@ static zn_err_t decode_one(const uint8_t *data, size_t len, size_t *off, zms_amf
         }
         break;
     default:
-        zms_amf_value_free(v);
+        zcs_amf_value_free(v);
         return ZN_ERR_NOT_IMPL;
     }
     *out = v;
     return ZN_OK;
 }
 
-zn_err_t zms_amf_decode(const uint8_t *data, size_t len, zms_amf_value **out, size_t *consumed)
+zn_err_t zcs_amf_decode(const uint8_t *data, size_t len, zcs_amf_value **out, size_t *consumed)
 {
     size_t off = 0;
     zn_err_t err = decode_one(data, len, &off, out);
@@ -256,27 +256,27 @@ zn_err_t zms_amf_decode(const uint8_t *data, size_t len, zms_amf_value **out, si
     return ZN_OK;
 }
 
-zms_amf_type zms_amf_value_type(const zms_amf_value *v)
+zcs_amf_type zcs_amf_value_type(const zcs_amf_value *v)
 {
-    return v ? v->type : ZMS_AMF_NULL;
+    return v ? v->type : ZCS_AMF_NULL;
 }
 
-const char *zms_amf_value_str(const zms_amf_value *v)
+const char *zcs_amf_value_str(const zcs_amf_value *v)
 {
     return v && v->str ? v->str : "";
 }
 
-int zms_amf_value_bool(const zms_amf_value *v)
+int zcs_amf_value_bool(const zcs_amf_value *v)
 {
     return v ? v->boolean : 0;
 }
 
-double zms_amf_value_num(const zms_amf_value *v)
+double zcs_amf_value_num(const zcs_amf_value *v)
 {
     return v ? v->num : 0;
 }
 
-const zms_amf_value *zms_amf_object_get(const zms_amf_value *obj, const char *key)
+const zcs_amf_value *zcs_amf_object_get(const zcs_amf_value *obj, const char *key)
 {
     if (!obj || !key) {
         return NULL;
@@ -289,13 +289,13 @@ const zms_amf_value *zms_amf_object_get(const zms_amf_value *obj, const char *ke
     return NULL;
 }
 
-size_t zms_amf_encode_string(uint8_t *out, size_t cap, const char *s)
+size_t zcs_amf_encode_string(uint8_t *out, size_t cap, const char *s)
 {
     size_t slen = s ? strlen(s) : 0;
     if (cap < 3 + slen) {
         return 0;
     }
-    out[0] = ZMS_AMF_STRING;
+    out[0] = ZCS_AMF_STRING;
     out[1] = (uint8_t)((slen >> 8) & 0xff);
     out[2] = (uint8_t)(slen & 0xff);
     if (slen) {
@@ -304,7 +304,7 @@ size_t zms_amf_encode_string(uint8_t *out, size_t cap, const char *s)
     return 3 + slen;
 }
 
-size_t zms_amf_encode_strict_array_numbers(uint8_t *out, size_t cap, const double *vals,
+size_t zcs_amf_encode_strict_array_numbers(uint8_t *out, size_t cap, const double *vals,
                                            size_t count)
 {
     size_t pos;
@@ -316,14 +316,14 @@ size_t zms_amf_encode_strict_array_numbers(uint8_t *out, size_t cap, const doubl
     if (cap < 5 + count * 9) {
         return 0;
     }
-    out[0] = ZMS_AMF_STRICT_ARRAY;
+    out[0] = ZCS_AMF_STRICT_ARRAY;
     out[1] = (uint8_t)((count >> 24) & 0xff);
     out[2] = (uint8_t)((count >> 16) & 0xff);
     out[3] = (uint8_t)((count >> 8) & 0xff);
     out[4] = (uint8_t)(count & 0xff);
     pos = 5;
     for (i = 0; i < count; ++i) {
-        size_t n = zms_amf_encode_number(out + pos, cap - pos, vals ? vals[i] : 0.0);
+        size_t n = zcs_amf_encode_number(out + pos, cap - pos, vals ? vals[i] : 0.0);
         if (n == 0) {
             return 0;
         }
@@ -333,7 +333,7 @@ size_t zms_amf_encode_strict_array_numbers(uint8_t *out, size_t cap, const doubl
 }
 
 /* 编码一个 number：标记 + 8 字节大端 IEEE754。小端机需逐字节反转，见文件头说明。 */
-size_t zms_amf_encode_number(uint8_t *out, size_t cap, double n)
+size_t zcs_amf_encode_number(uint8_t *out, size_t cap, double n)
 {
     static const double k_endian_probe = 1.0;
     const uint8_t *src;
@@ -341,7 +341,7 @@ size_t zms_amf_encode_number(uint8_t *out, size_t cap, double n)
     if (cap < 9) {
         return 0;
     }
-    out[0] = ZMS_AMF_NUMBER;
+    out[0] = ZCS_AMF_NUMBER;
     src = (const uint8_t *)&n;
     if (*(const char *)&k_endian_probe == 0) {
         out[1] = src[7];
@@ -358,40 +358,40 @@ size_t zms_amf_encode_number(uint8_t *out, size_t cap, double n)
     return 9;
 }
 
-size_t zms_amf_encode_null(uint8_t *out, size_t cap)
+size_t zcs_amf_encode_null(uint8_t *out, size_t cap)
 {
     if (cap < 1) {
         return 0;
     }
-    out[0] = ZMS_AMF_NULL;
+    out[0] = ZCS_AMF_NULL;
     return 1;
 }
 
-size_t zms_amf_encode_boolean(uint8_t *out, size_t cap, int value)
+size_t zcs_amf_encode_boolean(uint8_t *out, size_t cap, int value)
 {
     if (cap < 2) {
         return 0;
     }
-    out[0] = ZMS_AMF_BOOLEAN;
+    out[0] = ZCS_AMF_BOOLEAN;
     out[1] = value ? 1 : 0;
     return 2;
 }
 
-size_t zms_amf_encode_object_begin(uint8_t *out, size_t cap)
+size_t zcs_amf_encode_object_begin(uint8_t *out, size_t cap)
 {
     if (cap < 1) {
         return 0;
     }
-    out[0] = ZMS_AMF_OBJECT;
+    out[0] = ZCS_AMF_OBJECT;
     return 1;
 }
 
-size_t zms_amf_encode_ecma_array_begin(uint8_t *out, size_t cap, uint32_t count)
+size_t zcs_amf_encode_ecma_array_begin(uint8_t *out, size_t cap, uint32_t count)
 {
     if (cap < 5) {
         return 0;
     }
-    out[0] = ZMS_AMF_ECMA_ARRAY;
+    out[0] = ZCS_AMF_ECMA_ARRAY;
     out[1] = (uint8_t)((count >> 24) & 0xff);
     out[2] = (uint8_t)((count >> 16) & 0xff);
     out[3] = (uint8_t)((count >> 8) & 0xff);
@@ -399,7 +399,7 @@ size_t zms_amf_encode_ecma_array_begin(uint8_t *out, size_t cap, uint32_t count)
     return 5;
 }
 
-size_t zms_amf_encode_object_key(uint8_t *out, size_t cap, const char *key)
+size_t zcs_amf_encode_object_key(uint8_t *out, size_t cap, const char *key)
 {
     size_t klen = key ? strlen(key) : 0;
     if (cap < 2 + klen) {
@@ -414,7 +414,7 @@ size_t zms_amf_encode_object_key(uint8_t *out, size_t cap, const char *key)
 }
 
 /* 对象结束标记 "00 00 09"：空成员名 + object-end marker。与 encode_object_begin 配对。 */
-size_t zms_amf_encode_object_end(uint8_t *out, size_t cap)
+size_t zcs_amf_encode_object_end(uint8_t *out, size_t cap)
 {
     if (cap < 3) {
         return 0;
@@ -427,8 +427,8 @@ size_t zms_amf_encode_object_end(uint8_t *out, size_t cap)
 
 /* ── 命令参数列表 ───────────────────────────────────────────────────────── */
 
-struct zms_amf_args {
-    zms_amf_value **v;
+struct zcs_amf_args {
+    zcs_amf_value **v;
     int n;
     int cap;
 };
@@ -439,33 +439,33 @@ struct zms_amf_args {
  * 容错：遇到解码失败或 0 进度即停止，保留已成功解析的前缀（宁少不错）；若一个都
  * 没解出则返回 NULL。元素数组从 8 起翻倍扩容，减少小命令的 realloc。
  */
-zms_amf_args *zms_amf_args_parse(const uint8_t *data, size_t len)
+zcs_amf_args *zcs_amf_args_parse(const uint8_t *data, size_t len)
 {
-    zms_amf_args *a;
+    zcs_amf_args *a;
     size_t off = 0;
 
     if (!data || len == 0) {
         return NULL;
     }
-    a = (zms_amf_args *)calloc(1, sizeof(*a));
+    a = (zcs_amf_args *)calloc(1, sizeof(*a));
     if (!a) {
         return NULL;
     }
     while (off < len) {
-        zms_amf_value *val = NULL;
+        zcs_amf_value *val = NULL;
         size_t used = 0;
 
-        if (zms_amf_decode(data + off, len - off, &val, &used) != ZN_OK || !val || used == 0) {
+        if (zcs_amf_decode(data + off, len - off, &val, &used) != ZN_OK || !val || used == 0) {
             break;
         }
         off += used;
         if (a->n == a->cap) {
             int cap = a->cap ? a->cap * 2 : 8;
-            zms_amf_value **nv =
-                (zms_amf_value **)realloc(a->v, (size_t)cap * sizeof(*nv));
+            zcs_amf_value **nv =
+                (zcs_amf_value **)realloc(a->v, (size_t)cap * sizeof(*nv));
 
             if (!nv) {
-                zms_amf_value_free(val);
+                zcs_amf_value_free(val);
                 break;
             }
             a->v = nv;
@@ -481,24 +481,24 @@ zms_amf_args *zms_amf_args_parse(const uint8_t *data, size_t len)
     return a;
 }
 
-void zms_amf_args_free(zms_amf_args *args)
+void zcs_amf_args_free(zcs_amf_args *args)
 {
     if (!args) {
         return;
     }
     for (int i = 0; i < args->n; ++i) {
-        zms_amf_value_free(args->v[i]);
+        zcs_amf_value_free(args->v[i]);
     }
     free(args->v);
     free(args);
 }
 
-int zms_amf_args_count(const zms_amf_args *args)
+int zcs_amf_args_count(const zcs_amf_args *args)
 {
     return args ? args->n : 0;
 }
 
-const zms_amf_value *zms_amf_args_at(const zms_amf_args *args, int index)
+const zcs_amf_value *zcs_amf_args_at(const zcs_amf_args *args, int index)
 {
     if (!args || index < 0 || index >= args->n) {
         return NULL;
@@ -506,53 +506,53 @@ const zms_amf_value *zms_amf_args_at(const zms_amf_args *args, int index)
     return args->v[index];
 }
 
-const char *zms_amf_args_str(const zms_amf_args *args, int index)
+const char *zcs_amf_args_str(const zcs_amf_args *args, int index)
 {
-    const zms_amf_value *v = zms_amf_args_at(args, index);
+    const zcs_amf_value *v = zcs_amf_args_at(args, index);
 
-    return (v && zms_amf_value_type(v) == ZMS_AMF_STRING) ? zms_amf_value_str(v) : NULL;
+    return (v && zcs_amf_value_type(v) == ZCS_AMF_STRING) ? zcs_amf_value_str(v) : NULL;
 }
 
-double zms_amf_args_num(const zms_amf_args *args, int index, double def)
+double zcs_amf_args_num(const zcs_amf_args *args, int index, double def)
 {
-    const zms_amf_value *v = zms_amf_args_at(args, index);
+    const zcs_amf_value *v = zcs_amf_args_at(args, index);
 
-    return (v && zms_amf_value_type(v) == ZMS_AMF_NUMBER) ? zms_amf_value_num(v) : def;
+    return (v && zcs_amf_value_type(v) == ZCS_AMF_NUMBER) ? zcs_amf_value_num(v) : def;
 }
 
-int zms_amf_args_bool(const zms_amf_args *args, int index, int def)
+int zcs_amf_args_bool(const zcs_amf_args *args, int index, int def)
 {
-    const zms_amf_value *v = zms_amf_args_at(args, index);
+    const zcs_amf_value *v = zcs_amf_args_at(args, index);
 
-    return (v && zms_amf_value_type(v) == ZMS_AMF_BOOLEAN) ? zms_amf_value_bool(v) : def;
+    return (v && zcs_amf_value_type(v) == ZCS_AMF_BOOLEAN) ? zcs_amf_value_bool(v) : def;
 }
 
-const char *zms_amf_args_obj_str(const zms_amf_args *args, int index, const char *key)
+const char *zcs_amf_args_obj_str(const zcs_amf_args *args, int index, const char *key)
 {
-    const zms_amf_value *obj = zms_amf_args_at(args, index);
-    const zms_amf_value *v;
+    const zcs_amf_value *obj = zcs_amf_args_at(args, index);
+    const zcs_amf_value *v;
 
     if (!obj || !key) {
         return NULL;
     }
-    if (zms_amf_value_type(obj) != ZMS_AMF_OBJECT && zms_amf_value_type(obj) != ZMS_AMF_ECMA_ARRAY) {
+    if (zcs_amf_value_type(obj) != ZCS_AMF_OBJECT && zcs_amf_value_type(obj) != ZCS_AMF_ECMA_ARRAY) {
         return NULL;
     }
-    v = zms_amf_object_get(obj, key);
-    return (v && zms_amf_value_type(v) == ZMS_AMF_STRING) ? zms_amf_value_str(v) : NULL;
+    v = zcs_amf_object_get(obj, key);
+    return (v && zcs_amf_value_type(v) == ZCS_AMF_STRING) ? zcs_amf_value_str(v) : NULL;
 }
 
-double zms_amf_args_obj_num(const zms_amf_args *args, int index, const char *key, double def)
+double zcs_amf_args_obj_num(const zcs_amf_args *args, int index, const char *key, double def)
 {
-    const zms_amf_value *obj = zms_amf_args_at(args, index);
-    const zms_amf_value *v;
+    const zcs_amf_value *obj = zcs_amf_args_at(args, index);
+    const zcs_amf_value *v;
 
     if (!obj || !key) {
         return def;
     }
-    if (zms_amf_value_type(obj) != ZMS_AMF_OBJECT && zms_amf_value_type(obj) != ZMS_AMF_ECMA_ARRAY) {
+    if (zcs_amf_value_type(obj) != ZCS_AMF_OBJECT && zcs_amf_value_type(obj) != ZCS_AMF_ECMA_ARRAY) {
         return def;
     }
-    v = zms_amf_object_get(obj, key);
-    return (v && zms_amf_value_type(v) == ZMS_AMF_NUMBER) ? zms_amf_value_num(v) : def;
+    v = zcs_amf_object_get(obj, key);
+    return (v && zcs_amf_value_type(v) == ZCS_AMF_NUMBER) ? zcs_amf_value_num(v) : def;
 }

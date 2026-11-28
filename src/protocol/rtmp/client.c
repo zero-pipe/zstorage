@@ -9,15 +9,15 @@
  * 并发：全部在 create 时传入的 poller 线程上执行，无锁。stopping 标志用于
  * 在回调里判定“已停止”，让迟到的数据/命令直接丢弃。
  */
-#include "zms/protocol/rtmp/client.h"
-#include "zms/util/dns_cache.h"
-#include "zms/media/media_limits.h"
-#include "zms/core/stream/hub.h"
-#include "zms/protocol/rtmp/protocol.h"
-#include "zms/media/wire/amf.h"
+#include "zcs/protocol/rtmp/client.h"
+#include "zcs/util/dns_cache.h"
+#include "zcs/media/media_limits.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/protocol/rtmp/protocol.h"
+#include "zcs/media/wire/amf.h"
 #include "protocol/rtmp/handshake_complex.h"
-#include "zms/ops/config/zms_have_tls.h"
-#include "zms/util/buf_pool.h"
+#include "zcs/ops/config/zcs_have_tls.h"
+#include "zcs/util/buf_pool.h"
 #include "zn/net/tcp_client.h"
 #include "zn/net/tls_client.h"
 #include "zn/util/log.h"
@@ -26,7 +26,7 @@
 #include <string.h>
 #include <time.h>
 
-#define RTMP_HS_BODY ZMS_RTMP_HS_SIZE
+#define RTMP_HS_BODY ZCS_RTMP_HS_SIZE
 #define RTMP_HS_REPLY (1 + RTMP_HS_BODY * 2)
 
 typedef enum {
@@ -35,25 +35,25 @@ typedef enum {
     CL_CREATE,
     CL_PLAY,
     CL_PLAYING,
-} zms_rtsp_client_state;
+} zcs_rtsp_client_state;
 
-typedef struct zms_rtmp_url {
+typedef struct zcs_rtmp_url {
     char host[256];
     uint16_t port;
-    char app[ZMS_APP_MAX];
-    char stream[ZMS_STREAM_MAX];
+    char app[ZCS_APP_MAX];
+    char stream[ZCS_STREAM_MAX];
     char tc_url[512];
     const char *scheme;
     int use_tls;
-} zms_rtmp_url;
+} zcs_rtmp_url;
 
-struct zms_rtmp_client {
-    zms_rtmp_client_opts opts;
+struct zcs_rtmp_client {
+    zcs_rtmp_client_opts opts;
     zn_tcp_client *tcp;
     zn_tls_client *tls;
-    zms_rtmp_protocol *proto;
-    zms_rtmp_url url;
-    zms_rtsp_client_state state;
+    zcs_rtmp_protocol *proto;
+    zcs_rtmp_url url;
+    zcs_rtsp_client_state state;
     double trans_id;
     uint32_t stream_id;
     int stopping;
@@ -81,17 +81,17 @@ static void merge_slash_in_app(char *app, char *stream)
         return;
     }
     if (stream[0]) {
-        char buf[ZMS_STREAM_MAX];
+        char buf[ZCS_STREAM_MAX];
         snprintf(buf, sizeof(buf), "%s/%s", slash + 1, stream);
         strncpy(stream, buf, sizeof(stream) - 1);
         stream[sizeof(stream) - 1] = '\0';
     } else {
-        strncpy(stream, slash + 1, ZMS_STREAM_MAX - 1);
+        strncpy(stream, slash + 1, ZCS_STREAM_MAX - 1);
         stream[sizeof(stream) - 1] = '\0';
     }
 }
 
-/** URL path → RTMP connect app + play（对 zms_rtmp_session_find_play_source 的入参约定） */
+/** URL path → RTMP connect app + play（对 zcs_rtmp_session_find_play_source 的入参约定） */
 /*
  * RTMP 的 app 与 stream 边界不固定：URL 形如 /app/a/b，有时服务端把 app 的
  * 第一段之后的路径也当 app（connect 到 app 的父级），play 只带最后一段。
@@ -109,32 +109,32 @@ static void rtmp_pull_wire_names(char *app, char *stream)
         return;
     }
     {
-        char connect_app[ZMS_APP_MAX];
+        char connect_app[ZCS_APP_MAX];
         size_t prefix_len = (size_t)(slash - stream);
         int n = snprintf(connect_app, sizeof(connect_app), "%s/%.*s", app, (int)prefix_len, stream);
         if (n <= 0 || (size_t)n >= sizeof(connect_app)) {
             return;
         }
-        strncpy(app, connect_app, ZMS_APP_MAX - 1);
-        app[ZMS_APP_MAX - 1] = '\0';
+        strncpy(app, connect_app, ZCS_APP_MAX - 1);
+        app[ZCS_APP_MAX - 1] = '\0';
     }
     memmove(stream, slash + 1, strlen(slash + 1) + 1);
 }
 
-zn_err_t zms_rtmp_parse_pull_url(const char *url, char *connect_app, size_t app_cap,
+zn_err_t zcs_rtmp_parse_pull_url(const char *url, char *connect_app, size_t app_cap,
                                   char *play_name, size_t play_cap)
 {
-    char app[ZMS_APP_MAX];
-    char stream[ZMS_STREAM_MAX];
+    char app[ZCS_APP_MAX];
+    char stream[ZCS_STREAM_MAX];
 
     if (!url || !connect_app || !play_name || app_cap == 0 || play_cap == 0) {
         return ZN_ERR_INVALID;
     }
     /* 先按通用路径规则切成 app/stream，再处理 app 里残留 '/' 的合并，
      * 最后按 RTMP 拉流约定重新分配 app 与 play 名。两步分开是为了复用
-     * zms_media_split_path 的解析，同时保留 RTMP 特有的边界调整。 */
+     * zcs_media_split_path 的解析，同时保留 RTMP 特有的边界调整。 */
     app[0] = stream[0] = '\0';
-    zms_media_split_path(url, app, stream);
+    zcs_media_split_path(url, app, stream);
     merge_slash_in_app(app, stream);
     if (!app[0] || !stream[0]) {
         return ZN_ERR_INVALID;
@@ -147,7 +147,7 @@ zn_err_t zms_rtmp_parse_pull_url(const char *url, char *connect_app, size_t app_
     return ZN_OK;
 }
 
-static void client_mark_playing(zms_rtmp_client *c)
+static void client_mark_playing(zcs_rtmp_client *c)
 {
     if (!c || c->stopping) {
         return;
@@ -163,7 +163,7 @@ static void client_mark_playing(zms_rtmp_client *c)
     }
 }
 
-static void client_fail(zms_rtmp_client *c, zn_err_t err)
+static void client_fail(zcs_rtmp_client *c, zn_err_t err)
 {
     if (!c || c->stopping) {
         return;
@@ -176,12 +176,12 @@ static void client_fail(zms_rtmp_client *c, zn_err_t err)
     }
 }
 
-static zn_err_t client_send(zms_rtmp_client *c, const void *data, size_t len)
+static zn_err_t client_send(zcs_rtmp_client *c, const void *data, size_t len)
 {
     if (!c || !data || !len) {
         return ZN_ERR_INVALID;
     }
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
     if (c->tls) {
         return zn_tls_client_send(c->tls, data, len);
     }
@@ -192,16 +192,16 @@ static zn_err_t client_send(zms_rtmp_client *c, const void *data, size_t len)
     return ZN_ERR_STATE;
 }
 
-static zn_err_t client_connect(zms_rtmp_client *c)
+static zn_err_t client_connect(zcs_rtmp_client *c)
 {
     if (!c) {
         return ZN_ERR_INVALID;
     }
     {
         char ipbuf[64];
-        const char *target = zms_dns_target(c->url.host, ipbuf, sizeof(ipbuf));
+        const char *target = zcs_dns_target(c->url.host, ipbuf, sizeof(ipbuf));
 
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
         if (c->tls) {
             return zn_tls_client_connect(c->tls, target, c->url.port);
         }
@@ -213,12 +213,12 @@ static zn_err_t client_connect(zms_rtmp_client *c)
     return ZN_ERR_STATE;
 }
 
-static void client_close(zms_rtmp_client *c)
+static void client_close(zcs_rtmp_client *c)
 {
     if (!c) {
         return;
     }
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
     if (c->tls) {
         zn_tls_client_close(c->tls);
         return;
@@ -229,24 +229,24 @@ static void client_close(zms_rtmp_client *c)
     }
 }
 
-static zn_err_t client_ensure_send_buf(zms_rtmp_client *c)
+static zn_err_t client_ensure_send_buf(zcs_rtmp_client *c)
 {
     if (!c) {
         return ZN_ERR_INVALID;
     }
-    /* 发送缓冲按 ZMS_MEDIA_IO_BUF_SIZE 一次性扩到位并复用：握手、connect、
+    /* 发送缓冲按 ZCS_MEDIA_IO_BUF_SIZE 一次性扩到位并复用：握手、connect、
      * createStream、play 都是短突发，缓冲够大后就不必再 realloc。复用
      * buf_pool 槽位而非裸 malloc，避免频繁大块分配。 */
-    if (c->send_cap >= ZMS_MEDIA_IO_BUF_SIZE && c->send_buf) {
+    if (c->send_cap >= ZCS_MEDIA_IO_BUF_SIZE && c->send_buf) {
         return ZN_OK;
     }
-    if (!zms_buf_pool_slot_resize(&c->send_buf, &c->send_cap, ZMS_MEDIA_IO_BUF_SIZE)) {
+    if (!zcs_buf_pool_slot_resize(&c->send_buf, &c->send_cap, ZCS_MEDIA_IO_BUF_SIZE)) {
         return ZN_ERR_NOMEM;
     }
     return ZN_OK;
 }
 
-static zn_err_t append_chunk_msg(zms_rtmp_client *c, uint8_t type_id, uint32_t stream_id,
+static zn_err_t append_chunk_msg(zcs_rtmp_client *c, uint8_t type_id, uint32_t stream_id,
                                   uint32_t tag_dts_ms, const void *body, size_t body_len,
                                   size_t *pos)
 {
@@ -255,7 +255,7 @@ static zn_err_t append_chunk_msg(zms_rtmp_client *c, uint8_t type_id, uint32_t s
         return ZN_ERR_NOMEM;
     }
     zn_err_t err =
-        zms_rtmp_protocol_send_chunk(c->proto, type_id, stream_id, tag_dts_ms, body, body_len,
+        zcs_rtmp_protocol_send_chunk(c->proto, type_id, stream_id, tag_dts_ms, body, body_len,
                                      c->send_buf + *pos, c->send_cap - *pos, &n);
     if (err != ZN_OK) {
         return err;
@@ -264,7 +264,7 @@ static zn_err_t append_chunk_msg(zms_rtmp_client *c, uint8_t type_id, uint32_t s
     return ZN_OK;
 }
 
-static zn_err_t append_invoke_ex(zms_rtmp_client *c, const char *cmd, double trans_id,
+static zn_err_t append_invoke_ex(zcs_rtmp_client *c, const char *cmd, double trans_id,
                                   uint32_t stream_id, const uint8_t *body, size_t body_len,
                                   size_t *pos, int omit_null)
 {
@@ -273,7 +273,7 @@ static zn_err_t append_invoke_ex(zms_rtmp_client *c, const char *cmd, double tra
         return ZN_ERR_NOMEM;
     }
     zn_err_t err =
-        zms_rtmp_protocol_send_invoke_ex(c->proto, cmd, trans_id, stream_id, body, body_len,
+        zcs_rtmp_protocol_send_invoke_ex(c->proto, cmd, trans_id, stream_id, body, body_len,
                                          c->send_buf + *pos, c->send_cap - *pos, &n, omit_null);
     if (err != ZN_OK) {
         return err;
@@ -282,14 +282,14 @@ static zn_err_t append_invoke_ex(zms_rtmp_client *c, const char *cmd, double tra
     return ZN_OK;
 }
 
-static zn_err_t append_invoke(zms_rtmp_client *c, const char *cmd, double trans_id,
+static zn_err_t append_invoke(zcs_rtmp_client *c, const char *cmd, double trans_id,
                                uint32_t stream_id, const uint8_t *body, size_t body_len,
                                size_t *pos)
 {
     return append_invoke_ex(c, cmd, trans_id, stream_id, body, body_len, pos, 0);
 }
 
-static void send_invoke(zms_rtmp_client *c, const char *cmd, double trans_id, uint32_t stream_id,
+static void send_invoke(zcs_rtmp_client *c, const char *cmd, double trans_id, uint32_t stream_id,
                         const uint8_t *body, size_t body_len)
 {
     size_t pos = 0;
@@ -317,7 +317,7 @@ static size_t amf_key(uint8_t *out, size_t cap, const char *key)
     return 2 + klen;
 }
 
-static zn_err_t parse_rtmp_url(const char *url, zms_rtmp_url *out)
+static zn_err_t parse_rtmp_url(const char *url, zcs_rtmp_url *out)
 {
     if (!url || !out) {
         return ZN_ERR_INVALID;
@@ -366,7 +366,7 @@ static zn_err_t parse_rtmp_url(const char *url, zms_rtmp_url *out)
         }
     }
 
-    if (zms_rtmp_parse_pull_url(url, out->app, sizeof(out->app), out->stream,
+    if (zcs_rtmp_parse_pull_url(url, out->app, sizeof(out->app), out->stream,
                                 sizeof(out->stream)) != ZN_OK) {
         return ZN_ERR_INVALID;
     }
@@ -384,7 +384,7 @@ static void write_be32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)(v & 0xff);
 }
 
-static zn_err_t pack_connect_amf(zms_rtmp_client *c, uint8_t *amf, size_t cap, size_t *out_len)
+static zn_err_t pack_connect_amf(zcs_rtmp_client *c, uint8_t *amf, size_t cap, size_t *out_len)
 {
     size_t pos = 0;
     if (!c || !amf || !out_len) {
@@ -394,34 +394,34 @@ static zn_err_t pack_connect_amf(zms_rtmp_client *c, uint8_t *amf, size_t cap, s
      * 广泛要求的子集：app/tcUrl/flashVer/capabilities/videoFunction/
      * audioCodecs/videoCodecs。值为 0 的部分字段有些服务器会挑刺，故都给出
      * 惯用的非零默认（如 capabilities=15）。 */
-    amf[pos++] = ZMS_AMF_OBJECT;
+    amf[pos++] = ZCS_AMF_OBJECT;
     pos += amf_key(amf + pos, cap - pos, "app");
-    pos += zms_amf_encode_string(amf + pos, cap - pos, c->url.app);
+    pos += zcs_amf_encode_string(amf + pos, cap - pos, c->url.app);
     pos += amf_key(amf + pos, cap - pos, "tcUrl");
-    pos += zms_amf_encode_string(amf + pos, cap - pos, c->url.tc_url);
+    pos += zcs_amf_encode_string(amf + pos, cap - pos, c->url.tc_url);
     pos += amf_key(amf + pos, cap - pos, "flashVer");
-    pos += zms_amf_encode_string(amf + pos, cap - pos, "FMLE/3.0 (compatible; ZMS)");
+    pos += zcs_amf_encode_string(amf + pos, cap - pos, "FMLE/3.0 (compatible; ZCS)");
     pos += amf_key(amf + pos, cap - pos, "capabilities");
-    pos += zms_amf_encode_number(amf + pos, cap - pos, 15.0);
+    pos += zcs_amf_encode_number(amf + pos, cap - pos, 15.0);
     pos += amf_key(amf + pos, cap - pos, "videoFunction");
-    pos += zms_amf_encode_number(amf + pos, cap - pos, 1.0);
+    pos += zcs_amf_encode_number(amf + pos, cap - pos, 1.0);
     pos += amf_key(amf + pos, cap - pos, "audioCodecs");
-    pos += zms_amf_encode_number(amf + pos, cap - pos, 1024.0);
+    pos += zcs_amf_encode_number(amf + pos, cap - pos, 1024.0);
     pos += amf_key(amf + pos, cap - pos, "videoCodecs");
-    pos += zms_amf_encode_number(amf + pos, cap - pos, 128.0);
-    pos += zms_amf_encode_object_end(amf + pos, cap - pos);
+    pos += zcs_amf_encode_number(amf + pos, cap - pos, 128.0);
+    pos += zcs_amf_encode_object_end(amf + pos, cap - pos);
     *out_len = pos;
     return ZN_OK;
 }
 
-static void send_create_stream(zms_rtmp_client *c)
+static void send_create_stream(zcs_rtmp_client *c)
 {
     if (!c || c->hs_create_sent) {
         return;
     }
     c->hs_create_sent = 1;
     uint8_t amf[8];
-    size_t pos = zms_amf_encode_null(amf, sizeof(amf));
+    size_t pos = zcs_amf_encode_null(amf, sizeof(amf));
     /* trans_id=2（connect 用了 1），createStream 的 _result 会用这个 id 回，
      * 用于在本端区分是哪条命令的响应。net stream id 由服务器在 _result 里给。 */
     c->trans_id = 2.0;
@@ -430,7 +430,7 @@ static void send_create_stream(zms_rtmp_client *c)
     zn_info("rtmp_client -> createStream");
 }
 
-static void send_play(zms_rtmp_client *c)
+static void send_play(zcs_rtmp_client *c)
 {
     if (!c || c->hs_play_sent) {
         return;
@@ -440,8 +440,8 @@ static void send_play(zms_rtmp_client *c)
     size_t pos = 0;
     /* play 参数：流名 + 起始时间 -2000。负数（-2000ms）意为“优先用服务器
      * 缓存的 GOP 头”，让拉流端尽快拿到关键帧起播，是 SRS/FMS 的通用小技巧。 */
-    pos += zms_amf_encode_string(amf + pos, sizeof(amf) - pos, c->url.stream);
-    pos += zms_amf_encode_number(amf + pos, sizeof(amf) - pos, -2000.0);
+    pos += zcs_amf_encode_string(amf + pos, sizeof(amf) - pos, c->url.stream);
+    pos += zcs_amf_encode_number(amf + pos, sizeof(amf) - pos, -2000.0);
     c->trans_id = 3.0;
     send_invoke(c, "play", c->trans_id, c->stream_id, amf, pos);
     c->state = CL_PLAY;
@@ -449,41 +449,41 @@ static void send_play(zms_rtmp_client *c)
              (unsigned)c->stream_id);
 }
 
-static void on_chunk(const zms_rtmp_chunk *chunk, void *user);
+static void on_chunk(const zcs_rtmp_chunk *chunk, void *user);
 static void on_cmd(const char *cmd, double trans_id, const uint8_t *amf_rest, size_t amf_rest_len,
                    void *user);
 
-static void begin_rtmp_session(zms_rtmp_client *c)
+static void begin_rtmp_session(zcs_rtmp_client *c)
 {
-    zms_rtmp_protocol_opts popts = {on_chunk, on_cmd, c};
+    zcs_rtmp_protocol_opts popts = {on_chunk, on_cmd, c};
     uint8_t body[8];
     uint8_t amf[768];
     size_t amf_len = 0;
     size_t pos = 0;
 
-    c->proto = zms_rtmp_protocol_create_established(&popts);
+    c->proto = zcs_rtmp_protocol_create_established(&popts);
     if (!c->proto) {
         client_fail(c, ZN_ERR_NOMEM);
         return;
     }
-    zms_rtmp_protocol_set_poller(c->proto, c->opts.poller);
+    zcs_rtmp_protocol_set_poller(c->proto, c->opts.poller);
     c->hs_create_sent = 0;
     c->hs_play_sent = 0;
 
     write_be32(body, 4096);
-    if (append_chunk_msg(c, ZMS_RTMP_MSG_SET_CHUNK, 0, 0, body, 4, &pos) != ZN_OK) {
+    if (append_chunk_msg(c, ZCS_RTMP_MSG_SET_CHUNK, 0, 0, body, 4, &pos) != ZN_OK) {
         goto fail;
     }
-    zms_rtmp_protocol_set_out_chunk_size(c->proto, 4096);
+    zcs_rtmp_protocol_set_out_chunk_size(c->proto, 4096);
 
     write_be32(body, 5000000);
-    if (append_chunk_msg(c, ZMS_RTMP_MSG_WIN_SIZE, 0, 0, body, 4, &pos) != ZN_OK) {
+    if (append_chunk_msg(c, ZCS_RTMP_MSG_WIN_SIZE, 0, 0, body, 4, &pos) != ZN_OK) {
         goto fail;
     }
 
     body[0] = 2;
     write_be32(body + 1, 5000000);
-    if (append_chunk_msg(c, ZMS_RTMP_MSG_SET_PEER_BW, 0, 0, body, 5, &pos) != ZN_OK) {
+    if (append_chunk_msg(c, ZCS_RTMP_MSG_SET_PEER_BW, 0, 0, body, 5, &pos) != ZN_OK) {
         goto fail;
     }
 
@@ -520,7 +520,7 @@ static void hs_random(uint8_t *buf, size_t len)
     }
 }
 
-static void client_hs_release(zms_rtmp_client *c)
+static void client_hs_release(zcs_rtmp_client *c)
 {
     if (!c) {
         return;
@@ -530,7 +530,7 @@ static void client_hs_release(zms_rtmp_client *c)
     c->hs_off = 0;
 }
 
-static void send_c0c1(zms_rtmp_client *c)
+static void send_c0c1(zcs_rtmp_client *c)
 {
     uint8_t out[1 + RTMP_HS_BODY];
     uint8_t c1[RTMP_HS_BODY];
@@ -549,7 +549,7 @@ static void send_c0c1(zms_rtmp_client *c)
     c->hs_off = 0;
 }
 
-static void try_finish_hs(zms_rtmp_client *c)
+static void try_finish_hs(zcs_rtmp_client *c)
 {
     uint8_t s1[RTMP_HS_BODY];
     uint8_t c2[RTMP_HS_BODY];
@@ -560,7 +560,7 @@ static void try_finish_hs(zms_rtmp_client *c)
     memcpy(s1, c->hs_buf + 1, RTMP_HS_BODY);
     /* 区分简单/复杂握手：复杂握手（客户端第 2 段带校验）要求 C2 直接回显
      * 服务器 S2；简单握手则回显 S1 作为 C2。用 S1 的字节模式探测。 */
-    if (zms_rtmp_handshake_detect_complex(s1)) {
+    if (zcs_rtmp_handshake_detect_complex(s1)) {
         memcpy(c2, c->hs_buf + 1 + RTMP_HS_BODY, RTMP_HS_BODY);
     } else {
         memcpy(c2, s1, RTMP_HS_BODY);
@@ -573,7 +573,7 @@ static void try_finish_hs(zms_rtmp_client *c)
 static void on_cmd(const char *cmd, double trans_id, const uint8_t *amf_rest, size_t amf_rest_len,
                    void *user)
 {
-    zms_rtmp_client *c = (zms_rtmp_client *)user;
+    zcs_rtmp_client *c = (zcs_rtmp_client *)user;
     if (!c || c->stopping || !cmd) {
         return;
     }
@@ -591,7 +591,7 @@ static void on_cmd(const char *cmd, double trans_id, const uint8_t *amf_rest, si
             return;
         }
         if (c->state == CL_CREATE) {
-            zms_amf_value *v = NULL;
+            zcs_amf_value *v = NULL;
             size_t off = 0;
             /* createStream 的 _result 里有个 number 是 net stream id，但前面
              * 可能跟着 null/其它值，所以顺序解 AMF，取遇到的第一个 number。
@@ -599,16 +599,16 @@ static void on_cmd(const char *cmd, double trans_id, const uint8_t *amf_rest, si
             c->stream_id = 1;
             while (amf_rest && off < amf_rest_len) {
                 size_t used = 0;
-                if (zms_amf_decode(amf_rest + off, amf_rest_len - off, &v, &used) != ZN_OK || !v) {
+                if (zcs_amf_decode(amf_rest + off, amf_rest_len - off, &v, &used) != ZN_OK || !v) {
                     break;
                 }
                 off += used;
-                if (zms_amf_value_type(v) == ZMS_AMF_NUMBER) {
-                    c->stream_id = (uint32_t)zms_amf_value_num(v);
-                    zms_amf_value_free(v);
+                if (zcs_amf_value_type(v) == ZCS_AMF_NUMBER) {
+                    c->stream_id = (uint32_t)zcs_amf_value_num(v);
+                    zcs_amf_value_free(v);
                     break;
                 }
-                zms_amf_value_free(v);
+                zcs_amf_value_free(v);
                 v = NULL;
             }
             zn_info("rtmp_client createStream ok net_stream=%u", (unsigned)c->stream_id);
@@ -629,30 +629,30 @@ static void on_cmd(const char *cmd, double trans_id, const uint8_t *amf_rest, si
     }
 
     if (strcmp(cmd, "onStatus") == 0) {
-        zms_amf_value *obj = NULL;
+        zcs_amf_value *obj = NULL;
         size_t off = 0;
         if (!amf_rest || !amf_rest_len) {
             return;
         }
         /* onStatus 的参数通常是 [null, {info}]：先跳过前导 null 再解 info 对象。 */
-        if (zms_amf_decode(amf_rest, amf_rest_len, &obj, &off) != ZN_OK) {
-            zms_amf_value_free(obj);
+        if (zcs_amf_decode(amf_rest, amf_rest_len, &obj, &off) != ZN_OK) {
+            zcs_amf_value_free(obj);
             return;
         }
-        if (obj && zms_amf_value_type(obj) == ZMS_AMF_NULL) {
-            zms_amf_value_free(obj);
+        if (obj && zcs_amf_value_type(obj) == ZCS_AMF_NULL) {
+            zcs_amf_value_free(obj);
             obj = NULL;
             if (off >= amf_rest_len ||
-                zms_amf_decode(amf_rest + off, amf_rest_len - off, &obj, &off) != ZN_OK) {
-                zms_amf_value_free(obj);
+                zcs_amf_decode(amf_rest + off, amf_rest_len - off, &obj, &off) != ZN_OK) {
+                zcs_amf_value_free(obj);
                 return;
             }
         }
         if (!obj) {
             return;
         }
-        const zms_amf_value *code = zms_amf_object_get(obj, "code");
-        const char *code_str = code ? zms_amf_value_str(code) : "";
+        const zcs_amf_value *code = zcs_amf_object_get(obj, "code");
+        const char *code_str = code ? zcs_amf_value_str(code) : "";
         /* Play.Start / Play.Reset 表示真正开播；Play.Failed/StreamNotFound 判失败；
          * 其余 code 只记日志（如 Play.Unpublish 等）。 */
         if (strcmp(code_str, "NetStream.Play.Start") == 0 ||
@@ -665,7 +665,7 @@ static void on_cmd(const char *cmd, double trans_id, const uint8_t *amf_rest, si
         } else if (code_str[0] && c->state == CL_PLAY) {
             zn_info("rtmp_client onStatus: %s", code_str);
         }
-        zms_amf_value_free(obj);
+        zcs_amf_value_free(obj);
         (void)trans_id;
         return;
     }
@@ -675,14 +675,14 @@ static void on_cmd(const char *cmd, double trans_id, const uint8_t *amf_rest, si
     }
 }
 
-static void on_chunk(const zms_rtmp_chunk *chunk, void *user)
+static void on_chunk(const zcs_rtmp_chunk *chunk, void *user)
 {
-    zms_rtmp_client *c = (zms_rtmp_client *)user;
+    zcs_rtmp_client *c = (zcs_rtmp_client *)user;
     if (!c || c->stopping || !chunk || !chunk->body || chunk->body_size == 0) {
         return;
     }
     /* 只关心音视频；命令/元数据等 chunk 由 protocol 层通过 on_cmd 等单独投递。 */
-    if (chunk->type_id != ZMS_RTMP_MSG_AUDIO && chunk->type_id != ZMS_RTMP_MSG_VIDEO) {
+    if (chunk->type_id != ZCS_RTMP_MSG_AUDIO && chunk->type_id != ZCS_RTMP_MSG_VIDEO) {
         return;
     }
     /* 有些服务端不发 NetStream.Play.Start，直接推流：首个媒体 chunk 到达时
@@ -696,7 +696,7 @@ static void on_chunk(const zms_rtmp_chunk *chunk, void *user)
     }
 }
 
-static void on_io_connected(zms_rtmp_client *c)
+static void on_io_connected(zcs_rtmp_client *c)
 {
     /* TCP/TLS 建连完成 → 主动发 C0+C1，进入握手等待对端 S0+S1+S2。 */
     c->state = CL_HS;
@@ -704,7 +704,7 @@ static void on_io_connected(zms_rtmp_client *c)
     send_c0c1(c);
 }
 
-static void on_transport_recv(zms_rtmp_client *c, const void *data, size_t len)
+static void on_transport_recv(zcs_rtmp_client *c, const void *data, size_t len)
 {
     if (!c || c->stopping || !data || len == 0) {
         return;
@@ -736,63 +736,63 @@ static void on_transport_recv(zms_rtmp_client *c, const void *data, size_t len)
             }
         }
         if (c->proto && off < len) {
-            zms_rtmp_protocol_input(c->proto, d + off, len - off);
+            zcs_rtmp_protocol_input(c->proto, d + off, len - off);
         }
         return;
     }
 
-    zms_rtmp_protocol_input(c->proto, data, len);
+    zcs_rtmp_protocol_input(c->proto, data, len);
 }
 
 static void on_tcp_connect(zn_tcp_client *tcp, void *user)
 {
-    zms_rtmp_client *c = (zms_rtmp_client *)user;
+    zcs_rtmp_client *c = (zcs_rtmp_client *)user;
     (void)tcp;
     on_io_connected(c);
 }
 
 static void on_tcp_recv(zn_tcp_client *tcp, const void *data, size_t len, void *user)
 {
-    zms_rtmp_client *c = (zms_rtmp_client *)user;
+    zcs_rtmp_client *c = (zcs_rtmp_client *)user;
     (void)tcp;
     on_transport_recv(c, data, len);
 }
 
 static void on_tcp_error(zn_tcp_client *tcp, void *user)
 {
-    zms_rtmp_client *c = (zms_rtmp_client *)user;
+    zcs_rtmp_client *c = (zcs_rtmp_client *)user;
     (void)tcp;
     client_fail(c, ZN_ERR_IO);
 }
 
 static void on_tls_connect(zn_tls_client *tls, void *user)
 {
-    zms_rtmp_client *c = (zms_rtmp_client *)user;
+    zcs_rtmp_client *c = (zcs_rtmp_client *)user;
     (void)tls;
     on_io_connected(c);
 }
 
 static void on_tls_recv(zn_tls_client *tls, const void *data, size_t len, void *user)
 {
-    zms_rtmp_client *c = (zms_rtmp_client *)user;
+    zcs_rtmp_client *c = (zcs_rtmp_client *)user;
     (void)tls;
     on_transport_recv(c, data, len);
 }
 
 static void on_tls_error(zn_tls_client *tls, void *user)
 {
-    zms_rtmp_client *c = (zms_rtmp_client *)user;
+    zcs_rtmp_client *c = (zcs_rtmp_client *)user;
     (void)tls;
     client_fail(c, ZN_ERR_IO);
 }
 
-zms_rtmp_client *zms_rtmp_client_create(const zms_rtmp_client_opts *opts)
+zcs_rtmp_client *zcs_rtmp_client_create(const zcs_rtmp_client_opts *opts)
 {
     if (!opts || !opts->poller || !opts->url) {
         return NULL;
     }
 
-    zms_rtmp_client *c = (zms_rtmp_client *)calloc(1, sizeof(*c));
+    zcs_rtmp_client *c = (zcs_rtmp_client *)calloc(1, sizeof(*c));
     if (!c) {
         return NULL;
     }
@@ -831,25 +831,25 @@ zms_rtmp_client *zms_rtmp_client_create(const zms_rtmp_client_opts *opts)
     return c;
 }
 
-void zms_rtmp_client_destroy(zms_rtmp_client *c)
+void zcs_rtmp_client_destroy(zcs_rtmp_client *c)
 {
     if (!c) {
         return;
     }
     /* 先 stop（关 socket、销毁 proto、放握手缓冲），再销毁连接对象与发送缓冲。
      * 顺序保证 stop 里若还需要 tcp/tls 句柄，它们尚未被析构。 */
-    zms_rtmp_client_stop(c);
+    zcs_rtmp_client_stop(c);
     zn_tcp_client_destroy(c->tcp);
-#if ZMS_HAVE_PULL_TLS
+#if ZCS_HAVE_PULL_TLS
     zn_tls_client_destroy(c->tls);
 #endif
-    zms_rtmp_protocol_destroy(c->proto);
-    zms_buf_pool_slot_clear(&c->send_buf, &c->send_cap);
+    zcs_rtmp_protocol_destroy(c->proto);
+    zcs_buf_pool_slot_clear(&c->send_buf, &c->send_cap);
     client_hs_release(c);
     free(c);
 }
 
-zn_err_t zms_rtmp_client_play(zms_rtmp_client *c)
+zn_err_t zcs_rtmp_client_play(zcs_rtmp_client *c)
 {
     if (!c) {
         return ZN_ERR_INVALID;
@@ -864,7 +864,7 @@ zn_err_t zms_rtmp_client_play(zms_rtmp_client *c)
     return client_connect(c);
 }
 
-void zms_rtmp_client_stop(zms_rtmp_client *c)
+void zcs_rtmp_client_stop(zcs_rtmp_client *c)
 {
     if (!c) {
         return;
@@ -874,7 +874,7 @@ void zms_rtmp_client_stop(zms_rtmp_client *c)
      * 立即关闭 socket（RTMP 无优雅关闭握手，直接断即可）。 */
     c->stopping = 1;
     client_close(c);
-    zms_rtmp_protocol_destroy(c->proto);
+    zcs_rtmp_protocol_destroy(c->proto);
     c->proto = NULL;
     c->state = CL_HS;
     client_hs_release(c);

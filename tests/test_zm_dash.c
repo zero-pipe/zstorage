@@ -11,8 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef ZMS_FIXTURE_DIR
-#define ZMS_FIXTURE_DIR "tests/fixtures"
+#ifndef ZCS_FIXTURE_DIR
+#define ZCS_FIXTURE_DIR "tests/fixtures"
 #endif
 
 static int g_failures;
@@ -95,9 +95,9 @@ static int on_playlist(void *ctx, const char *name, const char *text, size_t len
 
 int main(void)
 {
-    const char *path = getenv("ZMS_FIXTURE");
+    const char *path = getenv("ZCS_FIXTURE");
     if (!path || !*path) {
-        path = ZMS_FIXTURE_DIR "/h264_aac.mp4";
+        path = ZCS_FIXTURE_DIR "/h264_aac.mp4";
     }
     file_io f;
     zm_io io;

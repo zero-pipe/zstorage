@@ -2,7 +2,7 @@
  * @file device_command.c
  * @brief 设备命令表查找与能力门控。
  */
-#include "zms/device/core/device_command.h"
+#include "zcs/device/core/device_command.h"
 
 #include <string.h>
 
@@ -24,7 +24,7 @@ static int ieq(const char *a, const char *b)
     return *a == '\0' && *b == '\0';
 }
 
-const zms_device_cmd *zms_device_cmd_find(const zms_device_cmd *table, size_t count,
+const zcs_device_cmd *zcs_device_cmd_find(const zcs_device_cmd *table, size_t count,
                                           const char *name)
 {
     size_t i;
@@ -40,7 +40,7 @@ const zms_device_cmd *zms_device_cmd_find(const zms_device_cmd *table, size_t co
     return NULL;
 }
 
-int zms_device_cmd_allowed(const zms_device_cmd *cmd)
+int zcs_device_cmd_allowed(const zcs_device_cmd *cmd)
 {
     if (!cmd) {
         return 0;
@@ -48,5 +48,5 @@ int zms_device_cmd_allowed(const zms_device_cmd *cmd)
     if (cmd->capability == 0) {
         return 1;
     }
-    return zms_device_core_any_cap(cmd->capability);
+    return zcs_device_core_any_cap(cmd->capability);
 }

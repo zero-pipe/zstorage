@@ -2,7 +2,7 @@
  * @file ice_port.c
  * @brief WebRTC ICE 端口与 STUN 定时器。
  */
-#if defined(ZMS_WEBRTC_USE_ZICE) && ZMS_WEBRTC_USE_ZICE
+#if defined(ZCS_WEBRTC_USE_ZICE) && ZCS_WEBRTC_USE_ZICE
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -31,7 +31,7 @@ struct stun_timer_slot {
     void *user_param;
 };
 
-void zms_webrtc_ice_port_init(zn_poller *poller)
+void zcs_webrtc_ice_port_init(zn_poller *poller)
 {
     if (!poller) {
         return;
@@ -41,7 +41,7 @@ void zms_webrtc_ice_port_init(zn_poller *poller)
     }
 }
 
-void zms_webrtc_ice_port_fini(void)
+void zcs_webrtc_ice_port_fini(void)
 {
     if (g_ice_port_refs == 0) {
         return;
@@ -82,7 +82,7 @@ void *stun_timer_start(int ms, void (*ontimer)(void *param), void *param)
     struct stun_timer_slot *slot;
     zn_poller *pol;
 
-    pol = zms_webrtc_ice_timer_poller(param);
+    pol = zcs_webrtc_ice_timer_poller(param);
     if (!pol) {
         pol = g_ice_poller;
     }
@@ -121,4 +121,4 @@ int stun_timer_stop(void *timer)
     return 0;
 }
 
-#endif /* ZMS_WEBRTC_USE_ZICE */
+#endif /* ZCS_WEBRTC_USE_ZICE */

@@ -7,14 +7,14 @@
  *   - 代码新增了键却没写进模板（用户不知道有这个能力）
  * 本测试把两边钉死，防止再次漂移。
  */
-#include "zms/ops/config/config.h"
+#include "zcs/ops/config/config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef ZMS_CONFIG_INI
-#error "ZMS_CONFIG_INI must point at conf/config.ini"
+#ifndef ZCS_CONFIG_INI
+#error "ZCS_CONFIG_INI must point at conf/config.ini"
 #endif
 
 #define CHECK(cond)                                                                                \
@@ -156,17 +156,17 @@ int main(void)
     int bad = 0;
 
     memset(&supported, 0, sizeof(supported));
-    zms_config_foreach_key(collect_supported, &supported);
+    zcs_config_foreach_key(collect_supported, &supported);
     CHECK(supported.count > 0);
 
     memset(&g_template, 0, sizeof(g_template));
     memset(&g_documented, 0, sizeof(g_documented));
-    CHECK(scan_template(ZMS_CONFIG_INI) == 0);
+    CHECK(scan_template(ZCS_CONFIG_INI) == 0);
     CHECK(g_template.count > 0);
 
     /* 1) 模板里的每个键都必须是受支持的（拼写错误在这里暴露） */
     for (i = 0; i < g_template.count; ++i) {
-        if (!zms_config_key_supported(g_template.section[i], g_template.key[i])) {
+        if (!zcs_config_key_supported(g_template.section[i], g_template.key[i])) {
             fprintf(stderr, "FAIL config.ini has unsupported key: [%s] %s\n",
                     g_template.section[i], g_template.key[i]);
             ++bad;

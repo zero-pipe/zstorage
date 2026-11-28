@@ -16,15 +16,15 @@
 #include "session/webrtc/session_internal.h"
 #include "protocol/webrtc/ice_internal.h"
 #include "protocol/webrtc/media_internal.h"
-#include "zms/egress/source/egress_source.h"
-#include "zms/media/media_limits.h"
-#include "zms/session/webrtc/webrtc_server.h"
+#include "zcs/egress/source/egress_source.h"
+#include "zcs/media/media_limits.h"
+#include "zcs/session/webrtc/webrtc_server.h"
 #include "session/webrtc/play_session.h"
 #include "session/webrtc/whip_ingress.h"
-#include "zms/publish/ingest/common/stream_ingest.h"
-#include "zms/util/buf_pool.h"
-#include "zms/core/event.h"
-#include "zms/play/dispatch.h"
+#include "zcs/publish/ingest/common/stream_ingest.h"
+#include "zcs/util/buf_pool.h"
+#include "zcs/core/event.h"
+#include "zcs/play/dispatch.h"
 #include "zb/os/sync.h"
 #include "zn/platform.h"
 #include "zn/util/log.h"
@@ -34,29 +34,29 @@
 
 static unsigned g_webrtc_session_no;
 /* 会话表：按 [webrtc] max_sessions 在注册表首次初始化时一次性分配（默认 64，
- * 硬上限 ZMS_WEBRTC_SESSION_MAX_HARD）。用堆而非静态数组，是因为并发档位
+ * 硬上限 ZCS_WEBRTC_SESSION_MAX_HARD）。用堆而非静态数组，是因为并发档位
  * 相差一个数量级时静态预留会白占内存；表本身指针数组，容量只影响指针大小。 */
-static zms_webrtc_session **g_webrtc_sessions;
+static zcs_webrtc_session **g_webrtc_sessions;
 static size_t g_webrtc_session_cap;
 static int g_webrtc_session_count;
 static zb_mutex *g_webrtc_session_mtx;
-/** 配置的并发上限；zms_webrtc_session_set_limit 在启动阶段、注册表使用前设置。 */
-static size_t g_webrtc_session_limit = ZMS_WEBRTC_SESSION_MAX_DEFAULT;
+/** 配置的并发上限；zcs_webrtc_session_set_limit 在启动阶段、注册表使用前设置。 */
+static size_t g_webrtc_session_limit = ZCS_WEBRTC_SESSION_MAX_DEFAULT;
 
-void zms_webrtc_session_set_limit(unsigned limit)
+void zcs_webrtc_session_set_limit(unsigned limit)
 {
     if (limit == 0) {
-        limit = ZMS_WEBRTC_SESSION_MAX_DEFAULT;
+        limit = ZCS_WEBRTC_SESSION_MAX_DEFAULT;
     }
-    if (limit > ZMS_WEBRTC_SESSION_MAX_HARD) {
+    if (limit > ZCS_WEBRTC_SESSION_MAX_HARD) {
         zn_warn("[webrtc] max_sessions=%u exceeds hard cap %u; clamped", limit,
-                 (unsigned)ZMS_WEBRTC_SESSION_MAX_HARD);
-        limit = ZMS_WEBRTC_SESSION_MAX_HARD;
+                 (unsigned)ZCS_WEBRTC_SESSION_MAX_HARD);
+        limit = ZCS_WEBRTC_SESSION_MAX_HARD;
     }
     g_webrtc_session_limit = limit;
 }
 
-size_t zms_webrtc_session_limit(void)
+size_t zcs_webrtc_session_limit(void)
 {
     return g_webrtc_session_limit;
 }
@@ -70,10 +70,10 @@ static void webrtc_session_registry_init(void)
         /* 容量取配置上限（不超过硬上限）：所有遍历都用 g_webrtc_session_cap 而不是
          * 编译期宏，避免"配置值 > 表容量"时越界。 */
         size_t cap = g_webrtc_session_limit;
-        if (cap == 0 || cap > ZMS_WEBRTC_SESSION_MAX_HARD) {
-            cap = ZMS_WEBRTC_SESSION_MAX_HARD;
+        if (cap == 0 || cap > ZCS_WEBRTC_SESSION_MAX_HARD) {
+            cap = ZCS_WEBRTC_SESSION_MAX_HARD;
         }
-        g_webrtc_sessions = (zms_webrtc_session **)calloc(cap, sizeof(*g_webrtc_sessions));
+        g_webrtc_sessions = (zcs_webrtc_session **)calloc(cap, sizeof(*g_webrtc_sessions));
         if (g_webrtc_sessions) {
             g_webrtc_session_cap = cap;
         }
@@ -85,7 +85,7 @@ static int webrtc_session_registry_full(void)
     return !g_webrtc_sessions || g_webrtc_session_count >= (int)g_webrtc_session_limit;
 }
 
-static int webrtc_session_reg_add(zms_webrtc_session *s)
+static int webrtc_session_reg_add(zcs_webrtc_session *s)
 {
     int i;
 
@@ -110,7 +110,7 @@ static int webrtc_session_reg_add(zms_webrtc_session *s)
     return 0;
 }
 
-static void webrtc_session_reg_remove(zms_webrtc_session *s)
+static void webrtc_session_reg_remove(zcs_webrtc_session *s)
 {
     int i;
 
@@ -128,10 +128,10 @@ static void webrtc_session_reg_remove(zms_webrtc_session *s)
     zb_mutex_unlock(g_webrtc_session_mtx);
 }
 
-zms_webrtc_session *zms_webrtc_session_find(const char *id)
+zcs_webrtc_session *zcs_webrtc_session_find(const char *id)
 {
     int i;
-    zms_webrtc_session *s = NULL;
+    zcs_webrtc_session *s = NULL;
 
     if (!id || !id[0] || !g_webrtc_session_mtx) {
         return NULL;
@@ -147,27 +147,27 @@ zms_webrtc_session *zms_webrtc_session_find(const char *id)
     return s;
 }
 
-int zms_webrtc_session_io_buf_ensure(zms_webrtc_session *s)
+int zcs_webrtc_session_io_buf_ensure(zcs_webrtc_session *s)
 {
     if (!s || !s->poller) {
         return -1;
     }
-    if (s->io_buf && s->io_cap >= ZMS_WEBRTC_PLAY_CRYPT_BYTES) {
+    if (s->io_buf && s->io_cap >= ZCS_WEBRTC_PLAY_CRYPT_BYTES) {
         return 0;
     }
-    if (!zms_buf_pool_slot_resize_poller(&s->io_buf, &s->io_cap, ZMS_WEBRTC_PLAY_CRYPT_BYTES,
+    if (!zcs_buf_pool_slot_resize_poller(&s->io_buf, &s->io_cap, ZCS_WEBRTC_PLAY_CRYPT_BYTES,
                                          s->poller)) {
         return -1;
     }
     return 0;
 }
 
-void zms_webrtc_session_io_buf_release(zms_webrtc_session *s)
+void zcs_webrtc_session_io_buf_release(zcs_webrtc_session *s)
 {
     if (!s) {
         return;
     }
-    zms_buf_pool_slot_clear_poller(&s->io_buf, &s->io_cap, s->poller);
+    zcs_buf_pool_slot_clear_poller(&s->io_buf, &s->io_cap, s->poller);
 }
 
 /* 收到非 STUN 数据：按会话模式分派（WHIP 入站 / DTLS 握手 / 媒体）。 */
@@ -176,19 +176,19 @@ void zms_webrtc_session_io_buf_release(zms_webrtc_session *s)
  * 生命周期的关键闸门——dtls_ready 前后数据语义完全不同。 */
 static void webrtc_ice_on_data(void *owner, const void *data, size_t len)
 {
-    zms_webrtc_session *s = (zms_webrtc_session *)owner;
+    zcs_webrtc_session *s = (zcs_webrtc_session *)owner;
 
     if (!s) {
         return;
     }
-    if (s->mode == ZMS_WEBRTC_SESSION_PUBLISH) {
-        zms_webrtc_whip_ingress_on_udp(s, data, len);
+    if (s->mode == ZCS_WEBRTC_SESSION_PUBLISH) {
+        zcs_webrtc_whip_ingress_on_udp(s, data, len);
         return;
     }
     if (!s->dtls_ready) {
-        (void)zms_webrtc_play_on_stun_dtls(s, data, len);
+        (void)zcs_webrtc_play_on_stun_dtls(s, data, len);
     } else {
-        zms_webrtc_play_input(s, data, len);
+        zcs_webrtc_play_input(s, data, len);
     }
 }
 
@@ -197,24 +197,24 @@ static void webrtc_ice_on_data(void *owner, const void *data, size_t len)
  * 被动 Play 端等对端的 ClientHello 经 on_data 触发，避免双方同时当 client。 */
 static void webrtc_ice_on_connected(void *owner)
 {
-    zms_webrtc_session *s = (zms_webrtc_session *)owner;
+    zcs_webrtc_session *s = (zcs_webrtc_session *)owner;
 
     if (!s) {
         return;
     }
-    if (s->mode == ZMS_WEBRTC_SESSION_PUBLISH || s->ice_host.client_mode) {
-        zms_webrtc_session_try_dtls_client(s);
+    if (s->mode == ZCS_WEBRTC_SESSION_PUBLISH || s->ice_host.client_mode) {
+        zcs_webrtc_session_try_dtls_client(s);
     }
 }
 
 /* ICE 模块与会话层的唯一绑定：填充 host 的发送口/标识/回调。 */
-static void webrtc_ice_host_init(zms_webrtc_session *s)
+static void webrtc_ice_host_init(zcs_webrtc_session *s)
 {
     s->ice_host.owner = s;
     s->ice_host.poller = s->poller;
     s->ice_host.udp = s->udp;
     s->ice_host.id = s->id;
-    s->ice_host.publish = (s->mode == ZMS_WEBRTC_SESSION_PUBLISH);
+    s->ice_host.publish = (s->mode == ZCS_WEBRTC_SESSION_PUBLISH);
     s->ice_host.on_data = webrtc_ice_on_data;
     s->ice_host.on_connected = webrtc_ice_on_connected;
 }
@@ -222,16 +222,16 @@ static void webrtc_ice_host_init(zms_webrtc_session *s)
 static void webrtc_on_udp_packet(zn_udp_server *srv, const char *peer_ip, uint16_t peer_port,
                                  const void *data, size_t len, void *user)
 {
-    zms_webrtc_session *s = (zms_webrtc_session *)user;
+    zcs_webrtc_session *s = (zcs_webrtc_session *)user;
     (void)srv;
     if (s) {
-        zms_webrtc_session_on_udp(s, peer_ip, peer_port, data, len);
+        zcs_webrtc_session_on_udp(s, peer_ip, peer_port, data, len);
     }
 }
 
-static zn_err_t webrtc_session_bind_udp(zms_webrtc_session *s)
+static zn_err_t webrtc_session_bind_udp(zcs_webrtc_session *s)
 {
-    zms_webrtc_server *svc = zms_webrtc_server_instance();
+    zcs_webrtc_server *svc = zcs_webrtc_server_instance();
     zn_udp_server_opts_t uopts;
     uint16_t port_min = 0;
     uint16_t port_max = 0;
@@ -241,7 +241,7 @@ static zn_err_t webrtc_session_bind_udp(zms_webrtc_session *s)
         return ZN_ERR_INVALID;
     }
     memset(&uopts, 0, sizeof(uopts));
-    uopts.host = zms_webrtc_server_bind_host(svc);
+    uopts.host = zcs_webrtc_server_bind_host(svc);
     uopts.reuse = 1;
     uopts.poller = s->poller;
     uopts.ops = &ops;
@@ -249,7 +249,7 @@ static zn_err_t webrtc_session_bind_udp(zms_webrtc_session *s)
 
     /* 优先在配置的端口范围内绑定：NAT/防火墙只放通固定区间时必需。
      * 范围内无可用端口则回退系统临时端口，避免会话直接失败。 */
-    have_range = zms_webrtc_server_port_range(svc, &port_min, &port_max);
+    have_range = zcs_webrtc_server_port_range(svc, &port_min, &port_max);
     if (have_range) {
         unsigned span = (unsigned)(port_max - port_min) + 1u;
         unsigned start = span > 1u ? (unsigned)(rand() % span) : 0u;
@@ -287,7 +287,7 @@ static zn_err_t webrtc_session_bind_udp(zms_webrtc_session *s)
     }
     s->port = zn_udp_server_port(s->udp);
     webrtc_ice_host_init(s);
-    s->ice_host.ctx = zms_webrtc_ice_create(&s->ice_host);
+    s->ice_host.ctx = zcs_webrtc_ice_create(&s->ice_host);
     if (!s->ice_host.ctx) {
         zn_udp_server_stop(s->udp);
         zn_udp_server_destroy(s->udp);
@@ -297,13 +297,13 @@ static zn_err_t webrtc_session_bind_udp(zms_webrtc_session *s)
     return ZN_OK;
 }
 
-static void webrtc_session_unbind_udp(zms_webrtc_session *s)
+static void webrtc_session_unbind_udp(zcs_webrtc_session *s)
 {
     if (!s) {
         return;
     }
     if (s->ice_host.ctx) {
-        zms_webrtc_ice_destroy(s->ice_host.ctx);
+        zcs_webrtc_ice_destroy(s->ice_host.ctx);
         s->ice_host.ctx = NULL;
     }
     if (s->udp) {
@@ -317,15 +317,15 @@ static void webrtc_session_unbind_udp(zms_webrtc_session *s)
 /* 报满时先尝试回收空闲会话，再判满——这样“到达上限”时不是立刻拒新会话，而是
  * 先给一次清理机会。锁分两段：先判满/解锁，再在锁内加表（add 自己会加锁）由调用方
  * 在 bind_udp 成功后完成。 */
-zms_webrtc_session *zms_webrtc_session_create(zms_media_source *src, const char *app,
+zcs_webrtc_session *zcs_webrtc_session_create(zcs_media_source *src, const char *app,
                                               const char *stream, zn_poller *poller)
 {
-    zms_webrtc_session *s;
+    zcs_webrtc_session *s;
     if (!src || !app || !stream || !poller) {
         return NULL;
     }
     webrtc_session_registry_init();
-    zms_webrtc_session_reap_idle(zn_monotonic_ms());
+    zcs_webrtc_session_reap_idle(zn_monotonic_ms());
     zb_mutex_lock(g_webrtc_session_mtx);
     if (webrtc_session_registry_full()) {
         zn_warn("[webrtc] WHEP create rejected: session limit %u",
@@ -334,7 +334,7 @@ zms_webrtc_session *zms_webrtc_session_create(zms_media_source *src, const char 
         return NULL;
     }
     zb_mutex_unlock(g_webrtc_session_mtx);
-    s = (zms_webrtc_session *)calloc(1, sizeof(*s));
+    s = (zcs_webrtc_session *)calloc(1, sizeof(*s));
     if (!s) {
         return NULL;
     }
@@ -344,7 +344,7 @@ zms_webrtc_session *zms_webrtc_session_create(zms_media_source *src, const char 
     strncpy(s->stream, stream, sizeof(s->stream) - 1);
     ++g_webrtc_session_no;
     s->session_no = g_webrtc_session_no;
-    s->mode = ZMS_WEBRTC_SESSION_PLAY;
+    s->mode = ZCS_WEBRTC_SESSION_PLAY;
     s->created_ms = s->last_rx_ms = s->last_tx_ms = zn_monotonic_ms();
     snprintf(s->id, sizeof(s->id), "whep%u", s->session_no);
     if (webrtc_session_bind_udp(s) != ZN_OK) {
@@ -364,16 +364,16 @@ zms_webrtc_session *zms_webrtc_session_create(zms_media_source *src, const char 
 /* 创建 WHIP 发布会话：先建 ingest（它负责解复用/发布到流注册表），source 取自
  * ingest。顺序很重要——bind_udp 成功后再入表，任何一步失败都回滚，避免半初始化
  * 会话残留在表中。 */
-zms_webrtc_session *zms_webrtc_session_create_publish(const char *vhost, const char *app,
+zcs_webrtc_session *zcs_webrtc_session_create_publish(const char *vhost, const char *app,
                                                        const char *stream,
                                                       zn_poller *poller)
 {
-    zms_webrtc_session *s;
+    zcs_webrtc_session *s;
     if (!app || !stream || !poller) {
         return NULL;
     }
     webrtc_session_registry_init();
-    zms_webrtc_session_reap_idle(zn_monotonic_ms());
+    zcs_webrtc_session_reap_idle(zn_monotonic_ms());
     zb_mutex_lock(g_webrtc_session_mtx);
     if (webrtc_session_registry_full()) {
         zn_warn("[webrtc] WHIP create rejected: session limit %u",
@@ -382,33 +382,33 @@ zms_webrtc_session *zms_webrtc_session_create_publish(const char *vhost, const c
         return NULL;
     }
     zb_mutex_unlock(g_webrtc_session_mtx);
-    s = (zms_webrtc_session *)calloc(1, sizeof(*s));
+    s = (zcs_webrtc_session *)calloc(1, sizeof(*s));
     if (!s) {
         return NULL;
     }
     s->poller = poller;
-    s->mode = ZMS_WEBRTC_SESSION_PUBLISH;
+    s->mode = ZCS_WEBRTC_SESSION_PUBLISH;
     s->created_ms = s->last_rx_ms = s->last_tx_ms = zn_monotonic_ms();
     strncpy(s->app, app, sizeof(s->app) - 1);
     strncpy(s->stream, stream, sizeof(s->stream) - 1);
-    s->ingest = zms_live_ingest_create_vhost(vhost, app, stream, NULL);
+    s->ingest = zcs_live_ingest_create_vhost(vhost, app, stream, NULL);
     if (!s->ingest) {
         free(s);
         return NULL;
     }
-    zms_live_ingest_set_poller(s->ingest, poller);
-    s->source = zms_live_ingest_source(s->ingest);
+    zcs_live_ingest_set_poller(s->ingest, poller);
+    s->source = zcs_live_ingest_source(s->ingest);
     ++g_webrtc_session_no;
     s->session_no = g_webrtc_session_no;
     snprintf(s->id, sizeof(s->id), "whip%u", s->session_no);
     if (webrtc_session_bind_udp(s) != ZN_OK) {
-        zms_live_ingest_destroy(s->ingest);
+        zcs_live_ingest_destroy(s->ingest);
         free(s);
         return NULL;
     }
     if (webrtc_session_reg_add(s) != 0) {
         webrtc_session_unbind_udp(s);
-        zms_live_ingest_destroy(s->ingest);
+        zcs_live_ingest_destroy(s->ingest);
         free(s);
         return NULL;
     }
@@ -417,7 +417,7 @@ zms_webrtc_session *zms_webrtc_session_create_publish(const char *vhost, const c
     return s;
 }
 
-int zms_webrtc_session_enable_client(zms_webrtc_session *s)
+int zcs_webrtc_session_enable_client(zcs_webrtc_session *s)
 {
     if (!s || !s->poller) {
         return -1;
@@ -425,10 +425,10 @@ int zms_webrtc_session_enable_client(zms_webrtc_session *s)
     s->ice_host.client_mode = 1;
     s->dtls_as_client = 1;
     if (s->ice_host.ctx) {
-        zms_webrtc_ice_destroy(s->ice_host.ctx);
+        zcs_webrtc_ice_destroy(s->ice_host.ctx);
         s->ice_host.ctx = NULL;
     }
-    s->ice_host.ctx = zms_webrtc_ice_create(&s->ice_host);
+    s->ice_host.ctx = zcs_webrtc_ice_create(&s->ice_host);
     if (!s->ice_host.ctx) {
         zn_warn("[webrtc] client ICE create failed id=%s", s->id);
         return -1;
@@ -437,13 +437,13 @@ int zms_webrtc_session_enable_client(zms_webrtc_session *s)
     return 0;
 }
 
-int zms_webrtc_session_restart_ice(zms_webrtc_session *s)
+int zcs_webrtc_session_restart_ice(zcs_webrtc_session *s)
 {
     if (!s || !s->poller) {
         return -1;
     }
     if (s->ice_host.ctx) {
-        zms_webrtc_ice_destroy(s->ice_host.ctx);
+        zcs_webrtc_ice_destroy(s->ice_host.ctx);
         s->ice_host.ctx = NULL;
     }
     s->ice_host.gather_expected = 0;
@@ -453,7 +453,7 @@ int zms_webrtc_session_restart_ice(zms_webrtc_session *s)
     s->ice_host.peer_port = 0;
     s->rt.rtcp_video_sr_sent = 0;
     s->rt.rtcp_audio_sr_sent = 0;
-    s->ice_host.ctx = zms_webrtc_ice_create(&s->ice_host);
+    s->ice_host.ctx = zcs_webrtc_ice_create(&s->ice_host);
     if (!s->ice_host.ctx) {
         return -1;
     }
@@ -463,52 +463,52 @@ int zms_webrtc_session_restart_ice(zms_webrtc_session *s)
 
 /* 播放会话的拆除：解绑 play、摘除读者、上报 stop 事件。发布会话直接返回
  * （其收尾在 destroy 里走 whip_ingress_stop）。幂等：reader_attached 保证只摘一次。 */
-void zms_webrtc_session_teardown(zms_webrtc_session *s)
+void zcs_webrtc_session_teardown(zcs_webrtc_session *s)
 {
-    zms_media_source *src;
+    zcs_media_source *src;
 
     if (!s) {
         return;
     }
-    if (s->mode == ZMS_WEBRTC_SESSION_PUBLISH) {
+    if (s->mode == ZCS_WEBRTC_SESSION_PUBLISH) {
         return;
     }
-    zms_session_detach_play(ZMS_SESSION_WEBRTC, &s->play);
+    zcs_session_detach_play(ZCS_SESSION_WEBRTC, &s->play);
     src = s->source;
     if (s->play_reader_attached && src) {
-        zms_media_source_reader_remove(src);
-        zms_media_event_stop(src, "webrtc", s->play_start_ms);
+        zcs_media_source_reader_remove(src);
+        zcs_media_event_stop(src, "webrtc", s->play_start_ms);
         s->play_reader_attached = 0;
         s->play_start_ms = 0;
     }
 }
 
-void zms_webrtc_session_destroy(zms_webrtc_session *s)
+void zcs_webrtc_session_destroy(zcs_webrtc_session *s)
 {
     if (!s) {
         return;
     }
     webrtc_session_reg_remove(s);
-    if (s->mode == ZMS_WEBRTC_SESSION_PUBLISH) {
-        zms_webrtc_whip_ingress_stop(s);
+    if (s->mode == ZCS_WEBRTC_SESSION_PUBLISH) {
+        zcs_webrtc_whip_ingress_stop(s);
     } else {
-        zms_webrtc_session_teardown(s);
-        zms_webrtc_play_stop(s);
+        zcs_webrtc_session_teardown(s);
+        zcs_webrtc_play_stop(s);
         if (s->play.readers.gop && s->source) {
-            zms_egress_source_close(&s->play);
+            zcs_egress_source_close(&s->play);
         }
     }
     webrtc_session_unbind_udp(s);
-    zms_webrtc_session_io_buf_release(s);
+    zcs_webrtc_session_io_buf_release(s);
     free(s);
 }
 
 /* 销毁全部会话。必须先把指针拷到本地数组并清空全局表（持锁内），再在锁外逐个
  * destroy——destroy 会回调事件/ingest/udp，若持锁调用既可能死锁，也会在遍历中途
  * 让表被改动。拷贝+清空的写法保证遍历稳定且锁窗口最小。 */
-void zms_webrtc_session_destroy_all(void)
+void zcs_webrtc_session_destroy_all(void)
 {
-    zms_webrtc_session **pending;
+    zcs_webrtc_session **pending;
     int n = 0;
     int i;
 
@@ -517,7 +517,7 @@ void zms_webrtc_session_destroy_all(void)
         return;
     }
     /* 待删列表按表的实际容量分配：会话数可配置（最大上千），别放栈上。 */
-    pending = (zms_webrtc_session **)calloc(g_webrtc_session_cap, sizeof(*pending));
+    pending = (zcs_webrtc_session **)calloc(g_webrtc_session_cap, sizeof(*pending));
     if (!pending) {
         return;
     }
@@ -529,12 +529,12 @@ void zms_webrtc_session_destroy_all(void)
     memset(g_webrtc_sessions, 0, g_webrtc_session_cap * sizeof(*g_webrtc_sessions));
     zb_mutex_unlock(g_webrtc_session_mtx);
     for (i = 0; i < n; ++i) {
-        zms_webrtc_session_destroy(pending[i]);
+        zcs_webrtc_session_destroy(pending[i]);
     }
     free(pending);
 }
 
-int zms_webrtc_session_add_remote_candidates(zms_webrtc_session *s, const char *sdp, size_t len)
+int zcs_webrtc_session_add_remote_candidates(zcs_webrtc_session *s, const char *sdp, size_t len)
 {
     if (!s || !sdp || len == 0) {
         return -1;
@@ -542,10 +542,10 @@ int zms_webrtc_session_add_remote_candidates(zms_webrtc_session *s, const char *
     if (!s->ice_host.ctx) {
         return -1;
     }
-    return zms_webrtc_ice_add_remote_sdp(s->ice_host.ctx, sdp, len);
+    return zcs_webrtc_ice_add_remote_sdp(s->ice_host.ctx, sdp, len);
 }
 
-size_t zms_webrtc_session_stats_all(zms_webrtc_session_stats *out, size_t cap)
+size_t zcs_webrtc_session_stats_all(zcs_webrtc_session_stats *out, size_t cap)
 {
     size_t n = 0;
     int i;
@@ -559,7 +559,7 @@ size_t zms_webrtc_session_stats_all(zms_webrtc_session_stats *out, size_t cap)
     }
     zb_mutex_lock(g_webrtc_session_mtx);
     for (i = 0; i < g_webrtc_session_count && n < cap; ++i) {
-        zms_webrtc_session *s = g_webrtc_sessions[i];
+        zcs_webrtc_session *s = g_webrtc_sessions[i];
 
         if (!s) {
             continue;
@@ -623,9 +623,9 @@ size_t zms_webrtc_session_stats_all(zms_webrtc_session_stats *out, size_t cap)
  * client_mode 会话跳过：它们的生命周期归 client 模块管理，不在此回收。
  * 同样先持锁筛出待删列表，再解锁逐个 destroy。
  */
-void zms_webrtc_session_reap_idle(uint64_t now_ms)
+void zcs_webrtc_session_reap_idle(uint64_t now_ms)
 {
-    zms_webrtc_session **pending;
+    zcs_webrtc_session **pending;
     size_t cap;
     int n = 0;
     int i;
@@ -639,13 +639,13 @@ void zms_webrtc_session_reap_idle(uint64_t now_ms)
         return;
     }
     /* 锁外分配待删列表：表容量可配置（最大上千），不能放栈上；也不在锁内 calloc。 */
-    pending = (zms_webrtc_session **)calloc(cap, sizeof(*pending));
+    pending = (zcs_webrtc_session **)calloc(cap, sizeof(*pending));
     if (!pending) {
         return;
     }
     zb_mutex_lock(g_webrtc_session_mtx);
     for (i = 0; i < g_webrtc_session_count && (size_t)n < cap; ++i) {
-        zms_webrtc_session *s = g_webrtc_sessions[i];
+        zcs_webrtc_session *s = g_webrtc_sessions[i];
         uint64_t last;
 
         if (!s) {
@@ -658,8 +658,8 @@ void zms_webrtc_session_reap_idle(uint64_t now_ms)
         last = s->last_rx_ms ? s->last_rx_ms : s->created_ms;
         if ((!s->dtls_ready && !s->media_started &&
              now_ms > s->created_ms &&
-             now_ms - s->created_ms > ZMS_WEBRTC_SESSION_CONNECT_TIMEOUT_MS) ||
-            (now_ms > last && now_ms - last > ZMS_WEBRTC_SESSION_IDLE_TIMEOUT_MS)) {
+             now_ms - s->created_ms > ZCS_WEBRTC_SESSION_CONNECT_TIMEOUT_MS) ||
+            (now_ms > last && now_ms - last > ZCS_WEBRTC_SESSION_IDLE_TIMEOUT_MS)) {
             pending[n++] = s;
         }
     }
@@ -667,12 +667,12 @@ void zms_webrtc_session_reap_idle(uint64_t now_ms)
     for (i = 0; i < n; ++i) {
         zn_warn("[webrtc] reap idle session id=%s app=%s stream=%s", pending[i]->id,
                  pending[i]->app, pending[i]->stream);
-        zms_webrtc_session_destroy(pending[i]);
+        zcs_webrtc_session_destroy(pending[i]);
     }
     free(pending);
 }
 
-void zms_webrtc_session_on_udp(zms_webrtc_session *s, const char *peer_ip, uint16_t peer_port,
+void zcs_webrtc_session_on_udp(zcs_webrtc_session *s, const char *peer_ip, uint16_t peer_port,
                                const void *data, size_t len)
 {
     if (!s || !data || len == 0) {
@@ -680,7 +680,7 @@ void zms_webrtc_session_on_udp(zms_webrtc_session *s, const char *peer_ip, uint1
     }
     s->last_rx_ms = zn_monotonic_ms();
     if (s->ice_host.ctx) {
-        zms_webrtc_ice_on_udp(s->ice_host.ctx, peer_ip, peer_port, data, len);
+        zcs_webrtc_ice_on_udp(s->ice_host.ctx, peer_ip, peer_port, data, len);
         return;
     }
     if (peer_ip && peer_ip[0]) {
@@ -688,36 +688,36 @@ void zms_webrtc_session_on_udp(zms_webrtc_session *s, const char *peer_ip, uint1
         s->ice_host.peer_port = peer_port;
         s->ice_host.peer_known = 1;
     }
-    if (s->mode == ZMS_WEBRTC_SESSION_PUBLISH) {
-        zms_webrtc_whip_ingress_on_udp(s, data, len);
+    if (s->mode == ZCS_WEBRTC_SESSION_PUBLISH) {
+        zcs_webrtc_whip_ingress_on_udp(s, data, len);
         return;
     }
     if (!s->dtls_ready) {
-        (void)zms_webrtc_play_on_stun_dtls(s, data, len);
+        (void)zcs_webrtc_play_on_stun_dtls(s, data, len);
         return;
     }
-    zms_webrtc_play_input(s, data, len);
+    zcs_webrtc_play_input(s, data, len);
 }
 
 /* 主动 DTLS client 角色：仅在需要主动连（PUBLISH/client_mode）、尚未就绪且 peer 已
  * 知时发起。kick 产生首包 ClientHello 直接发出了；kick 返回 1 表示握手已完成，
  * 置 dtls_ready，此后数据走媒体路径。 */
-void zms_webrtc_session_try_dtls_client(zms_webrtc_session *s)
+void zcs_webrtc_session_try_dtls_client(zcs_webrtc_session *s)
 {
-#if defined(ZMS_HAVE_WEBRTC_DTLS) && ZMS_HAVE_WEBRTC_DTLS
-    uint8_t out[ZMS_WEBRTC_PLAY_DTLS_IO];
+#if defined(ZCS_HAVE_WEBRTC_DTLS) && ZCS_HAVE_WEBRTC_DTLS
+    uint8_t out[ZCS_WEBRTC_PLAY_DTLS_IO];
     size_t out_len;
     int st;
     if (!s || !s->dtls_as_client || s->dtls_ready || !s->ice_host.peer_known) {
         return;
     }
     if (!s->dtls) {
-        s->dtls = zms_webrtc_dtls_create_client();
+        s->dtls = zcs_webrtc_dtls_create_client();
     }
     if (!s->dtls) {
         return;
     }
-    st = zms_webrtc_dtls_kick(s->dtls, out, sizeof(out), &out_len);
+    st = zcs_webrtc_dtls_kick(s->dtls, out, sizeof(out), &out_len);
     if (st < 0) {
         zn_warn("[webrtc] DTLS client kick failed id=%s", s->id);
         return;
@@ -725,7 +725,7 @@ void zms_webrtc_session_try_dtls_client(zms_webrtc_session *s)
     if (out_len > 0) {
         zn_info("[webrtc] DTLS ClientHello id=%s peer=%s:%u bytes=%zu", s->id,
                  s->ice_host.peer_ip, (unsigned)s->ice_host.peer_port, out_len);
-        zms_webrtc_session_send_udp(s, out, out_len);
+        zcs_webrtc_session_send_udp(s, out, out_len);
     }
     if (st == 1 && !s->dtls_ready) {
         s->dtls_ready = 1;
@@ -742,17 +742,17 @@ void zms_webrtc_session_try_dtls_client(zms_webrtc_session *s)
  *   3) 兜底：交给 ice agent 发送（可能仍在候选选择阶段）。
  * sendto 失败日志做节流（前 8 次），避免网络故障时刷屏。
  */
-int zms_webrtc_session_send_udp(zms_webrtc_session *s, const void *data, size_t len)
+int zcs_webrtc_session_send_udp(zcs_webrtc_session *s, const void *data, size_t len)
 {
     zn_err_t err;
 
     if (!s || !data || len == 0) {
         return -1;
     }
-#if defined(ZMS_WEBRTC_USE_ZICE) && ZMS_WEBRTC_USE_ZICE
+#if defined(ZCS_WEBRTC_USE_ZICE) && ZCS_WEBRTC_USE_ZICE
     /* relay 候选：媒体必须走 TURN，不能直接发 peer。 */
-    if (s->ice_host.ctx && zms_webrtc_ice_uses_relay(s->ice_host.ctx)) {
-        return zms_webrtc_ice_send(s->ice_host.ctx, data, len) == 0 ? 0 : -1;
+    if (s->ice_host.ctx && zcs_webrtc_ice_uses_relay(s->ice_host.ctx)) {
+        return zcs_webrtc_ice_send(s->ice_host.ctx, data, len) == 0 ? 0 : -1;
     }
 #endif
     /* 媒体突发：peer 已知后始终直接 sendto（跳过 zice send 路径）。 */
@@ -773,9 +773,9 @@ int zms_webrtc_session_send_udp(zms_webrtc_session *s, const void *data, size_t 
         }
         return -1;
     }
-#if defined(ZMS_WEBRTC_USE_ZICE) && ZMS_WEBRTC_USE_ZICE
+#if defined(ZCS_WEBRTC_USE_ZICE) && ZCS_WEBRTC_USE_ZICE
     if (s->ice_host.ctx) {
-        return zms_webrtc_ice_send(s->ice_host.ctx, data, len) == 0 ? 0 : -1;
+        return zcs_webrtc_ice_send(s->ice_host.ctx, data, len) == 0 ? 0 : -1;
     }
 #endif
     return -1;

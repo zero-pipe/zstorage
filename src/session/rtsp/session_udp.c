@@ -3,7 +3,7 @@
  * @brief RTSP UDP 传输：RTP/RTCP socket 绑定与收发。
  */
 #include "session/rtsp/session_internal.h"
-#include "zms/media/wire/rtp_packet.h"
+#include "zcs/media/wire/rtp_packet.h"
 #include "zn/net/socket.h"
 #include "zn/util/log.h"
 #include <stdio.h>
@@ -16,7 +16,7 @@ static int g_mcast_ttl = 16;
 
 /* 全局组播配置：地址/起始端口/TTL。TTL<=0 回退 16（跨多级交换机但也避免无限
  * 泛洪到公网）。这些是进程级单例，启动时配置一次即可。 */
-void zms_rtsp_multicast_configure(const char *addr, unsigned port_base, int ttl)
+void zcs_rtsp_multicast_configure(const char *addr, unsigned port_base, int ttl)
 {
     if (addr && addr[0]) {
         strncpy(g_mcast_addr, addr, sizeof(g_mcast_addr) - 1);
@@ -26,27 +26,27 @@ void zms_rtsp_multicast_configure(const char *addr, unsigned port_base, int ttl)
     g_mcast_ttl = ttl > 0 ? ttl : 16;
 }
 
-int zms_rtsp_multicast_enabled(void)
+int zcs_rtsp_multicast_enabled(void)
 {
     return g_mcast_base != 0 && g_mcast_addr[0] != 0;
 }
 
-const char *zms_rtsp_multicast_addr(void)
+const char *zcs_rtsp_multicast_addr(void)
 {
     return g_mcast_addr;
 }
 
-unsigned zms_rtsp_multicast_port_base(void)
+unsigned zcs_rtsp_multicast_port_base(void)
 {
     return g_mcast_base;
 }
 
-int zms_rtsp_multicast_ttl(void)
+int zcs_rtsp_multicast_ttl(void)
 {
     return g_mcast_ttl;
 }
 
-static void zms_rtsp_session_refresh_peer_ip(zms_rtsp_session *rs)
+static void zcs_rtsp_session_refresh_peer_ip(zcs_rtsp_session *rs)
 {
     if (!rs) {
         return;
@@ -83,7 +83,7 @@ static int parse_client_port(const char *transport, uint16_t *rtp_port, uint16_t
     return 0;
 }
 
-static int peer_ip_match(const zms_rtsp_session *rs, const char *from_ip)
+static int peer_ip_match(const zcs_rtsp_session *rs, const char *from_ip)
 {
     if (!rs || !from_ip || !from_ip[0]) {
         return 0;
@@ -98,7 +98,7 @@ static int peer_ip_match(const zms_rtsp_session *rs, const char *from_ip)
 /* 注意放宽策略：端口对了还要 IP 兜底——NAT 场景下实际发包源端口可能被改写、
  * 与 SETUP 声明的 client_port 不同，只认端口会漏包。故“端口匹配 OR IP 匹配”
  * 任一成立即接受，两者都不满足才丢。 */
-static int play_udp_packet_accept(const zms_rtsp_session *rs, const zms_rtsp_session_udp_track *ut,
+static int play_udp_packet_accept(const zcs_rtsp_session *rs, const zcs_rtsp_session_udp_track *ut,
                                   const char *from_ip, uint16_t from_port, int rtcp_sock)
 {
     if (!from_ip || !from_ip[0] || !from_port) {
@@ -117,7 +117,7 @@ static int play_udp_packet_accept(const zms_rtsp_session *rs, const zms_rtsp_ses
     return peer_ip_match(rs, from_ip);
 }
 
-static void zms_rtsp_session_note_udp_peer(zms_rtsp_session *rs, const char *from_ip, int track_idx)
+static void zcs_rtsp_session_note_udp_peer(zcs_rtsp_session *rs, const char *from_ip, int track_idx)
 {
     if (!rs || !from_ip || !from_ip[0]) {
         return;
@@ -142,7 +142,7 @@ static void zms_rtsp_session_note_udp_peer(zms_rtsp_session *rs, const char *fro
  * 实际源端口常被改写。只有收到首包才能确定“能回包的真实地址”，因此收到
  * 就更新 peer 元组。track_idx 用于日志区分是哪条轨触发的地址变更。
  */
-static void udp_learn_rtp_peer(zms_rtsp_session *rs, zms_rtsp_session_udp_track *ut,
+static void udp_learn_rtp_peer(zcs_rtsp_session *rs, zcs_rtsp_session_udp_track *ut,
                                const char *from_ip, uint16_t from_port)
 {
     if (!ut || !ut->rtp || !from_ip || !from_port) {
@@ -153,11 +153,11 @@ static void udp_learn_rtp_peer(zms_rtsp_session *rs, zms_rtsp_session_udp_track 
     }
     zn_udp_client_set_peer(ut->rtp, from_ip, from_port);
     if (rs) {
-        zms_rtsp_session_note_udp_peer(rs, from_ip, ut->rtp_cb.track_idx);
+        zcs_rtsp_session_note_udp_peer(rs, from_ip, ut->rtp_cb.track_idx);
     }
 }
 
-static void udp_learn_rtcp_peer(zms_rtsp_session *rs, zms_rtsp_session_udp_track *ut,
+static void udp_learn_rtcp_peer(zcs_rtsp_session *rs, zcs_rtsp_session_udp_track *ut,
                                 const char *from_ip, uint16_t from_port)
 {
     if (!ut || !ut->rtcp || !from_ip || !from_port) {
@@ -168,13 +168,13 @@ static void udp_learn_rtcp_peer(zms_rtsp_session *rs, zms_rtsp_session_udp_track
     }
     zn_udp_client_set_peer(ut->rtcp, from_ip, from_port);
     if (rs) {
-        zms_rtsp_session_note_udp_peer(rs, from_ip, ut->rtp_cb.track_idx);
+        zcs_rtsp_session_note_udp_peer(rs, from_ip, ut->rtp_cb.track_idx);
     }
 }
 
 /** RECORD：与 PLAY 相同，SETUP 已知 client_port 时接受 NAT 源 IP */
-static int record_udp_packet_accept(const zms_rtsp_session *rs,
-                                    const zms_rtsp_session_udp_track *ut, const char *from_ip,
+static int record_udp_packet_accept(const zcs_rtsp_session *rs,
+                                    const zcs_rtsp_session_udp_track *ut, const char *from_ip,
                                     uint16_t from_port, int rtcp_sock)
 {
     if (!from_ip || !from_ip[0] || !from_port) {
@@ -195,18 +195,18 @@ static int record_udp_packet_accept(const zms_rtsp_session *rs,
 
 /*
  * RECORD（推流）的 RTP 收包：先做源校验与 NAT 学习，再丢 RTCP，最后交给会话
- * 解析。注意 zms_rtp_is_rtcp 的判断在 learn 之后：RTCP 混在同一 socket 上到达
+ * 解析。注意 zcs_rtp_is_rtcp 的判断在 learn 之后：RTCP 混在同一 socket 上到达
  * 时也要借它刷新对端地址，故先学后丢。
  */
 static void record_udp_on_rtp_packet(zn_udp_client *client, const void *data, size_t len,
                                      const char *from_ip, uint16_t from_port, void *user)
 {
-    zms_rtsp_session_udp_track *ut = (zms_rtsp_session_udp_track *)user;
-    zms_rtsp_session *rs = ut ? ut->rtp_cb.rs : NULL;
+    zcs_rtsp_session_udp_track *ut = (zcs_rtsp_session_udp_track *)user;
+    zcs_rtsp_session *rs = ut ? ut->rtp_cb.rs : NULL;
     int track_idx = ut ? ut->rtp_cb.track_idx : -1;
     (void)client;
 
-    if (!rs || track_idx < 0 || rs->mode != ZMS_RTSP_SESSION_MODE_RECORD || !data || len < 12) {
+    if (!rs || track_idx < 0 || rs->mode != ZCS_RTSP_SESSION_MODE_RECORD || !data || len < 12) {
         return;
     }
     if (!record_udp_packet_accept(rs, ut, from_ip, from_port, 0)) {
@@ -214,20 +214,20 @@ static void record_udp_on_rtp_packet(zn_udp_client *client, const void *data, si
     }
 
     udp_learn_rtp_peer(rs, ut, from_ip, from_port);
-    zms_rtsp_session_note_udp_peer(rs, from_ip, track_idx);
+    zcs_rtsp_session_note_udp_peer(rs, from_ip, track_idx);
 
-    if (zms_rtp_is_rtcp(data, len)) {
+    if (zcs_rtp_is_rtcp(data, len)) {
         return;
     }
 
-    zms_rtsp_session_record_input_rtp_raw(rs, track_idx, (const uint8_t *)data, len);
+    zcs_rtsp_session_record_input_rtp_raw(rs, track_idx, (const uint8_t *)data, len);
 }
 
 static void record_udp_on_rtcp_packet(zn_udp_client *client, const void *data, size_t len,
                                       const char *from_ip, uint16_t from_port, void *user)
 {
-    zms_rtsp_session_udp_track *ut = (zms_rtsp_session_udp_track *)user;
-    zms_rtsp_session *rs = ut ? ut->rtp_cb.rs : NULL;
+    zcs_rtsp_session_udp_track *ut = (zcs_rtsp_session_udp_track *)user;
+    zcs_rtsp_session *rs = ut ? ut->rtp_cb.rs : NULL;
     (void)client;
     if (!rs || !ut || !data || len < 8) {
         return;
@@ -240,7 +240,7 @@ static void record_udp_on_rtcp_packet(zn_udp_client *client, const void *data, s
     (void)len;
 }
 
-static void play_udp_sync_rtp_peer(zms_rtsp_session_udp_track *ut, const char *from_ip)
+static void play_udp_sync_rtp_peer(zcs_rtsp_session_udp_track *ut, const char *from_ip)
 {
     if (!ut || !ut->rtp || !from_ip || !from_ip[0] || !ut->peer_rtp_port) {
         return;
@@ -249,16 +249,16 @@ static void play_udp_sync_rtp_peer(zms_rtsp_session_udp_track *ut, const char *f
 }
 
 /** 同一播放器各 track 共享 IP（NAT 学习一次即可修正全部发送目标）*/
-static void play_udp_sync_all_tracks(zms_rtsp_session *rs, const char *from_ip)
+static void play_udp_sync_all_tracks(zcs_rtsp_session *rs, const char *from_ip)
 {
     int i;
 
     if (!rs || !from_ip || !from_ip[0]) {
         return;
     }
-    zms_rtsp_session_note_udp_peer(rs, from_ip, -1);
-    for (i = 0; i < ZMS_SDP_TRACK_MAX; ++i) {
-        zms_rtsp_session_udp_track *ut = &rs->udp_tracks[i];
+    zcs_rtsp_session_note_udp_peer(rs, from_ip, -1);
+    for (i = 0; i < ZCS_SDP_TRACK_MAX; ++i) {
+        zcs_rtsp_session_udp_track *ut = &rs->udp_tracks[i];
 
         if (ut->rtp && ut->peer_rtp_port) {
             zn_udp_client_set_peer(ut->rtp, from_ip, ut->peer_rtp_port);
@@ -275,8 +275,8 @@ static void play_udp_sync_all_tracks(zms_rtsp_session *rs, const char *from_ip)
 static void play_udp_on_rtcp_packet(zn_udp_client *client, const void *data, size_t len,
                                     const char *from_ip, uint16_t from_port, void *user)
 {
-    zms_rtsp_session_udp_track *ut = (zms_rtsp_session_udp_track *)user;
-    zms_rtsp_session *rs = ut ? ut->rtp_cb.rs : NULL;
+    zcs_rtsp_session_udp_track *ut = (zcs_rtsp_session_udp_track *)user;
+    zcs_rtsp_session *rs = ut ? ut->rtp_cb.rs : NULL;
     (void)client;
 
     if (!rs || !ut || !data || len < 8) {
@@ -288,16 +288,16 @@ static void play_udp_on_rtcp_packet(zn_udp_client *client, const void *data, siz
     udp_learn_rtcp_peer(rs, ut, from_ip, from_port);
     /* 客户端 RTCP 源用于校正 RTP 发送目标（NAT / WSL host / ffplay）。 */
     play_udp_sync_all_tracks(rs, from_ip);
-    if (rs->mode == ZMS_RTSP_SESSION_MODE_PLAY && zms_rtp_is_rtcp(data, len)) {
-        zms_rtsp_session_play_on_rtcp(rs, (const uint8_t *)data, len);
+    if (rs->mode == ZCS_RTSP_SESSION_MODE_PLAY && zcs_rtp_is_rtcp(data, len)) {
+        zcs_rtsp_session_play_on_rtcp(rs, (const uint8_t *)data, len);
     }
 }
 
 static void play_udp_on_rtp_packet(zn_udp_client *client, const void *data, size_t len,
                                    const char *from_ip, uint16_t from_port, void *user)
 {
-    zms_rtsp_session_udp_track *ut = (zms_rtsp_session_udp_track *)user;
-    zms_rtsp_session *rs = ut ? ut->rtp_cb.rs : NULL;
+    zcs_rtsp_session_udp_track *ut = (zcs_rtsp_session_udp_track *)user;
+    zcs_rtsp_session *rs = ut ? ut->rtp_cb.rs : NULL;
     (void)client;
     (void)data;
     (void)len;
@@ -312,12 +312,12 @@ static void play_udp_on_rtp_packet(zn_udp_client *client, const void *data, size
     play_udp_sync_rtp_peer(ut, from_ip);
 }
 
-static void udp_teardown_track(zms_rtsp_session *rs, int track_idx)
+static void udp_teardown_track(zcs_rtsp_session *rs, int track_idx)
 {
-    if (!rs || track_idx < 0 || (unsigned)track_idx >= ZMS_SDP_TRACK_MAX) {
+    if (!rs || track_idx < 0 || (unsigned)track_idx >= ZCS_SDP_TRACK_MAX) {
         return;
     }
-    zms_rtsp_session_udp_track *ut = &rs->udp_tracks[track_idx];
+    zcs_rtsp_session_udp_track *ut = &rs->udp_tracks[track_idx];
     if (ut->rtp) {
         zn_udp_client_destroy(ut->rtp);
         ut->rtp = NULL;
@@ -327,19 +327,19 @@ static void udp_teardown_track(zms_rtsp_session *rs, int track_idx)
         ut->rtcp = NULL;
     }
     if (ut->local_rtp_port) {
-        zms_rtsp_transport_release_ports(ut->local_rtp_port);
+        zcs_rtsp_transport_release_ports(ut->local_rtp_port);
         ut->local_rtp_port = 0;
         ut->local_rtcp_port = 0;
     }
     memset(ut, 0, sizeof(*ut));
 }
 
-void zms_rtsp_session_udp_teardown(zms_rtsp_session *rs)
+void zcs_rtsp_session_udp_teardown(zcs_rtsp_session *rs)
 {
     if (!rs) {
         return;
     }
-    for (int i = 0; i < ZMS_SDP_TRACK_MAX; ++i) {
+    for (int i = 0; i < ZCS_SDP_TRACK_MAX; ++i) {
         udp_teardown_track(rs, i);
     }
 }
@@ -353,20 +353,20 @@ void zms_rtsp_session_udp_teardown(zms_rtsp_session *rs)
  * 每帧都发生（几十 Hz），全量打日志会淹没输出，只在前几次提示。
  * 计数只对视频累加——音频丢包对观感影响小，不值得单独刷日志。
  */
-void zms_rtsp_session_send_media(zms_rtsp_session *rs, uint8_t channel, const uint8_t *payload,
+void zcs_rtsp_session_send_media(zcs_rtsp_session *rs, uint8_t channel, const uint8_t *payload,
                                  size_t len)
 {
     if (!rs || !payload || len == 0) {
         return;
     }
 
-    if (rs->rtp_mode == ZMS_RTSP_RTP_UDP) {
+    if (rs->rtp_mode == ZCS_RTSP_RTP_UDP) {
         int track = (int)(channel / 2);
         int is_rtcp = channel % 2;
-        if (track < 0 || track >= ZMS_SDP_TRACK_MAX) {
+        if (track < 0 || track >= ZCS_SDP_TRACK_MAX) {
             return;
         }
-        zms_rtsp_session_udp_track *ut = &rs->udp_tracks[track];
+        zcs_rtsp_session_udp_track *ut = &rs->udp_tracks[track];
         zn_udp_client *cli = is_rtcp ? ut->rtcp : ut->rtp;
         if (!cli) {
             if (!is_rtcp && track == 0 && rs->pl.udp_video_send_fail < 3) {
@@ -395,19 +395,19 @@ void zms_rtsp_session_send_media(zms_rtsp_session *rs, uint8_t channel, const ui
         }
         return;
     }
-    zms_rtsp_session_send_rtp_interleaved(rs, channel, payload, len);
+    zcs_rtsp_session_send_rtp_interleaved(rs, channel, payload, len);
 }
 
-static int setup_udp_track(zms_rtsp_session *rs, int track_idx, const char *transport_hdr,
+static int setup_udp_track(zcs_rtsp_session *rs, int track_idx, const char *transport_hdr,
                            char *extra, size_t extra_cap, const zn_udp_client_ops_t *rtp_ops,
                            const zn_udp_client_ops_t *rtcp_ops, const char *log_tag)
 {
     if (!rs || !transport_hdr || !extra || extra_cap < 128 || track_idx < 0 ||
-        (unsigned)track_idx >= ZMS_SDP_TRACK_MAX || !rtp_ops || !rtcp_ops) {
+        (unsigned)track_idx >= ZCS_SDP_TRACK_MAX || !rtp_ops || !rtcp_ops) {
         return -1;
     }
 
-    zms_rtsp_session_refresh_peer_ip(rs);
+    zcs_rtsp_session_refresh_peer_ip(rs);
     if (!rs->peer_ip[0]) {
         zn_warn("RTSP SETUP UDP: no peer ip");
         return -1;
@@ -419,13 +419,13 @@ static int setup_udp_track(zms_rtsp_session *rs, int track_idx, const char *tran
         return -1;
     }
 
-    zms_rtsp_session_udp_track *ut = &rs->udp_tracks[track_idx];
+    zcs_rtsp_session_udp_track *ut = &rs->udp_tracks[track_idx];
     if (ut->rtp) {
         return -1;
     }
 
     uint16_t local_rtp = 0, local_rtcp = 0;
-    if (zms_rtsp_transport_acquire_ports(&local_rtp, &local_rtcp) != ZN_OK) {
+    if (zcs_rtsp_transport_acquire_ports(&local_rtp, &local_rtcp) != ZN_OK) {
         zn_warn("RTSP SETUP UDP: port pool exhausted");
         return -1;
     }
@@ -442,7 +442,7 @@ static int setup_udp_track(zms_rtsp_session *rs, int track_idx, const char *tran
         if (rtcp_cli) {
             zn_udp_client_destroy(rtcp_cli);
         }
-        zms_rtsp_transport_release_ports(local_rtp);
+        zcs_rtsp_transport_release_ports(local_rtp);
         return -1;
     }
     ut->rtcp = rtcp_cli;
@@ -499,7 +499,7 @@ static int setup_udp_track(zms_rtsp_session *rs, int track_idx, const char *tran
     return 0;
 }
 
-int zms_rtsp_session_setup_udp_record(zms_rtsp_session *rs, int track_idx,
+int zcs_rtsp_session_setup_udp_record(zcs_rtsp_session *rs, int track_idx,
                                       const char *transport_hdr, char *extra, size_t extra_cap)
 {
     static const zn_udp_client_ops_t rtp_ops = {record_udp_on_rtp_packet};
@@ -508,7 +508,7 @@ int zms_rtsp_session_setup_udp_record(zms_rtsp_session *rs, int track_idx,
                            "RECORD");
 }
 
-int zms_rtsp_session_setup_udp_play(zms_rtsp_session *rs, int track_idx, const char *transport_hdr,
+int zcs_rtsp_session_setup_udp_play(zcs_rtsp_session *rs, int track_idx, const char *transport_hdr,
                                     char *extra, size_t extra_cap)
 {
     static const zn_udp_client_ops_t rtp_ops = {play_udp_on_rtp_packet};
@@ -517,16 +517,16 @@ int zms_rtsp_session_setup_udp_play(zms_rtsp_session *rs, int track_idx, const c
                            "PLAY");
 }
 
-int zms_rtsp_session_setup_multicast_play(zms_rtsp_session *rs, int track_idx, char *extra,
+int zcs_rtsp_session_setup_multicast_play(zcs_rtsp_session *rs, int track_idx, char *extra,
                                           size_t extra_cap)
 {
     static const zn_udp_client_ops_t rtp_ops = {play_udp_on_rtp_packet};
     static const zn_udp_client_ops_t rtcp_ops = {play_udp_on_rtcp_packet};
-    zms_rtsp_session_udp_track *ut;
+    zcs_rtsp_session_udp_track *ut;
     zn_udp_client_opts_t copts;
     zn_udp_client *rtcp_cli;
-    const char *group = zms_rtsp_multicast_addr();
-    unsigned base = zms_rtsp_multicast_port_base();
+    const char *group = zcs_rtsp_multicast_addr();
+    unsigned base = zcs_rtsp_multicast_port_base();
     unsigned offset;
     unsigned rtp_port;
     uint8_t ich;
@@ -534,7 +534,7 @@ int zms_rtsp_session_setup_multicast_play(zms_rtsp_session *rs, int track_idx, c
     int n;
 
     if (!rs || !extra || extra_cap < 128 || track_idx < 0 ||
-        (unsigned)track_idx >= ZMS_SDP_TRACK_MAX || !zms_rtsp_multicast_enabled()) {
+        (unsigned)track_idx >= ZCS_SDP_TRACK_MAX || !zcs_rtsp_multicast_enabled()) {
         return -1;
     }
     /* 组播端口按会话号散列到 base..base+2000 的窗口内，每轨占 2 个端口
@@ -574,8 +574,8 @@ int zms_rtsp_session_setup_multicast_play(zms_rtsp_session *rs, int track_idx, c
     ut->local_rtp_port = 0; /* 组播发送不占端口池 */
     ut->local_rtcp_port = 0;
 
-    (void)zn_udp_client_set_multicast(ut->rtp, zms_rtsp_multicast_ttl(), NULL);
-    (void)zn_udp_client_set_multicast(ut->rtcp, zms_rtsp_multicast_ttl(), NULL);
+    (void)zn_udp_client_set_multicast(ut->rtp, zcs_rtsp_multicast_ttl(), NULL);
+    (void)zn_udp_client_set_multicast(ut->rtcp, zcs_rtsp_multicast_ttl(), NULL);
     if (zn_udp_client_bind(ut->rtp, "0.0.0.0", 0, 0) != ZN_OK ||
         zn_udp_client_bind(ut->rtcp, "0.0.0.0", 0, 0) != ZN_OK) {
         udp_teardown_track(rs, track_idx);
@@ -583,7 +583,7 @@ int zms_rtsp_session_setup_multicast_play(zms_rtsp_session *rs, int track_idx, c
     }
     zn_udp_client_set_peer(ut->rtp, group, (uint16_t)rtp_port);
     zn_udp_client_set_peer(ut->rtcp, group, (uint16_t)(rtp_port + 1));
-    rs->rtp_mode = ZMS_RTSP_RTP_UDP;
+    rs->rtp_mode = ZCS_RTSP_RTP_UDP;
 
     ich = (uint8_t)(track_idx * 2);
     if (track_idx == 0) {
@@ -600,7 +600,7 @@ int zms_rtsp_session_setup_multicast_play(zms_rtsp_session *rs, int track_idx, c
     n = snprintf(extra, extra_cap,
                  "Transport: RTP/AVP;multicast;destination=%s;port=%u-%u;ttl=%d;ssrc=%08X\r\n"
                  "Session: %s;timeout=60\r\n",
-                 group, rtp_port, rtp_port + 1, zms_rtsp_multicast_ttl(), ssrc, rs->session_id);
+                 group, rtp_port, rtp_port + 1, zcs_rtsp_multicast_ttl(), ssrc, rs->session_id);
     if (n < 0 || (size_t)n >= extra_cap) {
         udp_teardown_track(rs, track_idx);
         return -1;

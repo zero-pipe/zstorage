@@ -2,10 +2,10 @@
  * @file device_core.c
  * @brief 设备/通道/能力注册表实现。
  */
-#include "zms/device/core/device_core.h"
+#include "zcs/device/core/device_core.h"
 
-#include "zms/core/stream/hub.h"
-#include "zms/core/stream/limits.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/core/stream/limits.h"
 #include "zb/os/sync.h"
 #include "zn/util/log.h"
 
@@ -14,7 +14,7 @@
 #include <string.h>
 
 typedef struct {
-    zms_device_channel_info items[ZMS_DEVICE_CORE_MAX_CHANNELS];
+    zcs_device_channel_info items[ZCS_DEVICE_CORE_MAX_CHANNELS];
     size_t count;
     zb_mutex *mtx;
     int inited;
@@ -31,12 +31,12 @@ static void ensure_init(void)
     g_core.inited = g_core.mtx ? 1 : 0;
 }
 
-void zms_device_core_init(void)
+void zcs_device_core_init(void)
 {
     ensure_init();
 }
 
-void zms_device_core_fini(void)
+void zcs_device_core_fini(void)
 {
     if (!g_core.inited) {
         return;
@@ -58,14 +58,14 @@ static void copy_str(char *dst, size_t cap, const char *src)
     snprintf(dst, cap, "%s", src ? src : "");
 }
 
-static int key_equal(const zms_device_channel_info *a, const char *vhost, const char *app,
+static int key_equal(const zcs_device_channel_info *a, const char *vhost, const char *app,
                      const char *stream)
 {
     return strcmp(a->vhost, vhost) == 0 && strcmp(a->app, app) == 0 &&
            strcmp(a->stream, stream) == 0;
 }
 
-static zms_device_channel_info *find_key_locked(const char *vhost, const char *app,
+static zcs_device_channel_info *find_key_locked(const char *vhost, const char *app,
                                                 const char *stream)
 {
     size_t i;
@@ -78,7 +78,7 @@ static zms_device_channel_info *find_key_locked(const char *vhost, const char *a
     return NULL;
 }
 
-static zms_device_channel_info *find_id_locked(const char *id)
+static zcs_device_channel_info *find_id_locked(const char *id)
 {
     size_t i;
 
@@ -94,21 +94,21 @@ static zms_device_channel_info *find_id_locked(const char *id)
     return NULL;
 }
 
-static void fill_key(zms_device_channel_info *ch, const char *vhost, const char *app,
+static void fill_key(zcs_device_channel_info *ch, const char *vhost, const char *app,
                      const char *stream)
 {
-    char vh[ZMS_DEVICE_VHOST_MAX];
+    char vh[ZCS_DEVICE_VHOST_MAX];
 
-    zms_vhost_normalize(vhost, vh, sizeof(vh));
+    zcs_vhost_normalize(vhost, vh, sizeof(vh));
     copy_str(ch->vhost, sizeof(ch->vhost), vh);
     copy_str(ch->app, sizeof(ch->app), app);
     copy_str(ch->stream, sizeof(ch->stream), stream);
 }
 
 /** 为发现通道生成唯一 id（app/stream，冲突时加 #n）。 */
-static void make_discovered_id_locked(zms_device_channel_info *ch)
+static void make_discovered_id_locked(zcs_device_channel_info *ch)
 {
-    char base[ZMS_DEVICE_ID_MAX];
+    char base[ZCS_DEVICE_ID_MAX];
     unsigned seq = 0;
 
     snprintf(base, sizeof(base), "%s/%s", ch->app, ch->stream);
@@ -122,10 +122,10 @@ static void make_discovered_id_locked(zms_device_channel_info *ch)
     }
 }
 
-int zms_device_core_register(const zms_device_channel_info *in)
+int zcs_device_core_register(const zcs_device_channel_info *in)
 {
-    zms_device_channel_info *ch;
-    zms_device_channel_info tmp;
+    zcs_device_channel_info *ch;
+    zcs_device_channel_info tmp;
 
     if (!in || !in->app[0] || !in->stream[0]) {
         return -1;
@@ -146,22 +146,22 @@ int zms_device_core_register(const zms_device_channel_info *in)
     if (!tmp.name[0]) {
         copy_str(tmp.name, sizeof(tmp.name), tmp.id);
     }
-    tmp.flags |= ZMS_DEV_CH_CONFIGURED;
+    tmp.flags |= ZCS_DEV_CH_CONFIGURED;
     if (!tmp.caps) {
-        tmp.caps = ZMS_DEV_CAP_LIVE;
+        tmp.caps = ZCS_DEV_CAP_LIVE;
     }
 
     zb_mutex_lock(g_core.mtx);
     ch = find_key_locked(tmp.vhost, tmp.app, tmp.stream);
     if (!ch) {
-        zms_device_channel_info *by_id = find_id_locked(tmp.id);
+        zcs_device_channel_info *by_id = find_id_locked(tmp.id);
         if (by_id && !key_equal(by_id, tmp.vhost, tmp.app, tmp.stream)) {
             zb_mutex_unlock(g_core.mtx);
             zn_warn("device_core: id %s already used by %s/%s/%s", tmp.id, by_id->vhost,
                      by_id->app, by_id->stream);
             return -1;
         }
-        if (g_core.count >= ZMS_DEVICE_CORE_MAX_CHANNELS) {
+        if (g_core.count >= ZCS_DEVICE_CORE_MAX_CHANNELS) {
             zb_mutex_unlock(g_core.mtx);
             return -1;
         }
@@ -181,7 +181,7 @@ int zms_device_core_register(const zms_device_channel_info *in)
     return 0;
 }
 
-int zms_device_core_unregister(const char *id)
+int zcs_device_core_unregister(const char *id)
 {
     size_t i;
 
@@ -194,9 +194,9 @@ int zms_device_core_unregister(const char *id)
     }
     zb_mutex_lock(g_core.mtx);
     for (i = 0; i < g_core.count; ++i) {
-        zms_device_channel_info *ch = &g_core.items[i];
+        zcs_device_channel_info *ch = &g_core.items[i];
         if ((strcmp(ch->id, id) == 0 || (ch->gb_id[0] && strcmp(ch->gb_id, id) == 0)) &&
-            (ch->flags & ZMS_DEV_CH_CONFIGURED)) {
+            (ch->flags & ZCS_DEV_CH_CONFIGURED)) {
             if (i + 1 < g_core.count) {
                 memmove(&g_core.items[i], &g_core.items[i + 1],
                         (g_core.count - i - 1) * sizeof(g_core.items[0]));
@@ -211,9 +211,9 @@ int zms_device_core_unregister(const char *id)
     return -1;
 }
 
-int zms_device_core_get(const char *id, zms_device_channel_info *out)
+int zcs_device_core_get(const char *id, zcs_device_channel_info *out)
 {
-    zms_device_channel_info *ch;
+    zcs_device_channel_info *ch;
 
     if (!id || !out) {
         return -1;
@@ -231,16 +231,16 @@ int zms_device_core_get(const char *id, zms_device_channel_info *out)
     return ch ? 0 : -1;
 }
 
-int zms_device_core_get_key(const char *vhost, const char *app, const char *stream,
-                            zms_device_channel_info *out)
+int zcs_device_core_get_key(const char *vhost, const char *app, const char *stream,
+                            zcs_device_channel_info *out)
 {
-    char vh[ZMS_DEVICE_VHOST_MAX];
-    zms_device_channel_info *ch;
+    char vh[ZCS_DEVICE_VHOST_MAX];
+    zcs_device_channel_info *ch;
 
     if (!app || !stream || !out) {
         return -1;
     }
-    zms_vhost_normalize(vhost, vh, sizeof(vh));
+    zcs_vhost_normalize(vhost, vh, sizeof(vh));
     ensure_init();
     if (!g_core.mtx) {
         return -1;
@@ -257,9 +257,9 @@ int zms_device_core_get_key(const char *vhost, const char *app, const char *stre
 /* ── 在线流同步 ─────────────────────────────────────────────────────────── */
 
 typedef struct {
-    char vhost[ZMS_DEVICE_VHOST_MAX];
-    char app[ZMS_DEVICE_APP_MAX];
-    char stream[ZMS_DEVICE_STREAM_MAX];
+    char vhost[ZCS_DEVICE_VHOST_MAX];
+    char app[ZCS_DEVICE_APP_MAX];
+    char stream[ZCS_DEVICE_STREAM_MAX];
     int publishing;
 } live_key;
 
@@ -269,7 +269,7 @@ typedef struct {
     size_t cap;
 } key_list;
 
-static int source_playable(const zms_media_source *s)
+static int source_playable(const zcs_media_source *s)
 {
     if (!s || !s->gop_queue || s->vod_buffer) {
         return 0;
@@ -277,7 +277,7 @@ static int source_playable(const zms_media_source *s)
     return s->publishing || ((s->has_video || s->has_audio) && s->video.ready);
 }
 
-static int collect_visit(zms_media_source *s, void *user)
+static int collect_visit(zcs_media_source *s, void *user)
 {
     key_list *list = (key_list *)user;
 
@@ -307,7 +307,7 @@ static int key_seen(const key_list *list, const char *vhost, const char *app, co
     return 0;
 }
 
-int zms_device_core_sync_live(void)
+int zcs_device_core_sync_live(void)
 {
     key_list list;
     size_t i;
@@ -317,24 +317,24 @@ int zms_device_core_sync_live(void)
     if (!g_core.mtx) {
         return -1;
     }
-    list.cap = ZMS_DEVICE_CORE_MAX_CHANNELS;
+    list.cap = ZCS_DEVICE_CORE_MAX_CHANNELS;
     list.count = 0;
     list.keys = (live_key *)calloc(list.cap, sizeof(live_key));
     if (!list.keys) {
         return -1;
     }
     /* 先在 hub 锁内收集，避免 core → hub 的嵌套加锁方向 */
-    zms_media_source_foreach(collect_visit, &list, NULL);
+    zcs_media_source_foreach(collect_visit, &list, NULL);
 
     zb_mutex_lock(g_core.mtx);
     /* 配置通道先置离线；发现通道若已不在线则删除 */
     for (i = 0; i < g_core.count;) {
-        zms_device_channel_info *ch = &g_core.items[i];
+        zcs_device_channel_info *ch = &g_core.items[i];
         int seen = key_seen(&list, ch->vhost, ch->app, ch->stream);
 
-        if (ch->flags & ZMS_DEV_CH_CONFIGURED) {
+        if (ch->flags & ZCS_DEV_CH_CONFIGURED) {
             ch->online = 0;
-        } else if ((ch->flags & ZMS_DEV_CH_DISCOVERED) && !seen) {
+        } else if ((ch->flags & ZCS_DEV_CH_DISCOVERED) && !seen) {
             if (i + 1 < g_core.count) {
                 memmove(&g_core.items[i], &g_core.items[i + 1],
                         (g_core.count - i - 1) * sizeof(g_core.items[0]));
@@ -348,14 +348,14 @@ int zms_device_core_sync_live(void)
     /* 在线流：刷新已注册通道，或生成发现通道 */
     for (i = 0; i < list.count; ++i) {
         live_key *k = &list.keys[i];
-        zms_device_channel_info *ch = find_key_locked(k->vhost, k->app, k->stream);
+        zcs_device_channel_info *ch = find_key_locked(k->vhost, k->app, k->stream);
 
         if (ch) {
             ch->online = k->publishing;
-            ch->flags |= ZMS_DEV_CH_ONVIF;
+            ch->flags |= ZCS_DEV_CH_ONVIF;
             continue;
         }
-        if (g_core.count >= ZMS_DEVICE_CORE_MAX_CHANNELS) {
+        if (g_core.count >= ZCS_DEVICE_CORE_MAX_CHANNELS) {
             break;
         }
         ch = &g_core.items[g_core.count++];
@@ -364,8 +364,8 @@ int zms_device_core_sync_live(void)
         copy_str(ch->app, sizeof(ch->app), k->app);
         copy_str(ch->stream, sizeof(ch->stream), k->stream);
         snprintf(ch->name, sizeof(ch->name), "%s/%s", k->app, k->stream);
-        ch->flags = ZMS_DEV_CH_DISCOVERED | ZMS_DEV_CH_ONVIF;
-        ch->caps = ZMS_DEV_CAP_LIVE;
+        ch->flags = ZCS_DEV_CH_DISCOVERED | ZCS_DEV_CH_ONVIF;
+        ch->caps = ZCS_DEV_CAP_LIVE;
         ch->online = k->publishing;
         make_discovered_id_locked(ch);
     }
@@ -375,8 +375,8 @@ int zms_device_core_sync_live(void)
     return total;
 }
 
-int zms_device_core_foreach(unsigned require_caps, unsigned require_flags,
-                            zms_device_channel_visit_fn fn, void *user)
+int zcs_device_core_foreach(unsigned require_caps, unsigned require_flags,
+                            zcs_device_channel_visit_fn fn, void *user)
 {
     size_t i;
     int n = 0;
@@ -390,7 +390,7 @@ int zms_device_core_foreach(unsigned require_caps, unsigned require_flags,
     }
     zb_mutex_lock(g_core.mtx);
     for (i = 0; i < g_core.count; ++i) {
-        const zms_device_channel_info *ch = &g_core.items[i];
+        const zcs_device_channel_info *ch = &g_core.items[i];
         if ((ch->caps & require_caps) != require_caps) {
             continue;
         }
@@ -406,12 +406,12 @@ int zms_device_core_foreach(unsigned require_caps, unsigned require_flags,
     return n;
 }
 
-int zms_device_core_any_cap(unsigned caps)
+int zcs_device_core_any_cap(unsigned caps)
 {
-    return zms_device_core_count(caps, 0) > 0;
+    return zcs_device_core_count(caps, 0) > 0;
 }
 
-unsigned zms_device_core_caps(void)
+unsigned zcs_device_core_caps(void)
 {
     unsigned caps = 0;
     size_t i;
@@ -428,7 +428,7 @@ unsigned zms_device_core_caps(void)
     return caps;
 }
 
-size_t zms_device_core_count(unsigned require_caps, unsigned require_flags)
+size_t zcs_device_core_count(unsigned require_caps, unsigned require_flags)
 {
     size_t i;
     size_t n = 0;
@@ -439,7 +439,7 @@ size_t zms_device_core_count(unsigned require_caps, unsigned require_flags)
     }
     zb_mutex_lock(g_core.mtx);
     for (i = 0; i < g_core.count; ++i) {
-        const zms_device_channel_info *ch = &g_core.items[i];
+        const zcs_device_channel_info *ch = &g_core.items[i];
         if ((ch->caps & require_caps) == require_caps &&
             (ch->flags & require_flags) == require_flags) {
             ++n;

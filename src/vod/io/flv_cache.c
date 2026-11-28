@@ -2,11 +2,11 @@
  * @file flv_cache.c
  * @brief VOD FLV 缓存文件管理。
  */
-#include "zms/vod/io/flv_cache.h"
-#include "zms/media/container/flv/flv_index.h"
-#include "zms/vod/play/play_lane.h"
-#include "zms/vod/io/source.h"
-#include "zms/vod/play/flv_muxer.h"
+#include "zcs/vod/io/flv_cache.h"
+#include "zcs/media/container/flv/flv_index.h"
+#include "zcs/vod/play/play_lane.h"
+#include "zcs/vod/io/source.h"
+#include "zcs/vod/play/flv_muxer.h"
 #include "zn/util/log.h"
 #include <stdio.h>
 #include <string.h>
@@ -27,7 +27,7 @@ static int file_mtime(const char *path, time_t *out)
     return 1;
 }
 
-int zms_vod_flv_cache_path(const char *app, const char *stream, char *out, size_t out_cap)
+int zcs_vod_flv_cache_path(const char *app, const char *stream, char *out, size_t out_cap)
 {
     char media_path[512];
     char *dot;
@@ -36,7 +36,7 @@ int zms_vod_flv_cache_path(const char *app, const char *stream, char *out, size_
     if (!app || !stream || !out || out_cap == 0) {
         return 0;
     }
-    if (!zms_vod_resolve_file_path(app, stream, media_path, sizeof(media_path))) {
+    if (!zcs_vod_resolve_file_path(app, stream, media_path, sizeof(media_path))) {
         return 0;
     }
     n = strlen(media_path);
@@ -55,7 +55,7 @@ int zms_vod_flv_cache_path(const char *app, const char *stream, char *out, size_
     return 1;
 }
 
-int zms_vod_flv_cache_valid(const char *app, const char *stream)
+int zcs_vod_flv_cache_valid(const char *app, const char *stream)
 {
     char media_path[512];
     char flv[512];
@@ -63,10 +63,10 @@ int zms_vod_flv_cache_valid(const char *app, const char *stream)
     time_t flv_t = 0;
     struct stat st;
 
-    if (!zms_vod_resolve_file_path(app, stream, media_path, sizeof(media_path))) {
+    if (!zcs_vod_resolve_file_path(app, stream, media_path, sizeof(media_path))) {
         return 0;
     }
-    if (!zms_vod_flv_cache_path(app, stream, flv, sizeof(flv))) {
+    if (!zcs_vod_flv_cache_path(app, stream, flv, sizeof(flv))) {
         return 0;
     }
     if (!file_mtime(media_path, &media_t) || !file_mtime(flv, &flv_t)) {
@@ -78,10 +78,10 @@ int zms_vod_flv_cache_valid(const char *app, const char *stream)
     return flv_t >= media_t;
 }
 
-static zn_err_t mux_lane_to_file(zms_vod_play_lane *lane, zms_media_source *src, FILE *fp)
+static zn_err_t mux_lane_to_file(zcs_vod_play_lane *lane, zcs_media_source *src, FILE *fp)
 {
-    zms_vod_flv_muxer *muxer;
-    const zms_vod_flv_index *idx;
+    zcs_vod_flv_muxer *muxer;
+    const zcs_vod_flv_index *idx;
     size_t vlen = 0;
     size_t alen = 0;
     uint64_t dur_ms;
@@ -97,92 +97,92 @@ static zn_err_t mux_lane_to_file(zms_vod_play_lane *lane, zms_media_source *src,
         return ZN_ERR_INVALID;
     }
 
-    dur_ms = zms_vod_source_duration_ms(src);
-    idx = zms_vod_source_flv_index(src);
-    muxer = zms_vod_flv_muxer_create_reader(src, zms_vod_play_lane_buffer_reader(lane));
+    dur_ms = zcs_vod_source_duration_ms(src);
+    idx = zcs_vod_source_flv_index(src);
+    muxer = zcs_vod_flv_muxer_create_reader(src, zcs_vod_play_lane_buffer_reader(lane));
     if (!muxer) {
         return ZN_ERR_NOMEM;
     }
 
-    zms_vod_flv_muxer_configure(muxer, zms_vod_play_lane_video_config(lane, &vlen), vlen,
-                                zms_vod_play_lane_audio_config(lane, &alen), alen, dur_ms);
-    zms_vod_flv_muxer_set_index_full(muxer, idx);
-    zms_vod_flv_muxer_set_http_realtime_pace(muxer, 0);
-    zms_vod_flv_muxer_seek(muxer, 0);
-    zms_vod_flv_muxer_bind_source(muxer, src);
+    zcs_vod_flv_muxer_configure(muxer, zcs_vod_play_lane_video_config(lane, &vlen), vlen,
+                                zcs_vod_play_lane_audio_config(lane, &alen), alen, dur_ms);
+    zcs_vod_flv_muxer_set_index_full(muxer, idx);
+    zcs_vod_flv_muxer_set_http_realtime_pace(muxer, 0);
+    zcs_vod_flv_muxer_seek(muxer, 0);
+    zcs_vod_flv_muxer_bind_source(muxer, src);
 
-    if (zms_vod_flv_muxer_start(muxer, src->has_audio, src->has_video, buf, cap, &flv_len) !=
+    if (zcs_vod_flv_muxer_start(muxer, src->has_audio, src->has_video, buf, cap, &flv_len) !=
             ZN_OK ||
         flv_len == 0) {
-        zms_vod_flv_muxer_destroy(muxer);
+        zcs_vod_flv_muxer_destroy(muxer);
         return ZN_ERR_INVALID;
     }
     if (fwrite(buf, 1, flv_len, fp) != flv_len) {
-        zms_vod_flv_muxer_destroy(muxer);
+        zcs_vod_flv_muxer_destroy(muxer);
         return ZN_ERR_IO;
     }
 
     idle = 0;
     while (idle < 64 && loops < 5000000) {
         size_t n = 0;
-        int r = zms_vod_flv_muxer_next(muxer, buf, cap, &n);
+        int r = zcs_vod_flv_muxer_next(muxer, buf, cap, &n);
         if (r > 0 && n > 0) {
             if (fwrite(buf, 1, n, fp) != n) {
-                zms_vod_flv_muxer_destroy(muxer);
+                zcs_vod_flv_muxer_destroy(muxer);
                 return ZN_ERR_IO;
             }
             idle = 0;
         } else {
             idle++;
         }
-        if (zms_vod_reader_pump(zms_vod_play_lane_reader(lane)) > 0) {
+        if (zcs_vod_reader_pump(zcs_vod_play_lane_reader(lane)) > 0) {
             idle = 0;
         }
         loops++;
     }
 
-    zms_vod_flv_muxer_destroy(muxer);
+    zcs_vod_flv_muxer_destroy(muxer);
     return idle >= 64 ? ZN_OK : ZN_ERR_IO;
 }
 
-zn_err_t zms_vod_flv_cache_ensure(const char *app, const char *stream, zms_media_source *src,
+zn_err_t zcs_vod_flv_cache_ensure(const char *app, const char *stream, zcs_media_source *src,
                                    zn_poller *pol)
 {
     char flv[512];
     char tmp[520];
-    zms_vod_play_lane *lane;
+    zcs_vod_play_lane *lane;
     FILE *fp;
     zn_err_t err;
 
     if (!app || !stream || !src) {
         return ZN_ERR_INVALID;
     }
-    if (zms_vod_flv_cache_valid(app, stream)) {
+    if (zcs_vod_flv_cache_valid(app, stream)) {
         return ZN_OK;
     }
-    if (!zms_vod_flv_cache_path(app, stream, flv, sizeof(flv))) {
+    if (!zcs_vod_flv_cache_path(app, stream, flv, sizeof(flv))) {
         return ZN_ERR_INVALID;
     }
 
     snprintf(tmp, sizeof(tmp), "%s.tmp", flv);
     zn_info("vod flv cache: building %s (first HTTP play may take a while)", flv);
 
-    lane = zms_vod_play_lane_open(src, pol);
+    lane = zcs_vod_play_lane_open(src, pol);
     if (!lane) {
         return ZN_ERR_NOMEM;
     }
-    zms_vod_play_lane_prepare(lane, 0);
-    zms_vod_play_lane_set_pump_hold(lane, 1);
+    zcs_vod_play_lane_prepare(lane, 0);
+    zcs_vod_play_lane_set_pump_hold(lane, 1);
 
     fp = fopen(tmp, "wb");
     if (!fp) {
-        zms_vod_play_lane_close(lane);
+        zcs_vod_play_lane_close(lane);
         return ZN_ERR_IO;
     }
 
     err = mux_lane_to_file(lane, src, fp);
     fclose(fp);
-    zms_vod_play_lane_close(lane);
+    zcs_vod_play_lane_close(lane);
 
     if (err != ZN_OK) {
         remove(tmp);

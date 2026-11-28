@@ -8,17 +8,17 @@
  *   out: join / offer / answer / candidate / leave / ping
  */
 #include "session/webrtc/signaling_client.h"
-#include "zms/protocol/http/websocket/framer.h"
-#include "zms/util/base64.h"
+#include "zcs/protocol/http/websocket/framer.h"
+#include "zcs/util/base64.h"
 
 #include "protocol/webrtc/ice_internal.h"
 #include "session/webrtc/session_internal.h"
-#include "zms/core/event.h"
-#include "zms/core/stream/hub.h"
-#include "zms/egress/source/egress_source.h"
-#include "zms/play/dispatch.h"
-#include "zms/session/webrtc/webrtc_server.h"
-#include "zms/util/buf_pool.h"
+#include "zcs/core/event.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/egress/source/egress_source.h"
+#include "zcs/play/dispatch.h"
+#include "zcs/session/webrtc/webrtc_server.h"
+#include "zcs/util/buf_pool.h"
 #include "zn/net/tcp_client.h"
 #include "zn/poller/poller_pool.h"
 #include "zn/platform.h"
@@ -40,11 +40,11 @@
 #define SIG_MAX_VIEWERS 3
 
 typedef struct sig_viewer {
-    zms_webrtc_session *sess;
+    zcs_webrtc_session *sess;
     char viewer_id[64];
 } sig_viewer;
 
-typedef struct zms_webrtc_signaling_ctx {
+typedef struct zcs_webrtc_signaling_ctx {
     zn_poller_pool *pool;
     zn_poller *poller;
     zn_tcp_client *tcp;
@@ -110,7 +110,7 @@ static void sig_destroy_viewer(sig_ctx *c, sig_viewer *v)
         return;
     }
     if (v->sess) {
-        zms_webrtc_session_destroy(v->sess);
+        zcs_webrtc_session_destroy(v->sess);
         v->sess = NULL;
     }
     v->viewer_id[0] = '\0';
@@ -269,7 +269,7 @@ static int sig_send_raw(sig_ctx *c, const void *data, size_t len)
  * 固定帧头 + 负载整体 malloc 后一次 send，避免拆包写出半帧。 */
 static int ws_send_frame(sig_ctx *c, uint8_t opcode, const void *payload, size_t len)
 {
-    uint8_t hdr[ZMS_WS_FRAMER_CLIENT_HDR_MAX];
+    uint8_t hdr[ZCS_WS_FRAMER_CLIENT_HDR_MAX];
     uint8_t mask[4] = {0x11, 0x22, 0x33, 0x44};
     uint8_t *frame;
     size_t hlen;
@@ -278,7 +278,7 @@ static int ws_send_frame(sig_ctx *c, uint8_t opcode, const void *payload, size_t
     if (!c || len > SIG_TX_MAX) {
         return -1;
     }
-    hlen = zms_ws_framer_client_hdr(hdr, sizeof(hdr), opcode, mask, len);
+    hlen = zcs_ws_framer_client_hdr(hdr, sizeof(hdr), opcode, mask, len);
     if (hlen == 0) {
         return -1;
     }
@@ -289,7 +289,7 @@ static int ws_send_frame(sig_ctx *c, uint8_t opcode, const void *payload, size_t
     memcpy(frame, hdr, hlen);
     if (len > 0) {
         memcpy(frame + hlen, payload, len);
-        zms_ws_framer_apply_mask(frame + hlen, len, mask);
+        zcs_ws_framer_apply_mask(frame + hlen, len, mask);
     }
     rc = sig_send_raw(c, frame, hlen + len);
     free(frame);
@@ -370,7 +370,7 @@ static void sig_send_gathered_candidates(sig_ctx *c, sig_viewer *v)
     if (!c || !v || !v->sess || !v->sess->ice_host.ctx || !v->viewer_id[0]) {
         return;
     }
-    if (zms_webrtc_ice_sdp_candidates(v->sess->ice_host.ctx, cand, sizeof(cand)) == 0) {
+    if (zcs_webrtc_ice_sdp_candidates(v->sess->ice_host.ctx, cand, sizeof(cand)) == 0) {
         return;
     }
     line = cand;
@@ -474,18 +474,18 @@ static int sig_send_answer(sig_ctx *c, const char *viewer, const char *answer, s
  */
 static int sig_create_answer(sig_ctx *c, const char *offer, const char *viewer)
 {
-    zms_media_source *src;
-    zms_webrtc_session *sess;
+    zcs_media_source *src;
+    zcs_webrtc_session *sess;
     sig_viewer *v;
     char answer[8192];
     size_t answer_len = 0;
-    zms_session_play_opts pcfg;
+    zcs_session_play_opts pcfg;
 
     src = NULL;
     /* 只查一次：这里是 poller 回调，sleep 等源上线会卡住整个事件循环。 */
-    src = zms_media_source_find_for_play_ex(ZMS_SCHEMA_RTMP, NULL, c->app, c->stream);
-    if (!src || !src->gop_queue || zms_media_source_is_vod(src) ||
-        !zms_media_source_use_gop_queue_play(src)) {
+    src = zcs_media_source_find_for_play_ex(ZCS_SCHEMA_RTMP, NULL, c->app, c->stream);
+    if (!src || !src->gop_queue || zcs_media_source_is_vod(src) ||
+        !zcs_media_source_use_gop_queue_play(src)) {
         zn_warn("[webrtc-signal] source offline app=%s stream=%s", c->app, c->stream);
         return -1;
     }
@@ -495,12 +495,12 @@ static int sig_create_answer(sig_ctx *c, const char *offer, const char *viewer)
         char ufrag[64];
         int offer_pt = -1;
 
-        if (zms_webrtc_session_probe_offer(offer, strlen(offer), ufrag, sizeof(ufrag), &offer_pt) ==
+        if (zcs_webrtc_session_probe_offer(offer, strlen(offer), ufrag, sizeof(ufrag), &offer_pt) ==
                 0 &&
             ufrag[0] && strcmp(ufrag, v->sess->remote_ufrag) != 0 &&
             offer_pt == (int)v->sess->video_pt) {
-            if (zms_webrtc_session_restart_ice(v->sess) == 0 &&
-                zms_webrtc_session_build_answer(v->sess, offer, strlen(offer), answer,
+            if (zcs_webrtc_session_restart_ice(v->sess) == 0 &&
+                zcs_webrtc_session_build_answer(v->sess, offer, strlen(offer), answer,
                                                 sizeof(answer), &answer_len) == 0) {
                 zn_info("[webrtc-signal] ICE restart viewer=%s app=%s stream=%s", viewer, c->app,
                          c->stream);
@@ -515,28 +515,28 @@ static int sig_create_answer(sig_ctx *c, const char *offer, const char *viewer)
         zn_warn("[webrtc-signal] viewer limit reached viewer=%s", viewer);
         return -1;
     }
-    sess = zms_webrtc_session_create(src, c->app, c->stream, c->poller);
+    sess = zcs_webrtc_session_create(src, c->app, c->stream, c->poller);
     if (!sess) {
         return -1;
     }
-    zms_session_dispatch_register_all();
-    zms_egress_source_init(&sess->play);
+    zcs_session_dispatch_register_all();
+    zcs_egress_source_init(&sess->play);
     memset(&pcfg, 0, sizeof(pcfg));
-    pcfg.player = ZMS_SESSION_WEBRTC;
-    if (zms_session_attach_play(ZMS_SESSION_WEBRTC, &sess->play, src, &pcfg) != ZN_OK) {
-        zms_webrtc_session_destroy(sess);
+    pcfg.player = ZCS_SESSION_WEBRTC;
+    if (zcs_session_attach_play(ZCS_SESSION_WEBRTC, &sess->play, src, &pcfg) != ZN_OK) {
+        zcs_webrtc_session_destroy(sess);
         return -1;
     }
-    if (zms_webrtc_session_build_answer(sess, offer, strlen(offer), answer, sizeof(answer),
+    if (zcs_webrtc_session_build_answer(sess, offer, strlen(offer), answer, sizeof(answer),
                                         &answer_len) != 0) {
-        zms_session_detach_play(ZMS_SESSION_WEBRTC, &sess->play);
-        zms_webrtc_session_destroy(sess);
+        zcs_session_detach_play(ZCS_SESSION_WEBRTC, &sess->play);
+        zcs_webrtc_session_destroy(sess);
         return -1;
     }
-    zms_media_source_reader_add(src);
+    zcs_media_source_reader_add(src);
     sess->play_reader_attached = 1;
     sess->play_start_ms = zn_monotonic_ms();
-    zms_media_event_play(src, "webrtc-signal");
+    zcs_media_event_play(src, "webrtc-signal");
     v->sess = sess;
     snprintf(v->viewer_id, sizeof(v->viewer_id), "%s", viewer);
 
@@ -595,7 +595,7 @@ static void sig_handle_message(sig_ctx *c, const char *json)
         if (v) {
             char frag[1152];
             snprintf(frag, sizeof(frag), "a=%s\r\n", cand);
-            (void)zms_webrtc_session_add_remote_candidates(v->sess, frag, strlen(frag));
+            (void)zcs_webrtc_session_add_remote_candidates(v->sess, frag, strlen(frag));
         }
         return;
     }
@@ -796,7 +796,7 @@ static void sig_on_connect(zn_tcp_client *client, void *user)
         key_raw[i] = (char)((seed >> ((i % 8) * 8)) ^ (i * 37 + 11));
         seed = seed * 6364136223846793005ULL + 1;
     }
-    (void)zms_base64_encode((const uint8_t *)key_raw, sizeof(key_raw), key, sizeof(key), NULL);
+    (void)zcs_base64_encode((const uint8_t *)key_raw, sizeof(key_raw), key, sizeof(key), NULL);
     if (c->port == 80) {
         snprintf(host_hdr, sizeof(host_hdr), "%s", c->host);
     } else {
@@ -910,7 +910,7 @@ static int sig_parse_url(const char *url, char *host, size_t host_cap, uint16_t 
     return 0;
 }
 
-int zms_webrtc_signaling_start(const char *url, const char *room, const char *token,
+int zcs_webrtc_signaling_start(const char *url, const char *room, const char *token,
                                const char *app, const char *stream)
 {
     sig_ctx *c;
@@ -935,7 +935,7 @@ int zms_webrtc_signaling_start(const char *url, const char *room, const char *to
     }
     snprintf(c->app, sizeof(c->app), "%s", app && app[0] ? app : "live");
     snprintf(c->stream, sizeof(c->stream), "%s", stream && stream[0] ? stream : "cam1");
-    snprintf(c->client_id, sizeof(c->client_id), "zms-%llx",
+    snprintf(c->client_id, sizeof(c->client_id), "zcs-%llx",
              (unsigned long long)(zn_monotonic_ms() & 0xffffff));
 
     /* 信令客户端跑在自己的单线程 poller 池里（size=1）：WebRTC 会话的
@@ -979,7 +979,7 @@ int zms_webrtc_signaling_start(const char *url, const char *room, const char *to
     return 0;
 }
 
-void zms_webrtc_signaling_stop(void)
+void zcs_webrtc_signaling_stop(void)
 {
     sig_ctx *c = g_sig;
 

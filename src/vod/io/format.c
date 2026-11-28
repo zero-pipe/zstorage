@@ -2,19 +2,19 @@
  * @file format.c
  * @brief VOD 格式注册与扩展名匹配。
  */
-#include "zms/vod/io/format.h"
+#include "zcs/vod/io/format.h"
 #include <string.h>
 
 #if defined(_WIN32)
-#define zms_vod_format_stricmp _stricmp
+#define zcs_vod_format_stricmp _stricmp
 #else
 #include <strings.h>
-#define zms_vod_format_stricmp strcasecmp
+#define zcs_vod_format_stricmp strcasecmp
 #endif
 
-#define ZMS_VOD_FORMAT_MAX 16
+#define ZCS_VOD_FORMAT_MAX 16
 
-static const zms_vod_format_desc *g_formats[ZMS_VOD_FORMAT_MAX];
+static const zcs_vod_format_desc *g_formats[ZCS_VOD_FORMAT_MAX];
 static int g_format_count;
 static int g_vod_format_builtins_registered;
 
@@ -44,10 +44,10 @@ static int ext_eq(const char *a, const char *b)
     if (!a || !b) {
         return 0;
     }
-    return zms_vod_format_stricmp(a, b) == 0;
+    return zcs_vod_format_stricmp(a, b) == 0;
 }
 
-void zms_vod_format_register(const zms_vod_format_desc *fmt)
+void zcs_vod_format_register(const zcs_vod_format_desc *fmt)
 {
     int i;
 
@@ -60,53 +60,53 @@ void zms_vod_format_register(const zms_vod_format_desc *fmt)
             return;
         }
     }
-    if (g_format_count < ZMS_VOD_FORMAT_MAX) {
+    if (g_format_count < ZCS_VOD_FORMAT_MAX) {
         g_formats[g_format_count++] = fmt;
     }
 }
 
 static uint64_t probe_mov_family_duration(const char *path)
 {
-    return zms_container_mp4_file_duration_ms(path);
+    return zcs_container_mp4_file_duration_ms(path);
 }
 
 static uint64_t probe_flv_duration(const char *path)
 {
-    return zms_container_flv_file_duration_ms(path);
+    return zcs_container_flv_file_duration_ms(path);
 }
 
-void zms_vod_format_register_all(void)
+void zcs_vod_format_register_all(void)
 {
     static const char *const mov_exts[] = {".mp4", ".mov", ".m4v", NULL};
     static const char *const mkv_exts[] = {".mkv", ".mka", NULL};
     static const char *const flv_exts[] = {".flv", NULL};
-    static const zms_vod_format_desc mov = {
-        "mov-family", ZMS_CONTAINER_MP4, mov_exts, ".mp4", 1, 0, probe_mov_family_duration,
+    static const zcs_vod_format_desc mov = {
+        "mov-family", ZCS_CONTAINER_MP4, mov_exts, ".mp4", 1, 0, probe_mov_family_duration,
     };
-    static const zms_vod_format_desc mkv = {
-        "mkv", ZMS_CONTAINER_MKV, mkv_exts, NULL, 1, 0, probe_mov_family_duration,
+    static const zcs_vod_format_desc mkv = {
+        "mkv", ZCS_CONTAINER_MKV, mkv_exts, NULL, 1, 0, probe_mov_family_duration,
     };
-    static const zms_vod_format_desc flv = {
-        "flv-file", ZMS_CONTAINER_FLV_FILE, flv_exts, NULL, 0, 1, probe_flv_duration,
+    static const zcs_vod_format_desc flv = {
+        "flv-file", ZCS_CONTAINER_FLV_FILE, flv_exts, NULL, 0, 1, probe_flv_duration,
     };
 
     if (g_vod_format_builtins_registered) {
         return;
     }
     g_vod_format_builtins_registered = 1;
-    zms_vod_format_register(&mov);
-    zms_vod_format_register(&mkv);
-    zms_vod_format_register(&flv);
+    zcs_vod_format_register(&mov);
+    zcs_vod_format_register(&mkv);
+    zcs_vod_format_register(&flv);
 }
 
 static void ensure_builtins(void)
 {
     if (!g_vod_format_builtins_registered) {
-        zms_vod_format_register_all();
+        zcs_vod_format_register_all();
     }
 }
 
-const zms_vod_format_desc *zms_vod_format_find_by_extension(const char *ext)
+const zcs_vod_format_desc *zcs_vod_format_find_by_extension(const char *ext)
 {
     int i;
 
@@ -128,12 +128,12 @@ const zms_vod_format_desc *zms_vod_format_find_by_extension(const char *ext)
     return NULL;
 }
 
-const zms_vod_format_desc *zms_vod_format_find_by_path(const char *path)
+const zcs_vod_format_desc *zcs_vod_format_find_by_path(const char *path)
 {
-    return zms_vod_format_find_by_extension(path_ext(path));
+    return zcs_vod_format_find_by_extension(path_ext(path));
 }
 
-int zms_vod_format_foreach_extension(zms_vod_format_visit_cb cb, void *user)
+int zcs_vod_format_foreach_extension(zcs_vod_format_visit_cb cb, void *user)
 {
     int i;
     int n = 0;
@@ -157,7 +157,7 @@ int zms_vod_format_foreach_extension(zms_vod_format_visit_cb cb, void *user)
     return n;
 }
 
-const char *zms_vod_format_default_extension(void)
+const char *zcs_vod_format_default_extension(void)
 {
     int i;
 
@@ -170,29 +170,29 @@ const char *zms_vod_format_default_extension(void)
     return ".mp4";
 }
 
-int zms_vod_format_stream_has_supported_ext(const char *stream)
+int zcs_vod_format_stream_has_supported_ext(const char *stream)
 {
-    return zms_vod_format_find_by_path(stream) != NULL;
+    return zcs_vod_format_find_by_path(stream) != NULL;
 }
 
-int zms_vod_format_stream_is_native_file(const char *stream)
+int zcs_vod_format_stream_is_native_file(const char *stream)
 {
-    const zms_vod_format_desc *fmt = zms_vod_format_find_by_path(stream);
+    const zcs_vod_format_desc *fmt = zcs_vod_format_find_by_path(stream);
     return fmt && fmt->native_file_send;
 }
 
-int zms_vod_format_stream_is_flv_wrap_suffix(const char *stream)
+int zcs_vod_format_stream_is_flv_wrap_suffix(const char *stream)
 {
     size_t n;
     char disk_ext[32];
     const char *dot;
-    const zms_vod_format_desc *fmt;
+    const zcs_vod_format_desc *fmt;
 
     if (!stream) {
         return 0;
     }
     n = strlen(stream);
-    if (n < 8 || zms_vod_format_stricmp(stream + n - 4, ".flv") != 0) {
+    if (n < 8 || zcs_vod_format_stricmp(stream + n - 4, ".flv") != 0) {
         return 0;
     }
     dot = strrchr(stream, '.');
@@ -213,13 +213,13 @@ int zms_vod_format_stream_is_flv_wrap_suffix(const char *stream)
         memcpy(disk_ext, prev, (size_t)(dot - prev));
         disk_ext[dot - prev] = '\0';
     }
-    fmt = zms_vod_format_find_by_extension(disk_ext);
+    fmt = zcs_vod_format_find_by_extension(disk_ext);
     return fmt && fmt->can_flv_wrap;
 }
 
-uint64_t zms_vod_format_probe_duration_ms(const char *path)
+uint64_t zcs_vod_format_probe_duration_ms(const char *path)
 {
-    const zms_vod_format_desc *fmt = zms_vod_format_find_by_path(path);
+    const zcs_vod_format_desc *fmt = zcs_vod_format_find_by_path(path);
     if (!fmt || !fmt->probe_duration_ms) {
         return 0;
     }

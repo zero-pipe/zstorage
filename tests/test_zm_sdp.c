@@ -22,7 +22,7 @@ int main(void)
     static const char k_sdp[] =
         "v=0\r\n"
         "o=- 0 0 IN IP4 127.0.0.1\r\n"
-        "s=zms-test\r\n"
+        "s=zcs-test\r\n"
         "c=IN IP4 127.0.0.1\r\n"
         "t=0 0\r\n"
         "m=video 5000 RTP/AVP 96\r\n"

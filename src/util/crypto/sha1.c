@@ -2,7 +2,7 @@
  * @file sha1.c
  * @brief SHA-1 摘要。
  */
-#include "zms/util/sha1.h"
+#include "zcs/util/sha1.h"
 #include <string.h>
 
 #define SHA1_ROL(v, n) (((v) << (n)) | ((v) >> (32 - (n))))
@@ -56,7 +56,7 @@ static void sha1_transform(uint32_t state[5], const uint8_t block[64])
     state[4] += e;
 }
 
-void zms_sha1_init(zms_sha1_ctx *ctx)
+void zcs_sha1_init(zcs_sha1_ctx *ctx)
 {
     if (!ctx) {
         return;
@@ -69,7 +69,7 @@ void zms_sha1_init(zms_sha1_ctx *ctx)
     ctx->count[0] = ctx->count[1] = 0;
 }
 
-void zms_sha1_update(zms_sha1_ctx *ctx, const void *data, size_t len)
+void zcs_sha1_update(zcs_sha1_ctx *ctx, const void *data, size_t len)
 {
     const uint8_t *p = (const uint8_t *)data;
     size_t i, idx, part;
@@ -99,7 +99,7 @@ void zms_sha1_update(zms_sha1_ctx *ctx, const void *data, size_t len)
     memcpy(&ctx->buffer[idx], p + i, len - i);
 }
 
-void zms_sha1_final(zms_sha1_ctx *ctx, uint8_t digest[20])
+void zcs_sha1_final(zcs_sha1_ctx *ctx, uint8_t digest[20])
 {
     uint8_t finalcount[8];
     uint8_t c = 0x80;
@@ -112,11 +112,11 @@ void zms_sha1_final(zms_sha1_ctx *ctx, uint8_t digest[20])
     for (i = 0; i < 8; ++i) {
         finalcount[i] = (uint8_t)((ctx->count[(i >= 4) ? 1 : 0] >> ((3 - (i & 3)) * 8)) & 255);
     }
-    zms_sha1_update(ctx, &c, 1);
+    zcs_sha1_update(ctx, &c, 1);
     while ((ctx->count[0] & 504) != 448) {
-        zms_sha1_update(ctx, &c, 1);
+        zcs_sha1_update(ctx, &c, 1);
     }
-    zms_sha1_update(ctx, finalcount, 8);
+    zcs_sha1_update(ctx, finalcount, 8);
 
     for (i = 0; i < 20; ++i) {
         digest[i] = (uint8_t)((ctx->state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);

@@ -103,7 +103,7 @@ def wait_port(host, port, timeout=10.0):
 # ── 推流：优先用 ffmpeg（本地与 CI 都常见），无则跳过推流用例 ────────────
 def find_ffmpeg():
     for cand in (
-        os.environ.get("ZMS_FFMPEG"),
+        os.environ.get("ZCS_FFMPEG"),
         os.environ.get("FFMPEG"),
         "ffmpeg",
         r"E:8_ffmpeg-latestinfmpeg.exe",
@@ -205,7 +205,7 @@ def main():
         print("FAIL: 找不到 demo_media_server，请先构建 examples")
         return 1
 
-    workdir = tempfile.mkdtemp(prefix="zms_smoke_")
+    workdir = tempfile.mkdtemp(prefix="zcs_smoke_")
     cfg = os.path.join(workdir, "smoke.ini")
     write_config(cfg)
 
@@ -243,7 +243,7 @@ def main():
             pusher = None
 
             if not ffmpeg:
-                print("[smoke] SKIP 推流用例：未找到 ffmpeg（设 ZMS_FFMPEG 可指定路径）")
+                print("[smoke] SKIP 推流用例：未找到 ffmpeg（设 ZCS_FFMPEG 可指定路径）")
             else:
                 print(f"[smoke] ffmpeg = {ffmpeg}")
                 pusher = start_pusher(ffmpeg, "live", "smoke")

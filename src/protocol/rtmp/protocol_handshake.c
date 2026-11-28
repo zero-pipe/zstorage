@@ -10,7 +10,7 @@
 
 static void hs_random(uint8_t *out, size_t len)
 {
-    static const char pat[] = "simple-rtmp-server-ZMS";
+    static const char pat[] = "simple-rtmp-server-ZCS";
     for (size_t i = 0; i < len; ++i) {
         out[i] = (uint8_t)pat[i % (sizeof(pat) - 1)] ^ (uint8_t)(rand() & 0xff);
     }
@@ -24,10 +24,10 @@ void rtmp_handshake_make_s1(uint8_t *s1)
     s1[2] = (uint8_t)((t >> 8) & 0xff);
     s1[3] = (uint8_t)(t & 0xff);
     memset(s1 + 4, 0, 4);
-    hs_random(s1 + 8, ZMS_RTMP_HS_BODY - 8);
+    hs_random(s1 + 8, ZCS_RTMP_HS_BODY - 8);
 }
 
-void rtmp_handshake_release(zms_rtmp_protocol *p)
+void rtmp_handshake_release(zcs_rtmp_protocol *p)
 {
     if (!p) {
         return;
@@ -42,22 +42,22 @@ void rtmp_handshake_release(zms_rtmp_protocol *p)
     p->hs_buf = NULL;
 }
 
-static zn_err_t hs_ensure(zms_rtmp_protocol *p)
+static zn_err_t hs_ensure(zcs_rtmp_protocol *p)
 {
     if (p->c1 && p->s1 && p->s2 && p->hs_buf) {
         return ZN_OK;
     }
     if (!p->c1) {
-        p->c1 = (uint8_t *)malloc(ZMS_RTMP_HS_BODY);
+        p->c1 = (uint8_t *)malloc(ZCS_RTMP_HS_BODY);
     }
     if (!p->s1) {
-        p->s1 = (uint8_t *)malloc(ZMS_RTMP_HS_BODY);
+        p->s1 = (uint8_t *)malloc(ZCS_RTMP_HS_BODY);
     }
     if (!p->s2) {
-        p->s2 = (uint8_t *)malloc(ZMS_RTMP_HS_BODY);
+        p->s2 = (uint8_t *)malloc(ZCS_RTMP_HS_BODY);
     }
     if (!p->hs_buf) {
-        p->hs_buf = (uint8_t *)malloc(1 + ZMS_RTMP_HS_BODY);
+        p->hs_buf = (uint8_t *)malloc(1 + ZCS_RTMP_HS_BODY);
     }
     if (!p->c1 || !p->s1 || !p->s2 || !p->hs_buf) {
         rtmp_handshake_release(p);
@@ -66,14 +66,14 @@ static zn_err_t hs_ensure(zms_rtmp_protocol *p)
     return ZN_OK;
 }
 
-zn_err_t rtmp_handshake_input(zms_rtmp_protocol *p, const uint8_t *data, size_t len,
+zn_err_t rtmp_handshake_input(zcs_rtmp_protocol *p, const uint8_t *data, size_t len,
                                size_t *consumed)
 {
     size_t off = 0;
     if (!p || !data) {
         return ZN_ERR_INVALID;
     }
-    if (p->hs_state == ZMS_RTMP_HS_STATE_DONE) {
+    if (p->hs_state == ZCS_RTMP_HS_STATE_DONE) {
         if (consumed) {
             *consumed = 0;
         }
@@ -86,10 +86,10 @@ zn_err_t rtmp_handshake_input(zms_rtmp_protocol *p, const uint8_t *data, size_t 
 
     while (off < len) {
         size_t need = 0;
-        if (p->hs_state == ZMS_RTMP_HS_STATE_WAIT_C0C1) {
-            need = 1 + ZMS_RTMP_HS_BODY;
-        } else if (p->hs_state == ZMS_RTMP_HS_STATE_WAIT_C2) {
-            need = ZMS_RTMP_HS_BODY;
+        if (p->hs_state == ZCS_RTMP_HS_STATE_WAIT_C0C1) {
+            need = 1 + ZCS_RTMP_HS_BODY;
+        } else if (p->hs_state == ZCS_RTMP_HS_STATE_WAIT_C2) {
+            need = ZCS_RTMP_HS_BODY;
         } else {
             /* 握手已完成：剩余字节属于 connect/chunk 数据，交还上层处理。
              * 注意：C2 与后续数据可能在同一次 recv 中到达，此前会因 need=0、
@@ -106,22 +106,22 @@ zn_err_t rtmp_handshake_input(zms_rtmp_protocol *p, const uint8_t *data, size_t 
         p->hs_off += copy;
         off += copy;
 
-        if (p->hs_state == ZMS_RTMP_HS_STATE_WAIT_C0C1 && p->hs_off >= need) {
-            memcpy(p->c1, p->hs_buf + 1, ZMS_RTMP_HS_BODY);
-            p->hs_complex = zms_rtmp_handshake_detect_complex(p->c1);
-            if (p->hs_complex && !zms_rtmp_handshake_build_complex(p->c1, p->s1, p->s2)) {
+        if (p->hs_state == ZCS_RTMP_HS_STATE_WAIT_C0C1 && p->hs_off >= need) {
+            memcpy(p->c1, p->hs_buf + 1, ZCS_RTMP_HS_BODY);
+            p->hs_complex = zcs_rtmp_handshake_detect_complex(p->c1);
+            if (p->hs_complex && !zcs_rtmp_handshake_build_complex(p->c1, p->s1, p->s2)) {
                 p->hs_complex = 0;
             }
-            p->hs_state = ZMS_RTMP_HS_STATE_WAIT_C2;
+            p->hs_state = ZCS_RTMP_HS_STATE_WAIT_C2;
             p->hs_off = 0;
             p->hs_need_reply = 1;
-        } else if (p->hs_state == ZMS_RTMP_HS_STATE_WAIT_C2 && p->hs_off >= need) {
+        } else if (p->hs_state == ZCS_RTMP_HS_STATE_WAIT_C2 && p->hs_off >= need) {
             if (p->hs_complex) {
-                (void)zms_rtmp_handshake_validate_c2(p->s1, p->hs_buf);
+                (void)zcs_rtmp_handshake_validate_c2(p->s1, p->hs_buf);
             } else {
-                (void)memcmp(p->hs_buf, p->s1, ZMS_RTMP_HS_BODY);
+                (void)memcmp(p->hs_buf, p->s1, ZCS_RTMP_HS_BODY);
             }
-            p->hs_state = ZMS_RTMP_HS_STATE_DONE;
+            p->hs_state = ZCS_RTMP_HS_STATE_DONE;
             p->hs_off = 0;
             p->hs_init_pending = 1;
             /* C2 已校验完，握手缓冲可释放（S0S1S2 已在 need_reply 时发出） */

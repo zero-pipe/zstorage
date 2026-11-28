@@ -2,9 +2,9 @@
  * @file route_path.c
  * @brief HTTP 路由路径解析（FLV/TS/HLS 路径 → app/stream/文件）。
  */
-#include "zms/play/vod_play_port.h"
-#include "zms/protocol/http/request_reader.h"
-#include "zms/protocol/http/session_api.h"
+#include "zcs/play/vod_play_port.h"
+#include "zcs/protocol/http/request_reader.h"
+#include "zcs/protocol/http/session_api.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -117,7 +117,7 @@ static int path_ends_with_ci(const char *path, const char *suffix)
  * 否则用 Host 头归一化得到。多域名部署时 vhost 决定去哪找流，二者都不能拿来
  * 时归一化会给出默认 vhost。
  */
-void zms_http_request_vhost(const zms_http_request *req, char *out, size_t cap)
+void zcs_http_request_vhost(const zcs_http_request *req, char *out, size_t cap)
 {
     const char *q;
     const char *v;
@@ -139,8 +139,8 @@ void zms_http_request_vhost(const zms_http_request *req, char *out, size_t cap)
                 }
                 out[n] = 0;
                 if (n > 0) {
-                    char norm[ZMS_VHOST_MAX];
-                    zms_vhost_normalize(out, norm, sizeof(norm));
+                    char norm[ZCS_VHOST_MAX];
+                    zcs_vhost_normalize(out, norm, sizeof(norm));
                     strncpy(out, norm, cap - 1);
                     out[cap - 1] = 0;
                     return;
@@ -148,7 +148,7 @@ void zms_http_request_vhost(const zms_http_request *req, char *out, size_t cap)
             }
         }
     }
-    zms_vhost_normalize(req ? zms_http_req_header(req, "Host") : NULL, out, cap);
+    zcs_vhost_normalize(req ? zcs_http_req_header(req, "Host") : NULL, out, cap);
 }
 
 /*
@@ -161,7 +161,7 @@ void zms_http_request_vhost(const zms_http_request *req, char *out, size_t cap)
  *   - 非点播 app 才走直播的 .flv / .live.flv 兼容解析。
  * 这样同一套路径规则不会在点播与直播之间串味。
  */
-void zms_http_route_parse_flv_path(const char *path, char *app, char *stream, uint64_t *seek_ms)
+void zcs_http_route_parse_flv_path(const char *path, char *app, char *stream, uint64_t *seek_ms)
 {
     char path_only[512];
     const char *q;
@@ -193,23 +193,23 @@ void zms_http_route_parse_flv_path(const char *path, char *app, char *stream, ui
     const char *p = path_only + 1;
     const char *slash = strchr(p, '/');
     if (!slash) {
-        strncpy(app, p, ZMS_APP_MAX - 1);
+        strncpy(app, p, ZCS_APP_MAX - 1);
         return;
     }
     size_t alen = (size_t)(slash - p);
-    if (alen >= ZMS_APP_MAX) {
-        alen = ZMS_APP_MAX - 1;
+    if (alen >= ZCS_APP_MAX) {
+        alen = ZCS_APP_MAX - 1;
     }
     memcpy(app, p, alen);
     app[alen] = '\0';
     const char *name = slash + 1;
 
     /* 点播 HTTP-FLV 封装：{app}/path/to/{file}.{mp4|mkv|mov|m4v}.flv */
-    if (zms_vod_is_record_app(app) && zms_vod_stream_is_vod_flv_wrap_suffix(name)) {
+    if (zcs_vod_is_record_app(app) && zcs_vod_stream_is_vod_flv_wrap_suffix(name)) {
         size_t slen = strlen(name) - 4;
 
-        if (slen >= ZMS_STREAM_MAX) {
-            slen = ZMS_STREAM_MAX - 1;
+        if (slen >= ZCS_STREAM_MAX) {
+            slen = ZCS_STREAM_MAX - 1;
         }
         memcpy(stream, name, slen);
         stream[slen] = '\0';
@@ -217,18 +217,18 @@ void zms_http_route_parse_flv_path(const char *path, char *app, char *stream, ui
     }
 
     /* 点播磁盘原生 FLV：{vod_app}/path/to/{file}.flv */
-    if (zms_vod_is_record_app(app) && zms_vod_stream_is_native_flv_file(name)) {
+    if (zcs_vod_is_record_app(app) && zcs_vod_stream_is_native_flv_file(name)) {
         size_t nlen = strlen(name);
 
-        if (nlen >= ZMS_STREAM_MAX) {
-            nlen = ZMS_STREAM_MAX - 1;
+        if (nlen >= ZCS_STREAM_MAX) {
+            nlen = ZCS_STREAM_MAX - 1;
         }
         memcpy(stream, name, nlen);
         stream[nlen] = '\0';
         return;
     }
 
-    if (zms_vod_is_record_app(app)) {
+    if (zcs_vod_is_record_app(app)) {
         return;
     }
 
@@ -236,8 +236,8 @@ void zms_http_route_parse_flv_path(const char *path, char *app, char *stream, ui
     if (path_ends_with_ci(name, ".live.flv")) {
         size_t nlen = strlen(name);
         size_t slen = nlen - 9;
-        if (slen >= ZMS_STREAM_MAX) {
-            slen = ZMS_STREAM_MAX - 1;
+        if (slen >= ZCS_STREAM_MAX) {
+            slen = ZCS_STREAM_MAX - 1;
         }
         memcpy(stream, name, slen);
         stream[slen] = '\0';
@@ -246,8 +246,8 @@ void zms_http_route_parse_flv_path(const char *path, char *app, char *stream, ui
     if (path_ends_with_ci(name, ".flv")) {
         size_t nlen = strlen(name);
         size_t slen = nlen - 4;
-        if (slen >= ZMS_STREAM_MAX) {
-            slen = ZMS_STREAM_MAX - 1;
+        if (slen >= ZCS_STREAM_MAX) {
+            slen = ZCS_STREAM_MAX - 1;
         }
         memcpy(stream, name, slen);
         stream[slen] = '\0';
@@ -255,7 +255,7 @@ void zms_http_route_parse_flv_path(const char *path, char *app, char *stream, ui
     }
 }
 
-int zms_http_route_parse_live_ts_path(const char *path, char *app, char *stream)
+int zcs_http_route_parse_live_ts_path(const char *path, char *app, char *stream)
 {
     char path_only[512];
     const char *q;
@@ -289,13 +289,13 @@ int zms_http_route_parse_live_ts_path(const char *path, char *app, char *stream)
     }
     {
         size_t alen = (size_t)(slash - p);
-        if (alen >= ZMS_APP_MAX) {
-            alen = ZMS_APP_MAX - 1;
+        if (alen >= ZCS_APP_MAX) {
+            alen = ZCS_APP_MAX - 1;
         }
         memcpy(app, p, alen);
         app[alen] = '\0';
     }
-    if (zms_vod_is_record_app(app)) {
+    if (zcs_vod_is_record_app(app)) {
         return 0;
     }
 
@@ -304,7 +304,7 @@ int zms_http_route_parse_live_ts_path(const char *path, char *app, char *stream)
         return 0;
     }
     {
-        char hls_stream[ZMS_STREAM_MAX];
+        char hls_stream[ZCS_STREAM_MAX];
         char hls_file[128];
 
         if (parse_live_hls_ts_name(name, hls_stream, hls_file, sizeof(hls_file))) {
@@ -316,7 +316,7 @@ int zms_http_route_parse_live_ts_path(const char *path, char *app, char *stream)
     }
     {
         size_t slen = strlen(name) - 3;
-        if (slen == 0 || slen >= ZMS_STREAM_MAX) {
+        if (slen == 0 || slen >= ZCS_STREAM_MAX) {
             return 0;
         }
         memcpy(stream, name, slen);
@@ -325,7 +325,7 @@ int zms_http_route_parse_live_ts_path(const char *path, char *app, char *stream)
     return 1;
 }
 
-int zms_http_route_parse_vod_hls_path(const char *path, char *app, char *stream, char *rel,
+int zcs_http_route_parse_vod_hls_path(const char *path, char *app, char *stream, char *rel,
                                       size_t rel_cap)
 {
     char path_only[512];
@@ -364,17 +364,17 @@ int zms_http_route_parse_vod_hls_path(const char *path, char *app, char *stream,
         return 0;
     }
     alen = (size_t)(slash - p);
-    if (alen >= ZMS_APP_MAX) {
-        alen = ZMS_APP_MAX - 1;
+    if (alen >= ZCS_APP_MAX) {
+        alen = ZCS_APP_MAX - 1;
     }
     memcpy(app, p, alen);
     app[alen] = '\0';
-    if (!zms_vod_is_record_app(app)) {
+    if (!zcs_vod_is_record_app(app)) {
         return 0;
     }
 
     rel_part = slash + 1;
-    if (!rel_part[0] || !zms_vod_rel_path_safe(rel_part)) {
+    if (!rel_part[0] || !zcs_vod_rel_path_safe(rel_part)) {
         return 0;
     }
     rlen = strlen(rel_part);
@@ -385,7 +385,7 @@ int zms_http_route_parse_vod_hls_path(const char *path, char *app, char *stream,
     rel[rlen] = '\0';
 
     if (path_ends_with_ci(rel, ".m3u8")) {
-        if (!zms_vod_m3u8_rel_to_mp4_stream(rel, stream, ZMS_STREAM_MAX)) {
+        if (!zcs_vod_m3u8_rel_to_mp4_stream(rel, stream, ZCS_STREAM_MAX)) {
             return 0;
         }
         return 1;
@@ -456,7 +456,7 @@ static int parse_live_hls_ts_slash_name(const char *name, char *stream, char *fi
         return 0;
     }
     slen = (size_t)(slash - name);
-    if (slen == 0 || slen >= ZMS_STREAM_MAX) {
+    if (slen == 0 || slen >= ZCS_STREAM_MAX) {
         return 0;
     }
     memcpy(stream, name, slen);
@@ -483,7 +483,7 @@ static int parse_live_hls_init_name(const char *name, char *stream, char *file, 
     }
     nlen = strlen(name);
     slen = nlen - strlen(suffix);
-    if (slen == 0 || slen >= ZMS_STREAM_MAX) {
+    if (slen == 0 || slen >= ZCS_STREAM_MAX) {
         return 0;
     }
     memcpy(stream, name, slen);
@@ -528,7 +528,7 @@ static int parse_live_hls_m4s_name(const char *name, char *stream, char *file, s
     }
     {
         size_t slen = (size_t)(p - 1 - name);
-        if (slen == 0 || slen >= ZMS_STREAM_MAX) {
+        if (slen == 0 || slen >= ZCS_STREAM_MAX) {
             return 0;
         }
         memcpy(stream, name, slen);
@@ -577,7 +577,7 @@ static int parse_live_hls_ts_name(const char *name, char *stream, char *file, si
     }
     {
         size_t slen = (size_t)(p - 1 - name);
-        if (slen == 0 || slen >= ZMS_STREAM_MAX) {
+        if (slen == 0 || slen >= ZCS_STREAM_MAX) {
             return 0;
         }
         memcpy(stream, name, slen);
@@ -617,7 +617,7 @@ static int hls_line_rewrite_map_uri(char *line, size_t cap, const char *prefix, 
 {
     const char *uri = strstr(line, "URI=\"");
     char *end;
-    char new_uri[ZMS_APP_MAX + 1 + ZMS_STREAM_MAX + 32];
+    char new_uri[ZCS_APP_MAX + 1 + ZCS_STREAM_MAX + 32];
     size_t uri_len;
     int n;
 
@@ -650,10 +650,10 @@ static int hls_line_rewrite_map_uri(char *line, size_t cap, const char *prefix, 
  * {app}/{stream}.{N}.ts 的解析分支。
  * #EXT-X-MAP 内的 init 分片 URI 也要改，否则 fMP4 拿不到初始化段。
  */
-size_t zms_http_route_rewrite_live_hls_m3u8(char *buf, size_t cap, const char *app,
+size_t zcs_http_route_rewrite_live_hls_m3u8(char *buf, size_t cap, const char *app,
                                             const char *stream)
 {
-    char prefix[ZMS_APP_MAX + 1 + ZMS_STREAM_MAX + 2];
+    char prefix[ZCS_APP_MAX + 1 + ZCS_STREAM_MAX + 2];
     char *tmp;
     size_t tmp_cap;
     const char *read;
@@ -803,10 +803,10 @@ static int vod_hls_line_is_seg_uri(const char *line, size_t len)
  * 与直播版的关键差异：前缀要带上 m3u8 自身的子目录（dir），因为点播
  * playlist 与分片可能不在根目录下；只补 /{app}/ 会丢掉中间的路径层级。
  */
-size_t zms_http_route_rewrite_vod_hls_m3u8(char *buf, size_t cap, const char *app,
+size_t zcs_http_route_rewrite_vod_hls_m3u8(char *buf, size_t cap, const char *app,
                                            const char *m3u8_rel)
 {
-    char prefix[ZMS_CFG_PATH_MAX];
+    char prefix[ZCS_CFG_PATH_MAX];
     char *tmp;
     size_t tmp_cap;
     const char *read;
@@ -815,7 +815,7 @@ size_t zms_http_route_rewrite_vod_hls_m3u8(char *buf, size_t cap, const char *ap
     size_t prefix_len;
     size_t out_len = 0;
     const char *dir = "";
-    char dirbuf[ZMS_STREAM_MAX];
+    char dirbuf[ZCS_STREAM_MAX];
     const char *slash;
     int n;
 
@@ -921,11 +921,11 @@ size_t zms_http_route_rewrite_vod_hls_m3u8(char *buf, size_t cap, const char *ap
 
 /*
  * 解析直播 HLS 路径。开头先挡掉点播 app 下的 *.m3u8/*.ts：点播 HLS 由
- * zms_http_route_parse_vod_hls_path 处理（需要额外返回 rel 供读盘），这里的
+ * zcs_http_route_parse_vod_hls_path 处理（需要额外返回 rel 供读盘），这里的
  * 直播解析器一旦放到点播 app 上会把文件路径错当流名，故提前返回 0。
  * 之后按 ZLM 兼容 → {stream}.m3u8 → 数字分片/init 的优先级依次尝试。
  */
-int zms_http_route_parse_hls_path(const char *path, char *app, char *stream, char *file,
+int zcs_http_route_parse_hls_path(const char *path, char *app, char *stream, char *file,
                                   size_t file_cap)
 {
     char path_only[512];
@@ -961,14 +961,14 @@ int zms_http_route_parse_hls_path(const char *path, char *app, char *stream, cha
         const char *pp = path_only + 1;
         const char *ps = strchr(pp, '/');
         if (ps) {
-            char app_probe[ZMS_APP_MAX];
+            char app_probe[ZCS_APP_MAX];
             size_t alen = (size_t)(ps - pp);
-            if (alen >= ZMS_APP_MAX) {
-                alen = ZMS_APP_MAX - 1;
+            if (alen >= ZCS_APP_MAX) {
+                alen = ZCS_APP_MAX - 1;
             }
             memcpy(app_probe, pp, alen);
             app_probe[alen] = '\0';
-            if (zms_vod_is_record_app(app_probe)) {
+            if (zcs_vod_is_record_app(app_probe)) {
                 const char *tail = ps + 1;
                 if (path_ends_with_ci(tail, ".m3u8") || path_ends_with_ci(tail, ".ts")) {
                     return 0;
@@ -984,13 +984,13 @@ int zms_http_route_parse_hls_path(const char *path, char *app, char *stream, cha
     }
     {
         size_t alen = (size_t)(slash - p);
-        if (alen >= ZMS_APP_MAX) {
-            alen = ZMS_APP_MAX - 1;
+        if (alen >= ZCS_APP_MAX) {
+            alen = ZCS_APP_MAX - 1;
         }
         memcpy(app, p, alen);
         app[alen] = '\0';
     }
-    if (zms_vod_is_record_app(app)) {
+    if (zcs_vod_is_record_app(app)) {
         return 0;
     }
 
@@ -1003,7 +1003,7 @@ int zms_http_route_parse_hls_path(const char *path, char *app, char *stream, cha
     if (path_ends_with_ci(name, "/hls.m3u8")) {
         size_t nlen = strlen(name);
         size_t slen = nlen - 9;
-        if (slen == 0 || slen >= ZMS_STREAM_MAX) {
+        if (slen == 0 || slen >= ZCS_STREAM_MAX) {
             return 0;
         }
         memcpy(stream, name, slen);
@@ -1017,7 +1017,7 @@ int zms_http_route_parse_hls_path(const char *path, char *app, char *stream, cha
     /* 直播：{app}/{stream}.m3u8（stream 可含 /）*/
     if (path_ends_with_ci(name, ".m3u8")) {
         size_t slen = strlen(name) - 5;
-        if (slen == 0 || slen >= ZMS_STREAM_MAX) {
+        if (slen == 0 || slen >= ZCS_STREAM_MAX) {
             return 0;
         }
         memcpy(stream, name, slen);
@@ -1047,10 +1047,10 @@ int zms_http_route_parse_hls_path(const char *path, char *app, char *stream, cha
 
 /*
  * 解析点播 MP4 直连路径 {app}/{stream}.mp4（HTTP 直接播 mp4 文件）。
- * 最后一步 zms_vod_rel_path_safe 是安全闸：stream 直接来自 URL，必须挡掉
+ * 最后一步 zcs_vod_rel_path_safe 是安全闸：stream 直接来自 URL，必须挡掉
  * ".." 与绝对路径，否则可穿越到 record_root 之外读任意文件。
  */
-int zms_http_route_parse_mp4_path(const char *path, char *app, char *stream)
+int zcs_http_route_parse_mp4_path(const char *path, char *app, char *stream)
 {
     char path_only[512];
     const char *q;
@@ -1089,8 +1089,8 @@ int zms_http_route_parse_mp4_path(const char *path, char *app, char *stream)
 
     {
         size_t alen = (size_t)(slash - p);
-        if (alen >= ZMS_APP_MAX) {
-            alen = ZMS_APP_MAX - 1;
+        if (alen >= ZCS_APP_MAX) {
+            alen = ZCS_APP_MAX - 1;
         }
         memcpy(app, p, alen);
         app[alen] = '\0';
@@ -1101,12 +1101,12 @@ int zms_http_route_parse_mp4_path(const char *path, char *app, char *stream)
         return 0;
     }
     slen = strlen(name);
-    if (slen >= ZMS_STREAM_MAX) {
-        slen = ZMS_STREAM_MAX - 1;
+    if (slen >= ZCS_STREAM_MAX) {
+        slen = ZCS_STREAM_MAX - 1;
     }
     memcpy(stream, name, slen);
     stream[slen] = '\0';
-    if (!zms_vod_rel_path_safe(stream)) {
+    if (!zcs_vod_rel_path_safe(stream)) {
         return 0;
     }
     return 1;
@@ -1170,7 +1170,7 @@ static int dash_flat_stream_from_fname(const char *fname, char *stream, size_t s
  * mpd / m4s / m4v / m4a；不支持嵌套子目录是刻意的——DASH 分片以扁平文件名
  * 平铺，出现子目录说明不是本端生成的布局。点播 app 一律拒绝（DASH 只做直播）。
  */
-int zms_http_route_parse_dash_path(const char *path, char *app, char *stream, char *file,
+int zcs_http_route_parse_dash_path(const char *path, char *app, char *stream, char *file,
                                    size_t file_cap)
 {
     char path_only[512];
@@ -1208,13 +1208,13 @@ int zms_http_route_parse_dash_path(const char *path, char *app, char *stream, ch
     }
     {
         size_t alen = (size_t)(slash - p);
-        if (alen >= ZMS_APP_MAX) {
-            alen = ZMS_APP_MAX - 1;
+        if (alen >= ZCS_APP_MAX) {
+            alen = ZCS_APP_MAX - 1;
         }
         memcpy(app, p, alen);
         app[alen] = '\0';
     }
-    if (zms_vod_is_record_app(app)) {
+    if (zcs_vod_is_record_app(app)) {
         return 0;
     }
 
@@ -1227,7 +1227,7 @@ int zms_http_route_parse_dash_path(const char *path, char *app, char *stream, ch
         !path_ends_with_ci(name, ".m4v") && !path_ends_with_ci(name, ".m4a")) {
         return 0;
     }
-    if (!dash_flat_stream_from_fname(name, stream, ZMS_STREAM_MAX)) {
+    if (!dash_flat_stream_from_fname(name, stream, ZCS_STREAM_MAX)) {
         return 0;
     }
     if (file_cap && file) {

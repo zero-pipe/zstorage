@@ -5,20 +5,20 @@
  *   demo_gb28181_device [--config config.ini] [--log file] [--seconds N]
  */
 #include "demo_server_runtime.h"
-#include "zms/device/gb28181/gb28181.h"
-#include "zms/device/gb28181/gb28181_platform.h"
-#include "zms/egress/recorder/egress_mp4_recorder.h"
-#include "zms/session/http/http_server.h"
-#include "zms/session/rtmp/rtmp_server.h"
+#include "zcs/device/gb28181/gb28181.h"
+#include "zcs/device/gb28181/gb28181_platform.h"
+#include "zcs/egress/recorder/egress_mp4_recorder.h"
+#include "zcs/session/http/http_server.h"
+#include "zcs/session/rtmp/rtmp_server.h"
 #include "zn/util/log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static zms_gb28181_opts gb_opts_from_cfg(const zms_config *cfg)
+static zcs_gb28181_opts gb_opts_from_cfg(const zcs_config *cfg)
 {
-    zms_gb28181_opts o;
+    zcs_gb28181_opts o;
 
     memset(&o, 0, sizeof(o));
     o.platform_id = cfg->gb28181.platform_id;
@@ -49,54 +49,54 @@ static zms_gb28181_opts gb_opts_from_cfg(const zms_config *cfg)
 
 int main(int argc, char **argv)
 {
-    zms_demo_server_args args;
-    zms_demo_server_runtime rt;
-    zms_http_server *http = NULL;
-    zms_rtmp_server *rtmp = NULL;
-    zms_gb28181_opts gopts;
+    zcs_demo_server_args args;
+    zcs_demo_server_runtime rt;
+    zcs_http_server *http = NULL;
+    zcs_rtmp_server *rtmp = NULL;
+    zcs_gb28181_opts gopts;
 
-    zms_demo_server_args_default(&args);
-    if (zms_demo_server_parse_args(argc, argv, &args) != 0) {
-        zms_demo_server_print_usage(argv[0], "");
+    zcs_demo_server_args_default(&args);
+    if (zcs_demo_server_parse_args(argc, argv, &args) != 0) {
+        zcs_demo_server_print_usage(argv[0], "");
         return 1;
     }
-    if (zms_demo_server_runtime_init(&rt, &args) != ZN_OK) {
+    if (zcs_demo_server_runtime_init(&rt, &args) != ZN_OK) {
         return 1;
     }
-    zms_mp4_recorder_configure(&rt.cfg.record);
+    zcs_mp4_recorder_configure(&rt.cfg.record);
 
     {
-        zms_http_server_opts hopts;
+        zcs_http_server_opts hopts;
         memset(&hopts, 0, sizeof(hopts));
         hopts.poller_pool = rt.poller_pool;
         hopts.host = "0.0.0.0";
         hopts.port = (uint16_t)rt.cfg.http.port;
         hopts.api_secret = rt.cfg.http.api_secret;
         hopts.cfg = &rt.cfg;
-        http = zms_http_server_create(&hopts);
-        if (!http || zms_http_server_start(http) != ZN_OK) {
+        http = zcs_http_server_create(&hopts);
+        if (!http || zcs_http_server_start(http) != ZN_OK) {
             zn_error("HTTP service start failed");
             goto done;
         }
-        printf("HTTP API listen %u\r\n", (unsigned)zms_http_server_port(http));
+        printf("HTTP API listen %u\r\n", (unsigned)zcs_http_server_port(http));
     }
 
     {
-        zms_rtmp_server_opts ropts;
+        zcs_rtmp_server_opts ropts;
         memset(&ropts, 0, sizeof(ropts));
         ropts.poller_pool = rt.poller_pool;
         ropts.host = "0.0.0.0";
         ropts.port = (uint16_t)rt.cfg.rtmp.port;
-        rtmp = zms_rtmp_server_create(&ropts);
-        if (!rtmp || zms_rtmp_server_start(rtmp) != ZN_OK) {
+        rtmp = zcs_rtmp_server_create(&ropts);
+        if (!rtmp || zcs_rtmp_server_start(rtmp) != ZN_OK) {
             zn_error("RTMP service start failed");
             goto done;
         }
-        printf("RTMP listen %u\r\n", (unsigned)zms_rtmp_server_port(rtmp));
+        printf("RTMP listen %u\r\n", (unsigned)zcs_rtmp_server_port(rtmp));
     }
 
     if (rt.cfg.gb28181_platform.enable) {
-        zms_gb28181_platform_opts popts;
+        zcs_gb28181_platform_opts popts;
         memset(&popts, 0, sizeof(popts));
         popts.id = rt.cfg.gb28181_platform.id;
         popts.domain = rt.cfg.gb28181_platform.domain;
@@ -111,7 +111,7 @@ int main(int argc, char **argv)
         popts.keepalive_timeout_sec = rt.cfg.gb28181_platform.keepalive_timeout_sec;
         popts.media_vhost = rt.cfg.gb28181_platform.media_vhost;
         popts.media_app = rt.cfg.gb28181_platform.media_app;
-        if (zms_gb28181_platform_start(&popts) != 0) {
+        if (zcs_gb28181_platform_start(&popts) != 0) {
             zn_warn("GB28181 platform start failed");
         }
     }
@@ -119,24 +119,24 @@ int main(int argc, char **argv)
     if (rt.cfg.gb28181.enable) {
         gopts = gb_opts_from_cfg(&rt.cfg);
         gopts.poller_pool = rt.poller_pool;
-        if (zms_gb28181_start(&gopts) != 0) {
+        if (zcs_gb28181_start(&gopts) != 0) {
             zn_warn("GB28181 device start failed");
         }
     }
 
-    zms_demo_server_runtime_wait(&rt, args.seconds);
+    zcs_demo_server_runtime_wait(&rt, args.seconds);
 
 done:
-    zms_gb28181_stop();
-    zms_gb28181_platform_stop();
+    zcs_gb28181_stop();
+    zcs_gb28181_platform_stop();
     if (rtmp) {
-        zms_rtmp_server_stop(rtmp);
-        zms_rtmp_server_destroy(rtmp);
+        zcs_rtmp_server_stop(rtmp);
+        zcs_rtmp_server_destroy(rtmp);
     }
     if (http) {
-        zms_http_server_stop(http);
-        zms_http_server_destroy(http);
+        zcs_http_server_stop(http);
+        zcs_http_server_destroy(http);
     }
-    zms_demo_server_runtime_fini(&rt);
+    zcs_demo_server_runtime_fini(&rt);
     return 0;
 }

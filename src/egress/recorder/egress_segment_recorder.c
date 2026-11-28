@@ -2,44 +2,44 @@
  * @file egress_segment_recorder.c
  * @brief 分段录制器（HLS/DASH 分片落盘）。
  */
-#include "zms/egress/recorder/egress_segment_recorder.h"
+#include "zcs/egress/recorder/egress_segment_recorder.h"
 #include "zn/util/log.h"
 #include <stdlib.h>
 #include <string.h>
 
-#define ZMS_SEGMENT_OPS_MAX 8
-#define ZMS_SEGMENT_REC_SLOTS 4
-#define ZMS_SEGMENT_REC_NAME_MAX 16
+#define ZCS_SEGMENT_OPS_MAX 8
+#define ZCS_SEGMENT_REC_SLOTS 4
+#define ZCS_SEGMENT_REC_NAME_MAX 16
 
-typedef struct zms_segment_rec_slot {
-    char name[ZMS_SEGMENT_REC_NAME_MAX];
+typedef struct zcs_segment_rec_slot {
+    char name[ZCS_SEGMENT_REC_NAME_MAX];
     void *rec;
-} zms_segment_rec_slot;
+} zcs_segment_rec_slot;
 
-typedef struct zms_segment_sidecar {
-    zms_segment_rec_slot slots[ZMS_SEGMENT_REC_SLOTS];
-} zms_segment_sidecar;
+typedef struct zcs_segment_sidecar {
+    zcs_segment_rec_slot slots[ZCS_SEGMENT_REC_SLOTS];
+} zcs_segment_sidecar;
 
-static const zms_segment_recorder_ops *g_ops[ZMS_SEGMENT_OPS_MAX];
+static const zcs_segment_recorder_ops *g_ops[ZCS_SEGMENT_OPS_MAX];
 static int g_ops_count;
 
-static zms_segment_sidecar *segment_sidecar_get(const zms_media_source *src)
+static zcs_segment_sidecar *segment_sidecar_get(const zcs_media_source *src)
 {
-    return src ? (zms_segment_sidecar *)src->segment_sidecar : NULL;
+    return src ? (zcs_segment_sidecar *)src->segment_sidecar : NULL;
 }
 
-static zms_segment_sidecar *segment_sidecar_ensure(zms_media_source *src)
+static zcs_segment_sidecar *segment_sidecar_ensure(zcs_media_source *src)
 {
-    zms_segment_sidecar *bag;
+    zcs_segment_sidecar *bag;
 
     if (!src) {
         return NULL;
     }
-    bag = (zms_segment_sidecar *)src->segment_sidecar;
+    bag = (zcs_segment_sidecar *)src->segment_sidecar;
     if (bag) {
         return bag;
     }
-    bag = (zms_segment_sidecar *)calloc(1, sizeof(*bag));
+    bag = (zcs_segment_sidecar *)calloc(1, sizeof(*bag));
     if (!bag) {
         return NULL;
     }
@@ -47,16 +47,16 @@ static zms_segment_sidecar *segment_sidecar_ensure(zms_media_source *src)
     return bag;
 }
 
-static void segment_sidecar_free_if_empty(zms_media_source *src)
+static void segment_sidecar_free_if_empty(zcs_media_source *src)
 {
-    zms_segment_sidecar *bag;
+    zcs_segment_sidecar *bag;
     int i;
 
     if (!src || !src->segment_sidecar) {
         return;
     }
-    bag = (zms_segment_sidecar *)src->segment_sidecar;
-    for (i = 0; i < ZMS_SEGMENT_REC_SLOTS; ++i) {
+    bag = (zcs_segment_sidecar *)src->segment_sidecar;
+    for (i = 0; i < ZCS_SEGMENT_REC_SLOTS; ++i) {
         if (bag->slots[i].rec && bag->slots[i].name[0]) {
             return;
         }
@@ -65,7 +65,7 @@ static void segment_sidecar_free_if_empty(zms_media_source *src)
     src->segment_sidecar = NULL;
 }
 
-void zms_segment_recorder_register(const zms_segment_recorder_ops *ops)
+void zcs_segment_recorder_register(const zcs_segment_recorder_ops *ops)
 {
     int i;
 
@@ -78,13 +78,13 @@ void zms_segment_recorder_register(const zms_segment_recorder_ops *ops)
             return;
         }
     }
-    if (g_ops_count >= ZMS_SEGMENT_OPS_MAX) {
+    if (g_ops_count >= ZCS_SEGMENT_OPS_MAX) {
         return;
     }
     g_ops[g_ops_count++] = ops;
 }
 
-const zms_segment_recorder_ops *zms_segment_recorder_find_ops(const char *name)
+const zcs_segment_recorder_ops *zcs_segment_recorder_find_ops(const char *name)
 {
     int i;
 
@@ -99,16 +99,16 @@ const zms_segment_recorder_ops *zms_segment_recorder_find_ops(const char *name)
     return NULL;
 }
 
-void *zms_media_source_segment_rec_get(const zms_media_source *src, const char *name)
+void *zcs_media_source_segment_rec_get(const zcs_media_source *src, const char *name)
 {
-    zms_segment_sidecar *bag;
+    zcs_segment_sidecar *bag;
     int i;
 
     bag = segment_sidecar_get(src);
     if (!bag || !name || !name[0]) {
         return NULL;
     }
-    for (i = 0; i < ZMS_SEGMENT_REC_SLOTS; ++i) {
+    for (i = 0; i < ZCS_SEGMENT_REC_SLOTS; ++i) {
         if (bag->slots[i].rec && bag->slots[i].name[0] &&
             strcmp(bag->slots[i].name, name) == 0) {
             return bag->slots[i].rec;
@@ -117,16 +117,16 @@ void *zms_media_source_segment_rec_get(const zms_media_source *src, const char *
     return NULL;
 }
 
-zn_err_t zms_media_source_segment_rec_set(zms_media_source *src, const char *name, void *rec)
+zn_err_t zcs_media_source_segment_rec_set(zcs_media_source *src, const char *name, void *rec)
 {
-    zms_segment_sidecar *bag;
+    zcs_segment_sidecar *bag;
     int i;
     int free_slot = -1;
 
     if (!src || !name || !name[0]) {
         return ZN_ERR_INVALID;
     }
-    if (strlen(name) >= ZMS_SEGMENT_REC_NAME_MAX) {
+    if (strlen(name) >= ZCS_SEGMENT_REC_NAME_MAX) {
         return ZN_ERR_INVALID;
     }
 
@@ -141,7 +141,7 @@ zn_err_t zms_media_source_segment_rec_set(zms_media_source *src, const char *nam
         }
     }
 
-    for (i = 0; i < ZMS_SEGMENT_REC_SLOTS; ++i) {
+    for (i = 0; i < ZCS_SEGMENT_REC_SLOTS; ++i) {
         if (bag->slots[i].name[0] && strcmp(bag->slots[i].name, name) == 0) {
             bag->slots[i].rec = rec;
             if (!rec) {
@@ -168,10 +168,10 @@ zn_err_t zms_media_source_segment_rec_set(zms_media_source *src, const char *nam
     return ZN_OK;
 }
 
-zn_err_t zms_segment_recorder_create_live(zms_media_source *src, const char *name,
+zn_err_t zcs_segment_recorder_create_live(zcs_media_source *src, const char *name,
                                            const void *opts)
 {
-    const zms_segment_recorder_ops *ops;
+    const zcs_segment_recorder_ops *ops;
     void *rec = NULL;
     zn_err_t err;
 
@@ -185,11 +185,11 @@ zn_err_t zms_segment_recorder_create_live(zms_media_source *src, const char *nam
     if (!src->gop_queue) {
         return ZN_ERR_INVALID;
     }
-    if (zms_media_source_segment_rec_get(src, name)) {
+    if (zcs_media_source_segment_rec_get(src, name)) {
         return ZN_OK;
     }
 
-    ops = zms_segment_recorder_find_ops(name);
+    ops = zcs_segment_recorder_find_ops(name);
     if (!ops || !ops->create_live) {
         return ZN_ERR_INVALID;
     }
@@ -199,7 +199,7 @@ zn_err_t zms_segment_recorder_create_live(zms_media_source *src, const char *nam
         return err != ZN_OK ? err : ZN_ERR_INVALID;
     }
 
-    if (zms_media_source_segment_rec_set(src, name, rec) != ZN_OK) {
+    if (zcs_media_source_segment_rec_set(src, name, rec) != ZN_OK) {
         if (ops->destroy) {
             ops->destroy(rec);
         }
@@ -208,29 +208,29 @@ zn_err_t zms_segment_recorder_create_live(zms_media_source *src, const char *nam
     return ZN_OK;
 }
 
-void zms_segment_recorder_destroy_live(zms_media_source *src, const char *name)
+void zcs_segment_recorder_destroy_live(zcs_media_source *src, const char *name)
 {
-    const zms_segment_recorder_ops *ops;
+    const zcs_segment_recorder_ops *ops;
     void *rec;
 
     if (!src || !name) {
         return;
     }
-    rec = zms_media_source_segment_rec_get(src, name);
+    rec = zcs_media_source_segment_rec_get(src, name);
     if (!rec) {
         return;
     }
-    (void)zms_media_source_segment_rec_set(src, name, NULL);
-    ops = zms_segment_recorder_find_ops(name);
+    (void)zcs_media_source_segment_rec_set(src, name, NULL);
+    ops = zcs_segment_recorder_find_ops(name);
     if (ops && ops->destroy) {
         ops->destroy(rec);
     }
 }
 
-void zms_segment_recorder_destroy_all(zms_media_source *src)
+void zcs_segment_recorder_destroy_all(zcs_media_source *src)
 {
-    zms_segment_sidecar *bag;
-    char names[ZMS_SEGMENT_REC_SLOTS][ZMS_SEGMENT_REC_NAME_MAX];
+    zcs_segment_sidecar *bag;
+    char names[ZCS_SEGMENT_REC_SLOTS][ZCS_SEGMENT_REC_NAME_MAX];
     int n = 0;
     int i;
 
@@ -241,19 +241,19 @@ void zms_segment_recorder_destroy_all(zms_media_source *src)
     if (!bag) {
         return;
     }
-    for (i = 0; i < ZMS_SEGMENT_REC_SLOTS; ++i) {
+    for (i = 0; i < ZCS_SEGMENT_REC_SLOTS; ++i) {
         if (bag->slots[i].rec && bag->slots[i].name[0]) {
-            strncpy(names[n], bag->slots[i].name, ZMS_SEGMENT_REC_NAME_MAX - 1);
-            names[n][ZMS_SEGMENT_REC_NAME_MAX - 1] = '\0';
+            strncpy(names[n], bag->slots[i].name, ZCS_SEGMENT_REC_NAME_MAX - 1);
+            names[n][ZCS_SEGMENT_REC_NAME_MAX - 1] = '\0';
             ++n;
         }
     }
     for (i = 0; i < n; ++i) {
-        zms_segment_recorder_destroy_live(src, names[i]);
+        zcs_segment_recorder_destroy_live(src, names[i]);
     }
 }
 
-zn_err_t zms_segment_recorder_ensure_live(zms_media_source *src, const char *name,
+zn_err_t zcs_segment_recorder_ensure_live(zcs_media_source *src, const char *name,
                                            zn_poller *poller, const void *opts)
 {
     zn_err_t err;
@@ -261,66 +261,66 @@ zn_err_t zms_segment_recorder_ensure_live(zms_media_source *src, const char *nam
     if (!src || !name) {
         return ZN_ERR_INVALID;
     }
-    /* 内建由 zms_modules_register_all() 注册（组合根）。 */
-    if (!zms_media_source_segment_rec_get(src, name)) {
-        err = zms_segment_recorder_create_live(src, name, opts);
+    /* 内建由 zcs_modules_register_all() 注册（组合根）。 */
+    if (!zcs_media_source_segment_rec_get(src, name)) {
+        err = zcs_segment_recorder_create_live(src, name, opts);
         if (err != ZN_OK) {
             return err;
         }
     }
-    zms_segment_recorder_bind_timer(src, name, poller);
-    return zms_media_source_segment_rec_get(src, name) ? ZN_OK : ZN_ERR_INVALID;
+    zcs_segment_recorder_bind_timer(src, name, poller);
+    return zcs_media_source_segment_rec_get(src, name) ? ZN_OK : ZN_ERR_INVALID;
 }
 
-void zms_segment_recorder_bind_timer(zms_media_source *src, const char *name, zn_poller *poller)
+void zcs_segment_recorder_bind_timer(zcs_media_source *src, const char *name, zn_poller *poller)
 {
-    const zms_segment_recorder_ops *ops;
+    const zcs_segment_recorder_ops *ops;
     void *rec;
 
     if (!src || !name || !poller) {
         return;
     }
-    rec = zms_media_source_segment_rec_get(src, name);
+    rec = zcs_media_source_segment_rec_get(src, name);
     if (!rec) {
         return;
     }
-    ops = zms_segment_recorder_find_ops(name);
+    ops = zcs_segment_recorder_find_ops(name);
     if (ops && ops->bind_timer) {
         ops->bind_timer(rec, poller);
     }
 }
 
-void zms_segment_recorder_tick(zms_media_source *src, const char *name)
+void zcs_segment_recorder_tick(zcs_media_source *src, const char *name)
 {
-    const zms_segment_recorder_ops *ops;
+    const zcs_segment_recorder_ops *ops;
     void *rec;
 
     if (!src || !name) {
         return;
     }
-    rec = zms_media_source_segment_rec_get(src, name);
+    rec = zcs_media_source_segment_rec_get(src, name);
     if (!rec) {
         return;
     }
-    ops = zms_segment_recorder_find_ops(name);
+    ops = zcs_segment_recorder_find_ops(name);
     if (ops && ops->tick) {
         ops->tick(rec);
     }
 }
 
-void zms_segment_recorder_touch(zms_media_source *src, const char *name)
+void zcs_segment_recorder_touch(zcs_media_source *src, const char *name)
 {
-    const zms_segment_recorder_ops *ops;
+    const zcs_segment_recorder_ops *ops;
     void *rec;
 
     if (!src || !name) {
         return;
     }
-    rec = zms_media_source_segment_rec_get(src, name);
+    rec = zcs_media_source_segment_rec_get(src, name);
     if (!rec) {
         return;
     }
-    ops = zms_segment_recorder_find_ops(name);
+    ops = zcs_segment_recorder_find_ops(name);
     if (ops && ops->touch) {
         ops->touch(rec);
     }

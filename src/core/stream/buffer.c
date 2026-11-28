@@ -14,11 +14,11 @@
  *
  * Copyright (c) zero-media-server
  */
-#include "zms/core/stream/buffer.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/core/frame.h"
-#include "zms/util/buf_pool.h"
+#include "zcs/core/stream/buffer.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/core/frame.h"
+#include "zcs/util/buf_pool.h"
 #include "zn/poller/poller.h"
 #include "zb/os/sync.h"
 #include "zn/util/log.h"
@@ -29,15 +29,15 @@ typedef struct {
     uint8_t *data;
     size_t cap;
     size_t len;
-    zms_codec_id codec;
-    zms_track_type track;
+    zcs_codec_id codec;
+    zcs_track_type track;
     uint32_t dts_ms;
     uint32_t pts_ms;
     int keyframe;
     int config_frame;
 } vod_slot;
 
-struct zms_vod_buffer {
+struct zcs_vod_buffer {
     vod_slot *slots;
     size_t cap;
     uint64_t write_seq;
@@ -48,23 +48,23 @@ struct zms_vod_buffer {
     /* config 与直播 gop_queue 一致，使用定长双缓冲：返回给读侧的指针始终落在
      * 缓冲体内，只会随 point-play 源一起释放；不会因重开/更新配置变成悬空指针
      * （点播解复用线程写、播放/egress 线程读是跨线程的）。 */
-    uint8_t video_config[2][ZMS_VOD_BUFFER_CONFIG_MAX];
+    uint8_t video_config[2][ZCS_VOD_BUFFER_CONFIG_MAX];
     size_t video_config_len;
     unsigned video_config_active;
-    uint8_t audio_config[2][ZMS_VOD_BUFFER_CONFIG_MAX];
+    uint8_t audio_config[2][ZCS_VOD_BUFFER_CONFIG_MAX];
     size_t audio_config_len;
     unsigned audio_config_active;
     zb_mutex *mtx;
 };
 
-struct zms_vod_buffer_reader {
-    zms_vod_buffer *fifo;
+struct zcs_vod_buffer_reader {
+    zcs_vod_buffer *fifo;
     uint64_t read_seq;
     uint64_t generation;
 };
 
 /* 写 config 到非活动缓冲再切换（调用方持 mtx），与 gop_queue 的 set_blob 语义一致。 */
-static int set_blob(uint8_t (*bufs)[ZMS_VOD_BUFFER_CONFIG_MAX], unsigned *active, size_t *len,
+static int set_blob(uint8_t (*bufs)[ZCS_VOD_BUFFER_CONFIG_MAX], unsigned *active, size_t *len,
                     const void *data, size_t data_len)
 {
     unsigned next;
@@ -76,7 +76,7 @@ static int set_blob(uint8_t (*bufs)[ZMS_VOD_BUFFER_CONFIG_MAX], unsigned *active
         *len = 0;
         return 0;
     }
-    if (data_len > ZMS_VOD_BUFFER_CONFIG_MAX) {
+    if (data_len > ZCS_VOD_BUFFER_CONFIG_MAX) {
         return -1;
     }
     next = *active ^ 1u;
@@ -91,24 +91,24 @@ static void slot_clear(vod_slot *s)
     if (!s) {
         return;
     }
-    zms_buf_pool_slot_clear(&s->data, &s->cap);
+    zcs_buf_pool_slot_clear(&s->data, &s->cap);
     s->len = 0;
-    s->codec = ZMS_CODEC_INVALID;
-    s->track = ZMS_TRACK_INVALID;
+    s->codec = ZCS_CODEC_INVALID;
+    s->track = ZCS_TRACK_INVALID;
     s->dts_ms = 0;
     s->pts_ms = 0;
     s->keyframe = 0;
     s->config_frame = 0;
 }
 
-zms_vod_buffer *zms_vod_buffer_create(size_t cap)
+zcs_vod_buffer *zcs_vod_buffer_create(size_t cap)
 {
-    zms_vod_buffer *f;
+    zcs_vod_buffer *f;
 
     if (cap == 0) {
-        cap = ZMS_VOD_BUFFER_DEFAULT_CAP;
+        cap = ZCS_VOD_BUFFER_DEFAULT_CAP;
     }
-    f = (zms_vod_buffer *)calloc(1, sizeof(*f));
+    f = (zcs_vod_buffer *)calloc(1, sizeof(*f));
     if (!f) {
         return NULL;
     }
@@ -127,7 +127,7 @@ zms_vod_buffer *zms_vod_buffer_create(size_t cap)
     return f;
 }
 
-void zms_vod_buffer_destroy(zms_vod_buffer *fifo)
+void zcs_vod_buffer_destroy(zcs_vod_buffer *fifo)
 {
     size_t i;
 
@@ -148,7 +148,7 @@ void zms_vod_buffer_destroy(zms_vod_buffer *fifo)
     free(fifo);
 }
 
-static uint64_t min_read_seq_locked(const zms_vod_buffer *fifo)
+static uint64_t min_read_seq_locked(const zcs_vod_buffer *fifo)
 {
     return fifo ? fifo->consumed_seq : 0;
 }
@@ -161,7 +161,7 @@ static uint64_t min_read_seq_locked(const zms_vod_buffer *fifo)
  *      否则 resize+拷贝。失败时回滚 write_seq，保证 seq 与已写入数量一致。
  * 末尾的 oldest 清理只在“该槽确实已被挤出窗口”时清空，避免清掉仍可能被读的槽。
  */
-zn_err_t zms_vod_buffer_write(zms_vod_buffer *fifo, const zms_frame *frame)
+zn_err_t zcs_vod_buffer_write(zcs_vod_buffer *fifo, const zcs_frame *frame)
 {
     vod_slot *s;
     uint64_t seq;
@@ -186,7 +186,7 @@ zn_err_t zms_vod_buffer_write(zms_vod_buffer *fifo, const zms_frame *frame)
         s->cap = frame->capacity;
         s->len = frame->size;
     } else {
-        if (!zms_buf_pool_slot_resize(&s->data, &s->cap, frame->size)) {
+        if (!zcs_buf_pool_slot_resize(&s->data, &s->cap, frame->size)) {
             fifo->write_seq--;
             zb_mutex_unlock(fifo->mtx);
             return ZN_ERR_NOMEM;
@@ -196,7 +196,7 @@ zn_err_t zms_vod_buffer_write(zms_vod_buffer *fifo, const zms_frame *frame)
     }
     s->codec = frame->codec;
     s->track = frame->track;
-    zms_gop_queue_timeline_from_frame(frame, &s->dts_ms, &s->pts_ms);
+    zcs_gop_queue_timeline_from_frame(frame, &s->dts_ms, &s->pts_ms);
     s->keyframe = frame->keyframe;
     s->config_frame = frame->config_frame;
 
@@ -211,7 +211,7 @@ zn_err_t zms_vod_buffer_write(zms_vod_buffer *fifo, const zms_frame *frame)
     return ZN_OK;
 }
 
-zn_err_t zms_vod_buffer_set_video_config(zms_vod_buffer *fifo, const void *data, size_t len)
+zn_err_t zcs_vod_buffer_set_video_config(zcs_vod_buffer *fifo, const void *data, size_t len)
 {
     if (!fifo) {
         return ZN_ERR_INVALID;
@@ -226,7 +226,7 @@ zn_err_t zms_vod_buffer_set_video_config(zms_vod_buffer *fifo, const void *data,
     return ZN_OK;
 }
 
-zn_err_t zms_vod_buffer_set_audio_config(zms_vod_buffer *fifo, const void *data, size_t len)
+zn_err_t zcs_vod_buffer_set_audio_config(zcs_vod_buffer *fifo, const void *data, size_t len)
 {
     if (!fifo) {
         return ZN_ERR_INVALID;
@@ -241,7 +241,7 @@ zn_err_t zms_vod_buffer_set_audio_config(zms_vod_buffer *fifo, const void *data,
     return ZN_OK;
 }
 
-void zms_vod_buffer_reset(zms_vod_buffer *fifo)
+void zcs_vod_buffer_reset(zcs_vod_buffer *fifo)
 {
     size_t i;
 
@@ -261,7 +261,7 @@ void zms_vod_buffer_reset(zms_vod_buffer *fifo)
 /* 调用方持 fifo->mtx。seek 会 reset 整个 fifo（槽清空、seq 归零），附着其上的
  * 会话 reader 仍指向旧 read_seq，后续 peek 全读空槽：出站表现为 lag 满 + peek_fail
  * 刷屏且画面不动。发现代次变化时把游标重置到当前窗口最旧处。 */
-static void vod_buffer_reader_realign_locked(zms_vod_buffer_reader *rd)
+static void vod_buffer_reader_realign_locked(zcs_vod_buffer_reader *rd)
 {
     if (!rd || rd->generation == rd->fifo->generation) {
         return;
@@ -271,7 +271,7 @@ static void vod_buffer_reader_realign_locked(zms_vod_buffer_reader *rd)
         (rd->fifo->write_seq > rd->fifo->cap) ? (rd->fifo->write_seq - rd->fifo->cap) : 0;
 }
 
-void zms_vod_buffer_reader_seek_beginning(zms_vod_buffer_reader *rd)
+void zcs_vod_buffer_reader_seek_beginning(zcs_vod_buffer_reader *rd)
 {
     if (!rd || !rd->fifo) {
         return;
@@ -283,7 +283,7 @@ void zms_vod_buffer_reader_seek_beginning(zms_vod_buffer_reader *rd)
     zb_mutex_unlock(rd->fifo->mtx);
 }
 
-const uint8_t *zms_vod_buffer_video_config(const zms_vod_buffer *fifo, size_t *len)
+const uint8_t *zcs_vod_buffer_video_config(const zcs_vod_buffer *fifo, size_t *len)
 {
     if (!fifo) {
         return NULL;
@@ -294,7 +294,7 @@ const uint8_t *zms_vod_buffer_video_config(const zms_vod_buffer *fifo, size_t *l
     return fifo->video_config_len > 0 ? fifo->video_config[fifo->video_config_active] : NULL;
 }
 
-const uint8_t *zms_vod_buffer_audio_config(const zms_vod_buffer *fifo, size_t *len)
+const uint8_t *zcs_vod_buffer_audio_config(const zcs_vod_buffer *fifo, size_t *len)
 {
     if (!fifo) {
         return NULL;
@@ -305,7 +305,7 @@ const uint8_t *zms_vod_buffer_audio_config(const zms_vod_buffer *fifo, size_t *l
     return fifo->audio_config_len > 0 ? fifo->audio_config[fifo->audio_config_active] : NULL;
 }
 
-size_t zms_vod_buffer_pending(const zms_vod_buffer *fifo)
+size_t zcs_vod_buffer_pending(const zcs_vod_buffer *fifo)
 {
     size_t n;
 
@@ -318,12 +318,12 @@ size_t zms_vod_buffer_pending(const zms_vod_buffer *fifo)
     return n;
 }
 
-int zms_vod_buffer_has_h264_idr(const zms_vod_buffer *fifo)
+int zcs_vod_buffer_has_h264_idr(const zcs_vod_buffer *fifo)
 {
-    return zms_vod_buffer_has_video_sync_key(fifo);
+    return zcs_vod_buffer_has_video_sync_key(fifo);
 }
 
-int zms_vod_buffer_has_video_sync_key(const zms_vod_buffer *fifo)
+int zcs_vod_buffer_has_video_sync_key(const zcs_vod_buffer *fifo)
 {
     uint64_t seq;
     uint64_t oldest;
@@ -339,16 +339,16 @@ int zms_vod_buffer_has_video_sync_key(const zms_vod_buffer *fifo)
     oldest = (fifo->write_seq > fifo->cap) ? (fifo->write_seq - fifo->cap) : 0;
     for (seq = oldest; seq < fifo->write_seq; ++seq) {
         const vod_slot *s = &fifo->slots[seq % fifo->cap];
-        if (s->track != ZMS_TRACK_VIDEO || !s->data || s->len == 0) {
+        if (s->track != ZCS_TRACK_VIDEO || !s->data || s->len == 0) {
             continue;
         }
-        if (s->codec == ZMS_CODEC_H264 && (zms_h264_annexb_is_idr(s->data, s->len) ||
-                                           zms_h264_annexb_is_sync_key(s->data, s->len))) {
+        if (s->codec == ZCS_CODEC_H264 && (zcs_h264_annexb_is_idr(s->data, s->len) ||
+                                           zcs_h264_annexb_is_sync_key(s->data, s->len))) {
             zb_mutex_unlock(fifo->mtx);
             return 1;
         }
-        if (s->codec == ZMS_CODEC_H265 && (zms_h265_annexb_is_idr(s->data, s->len) ||
-                                           zms_h265_annexb_is_sync_key(s->data, s->len))) {
+        if (s->codec == ZCS_CODEC_H265 && (zcs_h265_annexb_is_idr(s->data, s->len) ||
+                                           zcs_h265_annexb_is_sync_key(s->data, s->len))) {
             zb_mutex_unlock(fifo->mtx);
             return 1;
         }
@@ -360,14 +360,14 @@ int zms_vod_buffer_has_video_sync_key(const zms_vod_buffer *fifo)
 /* 附加一个读取者。from_beginning=1 从当前窗口最旧处开始（回看/补关键帧），
  * 否则从 write_seq（最新）开始——播放起播通常要的是从某个关键帧开始的连续数据，
  * 由上层结合 seek_video_key 决定。 */
-zms_vod_buffer_reader *zms_vod_buffer_reader_attach(zms_vod_buffer *fifo, int from_beginning)
+zcs_vod_buffer_reader *zcs_vod_buffer_reader_attach(zcs_vod_buffer *fifo, int from_beginning)
 {
-    zms_vod_buffer_reader *rd;
+    zcs_vod_buffer_reader *rd;
 
     if (!fifo) {
         return NULL;
     }
-    rd = (zms_vod_buffer_reader *)calloc(1, sizeof(*rd));
+    rd = (zcs_vod_buffer_reader *)calloc(1, sizeof(*rd));
     if (!rd) {
         return NULL;
     }
@@ -383,12 +383,12 @@ zms_vod_buffer_reader *zms_vod_buffer_reader_attach(zms_vod_buffer *fifo, int fr
     return rd;
 }
 
-void zms_vod_buffer_reader_detach(zms_vod_buffer_reader *rd)
+void zcs_vod_buffer_reader_detach(zcs_vod_buffer_reader *rd)
 {
     free(rd);
 }
 
-static void vod_slot_to_ring_slot(const vod_slot *s, zms_gop_slot *slot)
+static void vod_slot_to_ring_slot(const vod_slot *s, zcs_gop_slot *slot)
 {
     if (!slot) {
         return;
@@ -413,7 +413,7 @@ static void vod_slot_to_ring_slot(const vod_slot *s, zms_gop_slot *slot)
  * 注意返回的 slot->data 指向槽内缓冲，锁释放后仍有效（槽在被覆盖前已被 consumed
  * 推进保护），但下次写到该槽就会被覆盖，调用方应尽快使用。
  */
-static int vod_buffer_reader_slot_at(zms_vod_buffer_reader *rd, zms_gop_slot *slot, int advance)
+static int vod_buffer_reader_slot_at(zcs_vod_buffer_reader *rd, zcs_gop_slot *slot, int advance)
 {
     const vod_slot *s;
     uint64_t seq;
@@ -450,7 +450,7 @@ static int vod_buffer_reader_slot_at(zms_vod_buffer_reader *rd, zms_gop_slot *sl
  * peek 那样直接给指针：调用方（出站 egress）需要一个可长期持有、且不会被后续写入
  * 覆盖的缓冲，所以借调用方提供的池化缓冲做一份稳定副本。pol 决定从本地池分配。
  */
-int zms_vod_buffer_reader_peek_muxed_es(zms_vod_buffer_reader *rd, zms_gop_slot *slot,
+int zcs_vod_buffer_reader_peek_muxed_es(zcs_vod_buffer_reader *rd, zcs_gop_slot *slot,
                                         uint8_t **es_buf, size_t *es_cap, zn_poller *pol)
 {
     const vod_slot *s;
@@ -477,11 +477,11 @@ int zms_vod_buffer_reader_peek_muxed_es(zms_vod_buffer_reader *rd, zms_gop_slot 
         return 0;
     }
     if (pol) {
-        if (!zms_buf_pool_slot_resize_poller(es_buf, es_cap, s->len, pol)) {
+        if (!zcs_buf_pool_slot_resize_poller(es_buf, es_cap, s->len, pol)) {
             zb_mutex_unlock(rd->fifo->mtx);
             return 0;
         }
-    } else if (!zms_buf_pool_slot_resize(es_buf, es_cap, s->len)) {
+    } else if (!zcs_buf_pool_slot_resize(es_buf, es_cap, s->len)) {
         zb_mutex_unlock(rd->fifo->mtx);
         return 0;
     }
@@ -493,17 +493,17 @@ int zms_vod_buffer_reader_peek_muxed_es(zms_vod_buffer_reader *rd, zms_gop_slot 
     return 1;
 }
 
-int zms_vod_buffer_reader_read_muxed(zms_vod_buffer_reader *rd, zms_gop_slot *slot)
+int zcs_vod_buffer_reader_read_muxed(zcs_vod_buffer_reader *rd, zcs_gop_slot *slot)
 {
     return vod_buffer_reader_slot_at(rd, slot, 1);
 }
 
-int zms_vod_buffer_reader_peek_muxed(zms_vod_buffer_reader *rd, zms_gop_slot *slot)
+int zcs_vod_buffer_reader_peek_muxed(zcs_vod_buffer_reader *rd, zcs_gop_slot *slot)
 {
     return vod_buffer_reader_slot_at(rd, slot, 0);
 }
 
-void zms_vod_buffer_reader_advance(zms_vod_buffer_reader *rd)
+void zcs_vod_buffer_reader_advance(zcs_vod_buffer_reader *rd)
 {
     if (!rd || !rd->fifo) {
         return;
@@ -522,7 +522,7 @@ void zms_vod_buffer_reader_advance(zms_vod_buffer_reader *rd)
 /* seek 到第一个视频关键帧（从当前 read_seq 往前找）。keyframe 标志优先，缺失时对
  * H264/H265 Annex-B 现探 sync；找到就把 read_seq 定位到该帧，保证后续从可解码的
  * IRAP/IDR 起播。找不到则保持原位。 */
-void zms_vod_buffer_reader_seek_video_key(zms_vod_buffer_reader *rd)
+void zcs_vod_buffer_reader_seek_video_key(zcs_vod_buffer_reader *rd)
 {
     uint64_t seq;
 
@@ -535,14 +535,14 @@ void zms_vod_buffer_reader_seek_video_key(zms_vod_buffer_reader *rd)
         const vod_slot *s = &rd->fifo->slots[seq % rd->fifo->cap];
         int sync = 0;
 
-        if (s->track != ZMS_TRACK_VIDEO || !s->data || s->len == 0) {
+        if (s->track != ZCS_TRACK_VIDEO || !s->data || s->len == 0) {
             continue;
         }
         sync = s->keyframe;
-        if (!sync && s->codec == ZMS_CODEC_H264) {
-            sync = zms_h264_annexb_is_sync_key(s->data, s->len);
-        } else if (!sync && s->codec == ZMS_CODEC_H265) {
-            sync = zms_h265_annexb_is_sync_key(s->data, s->len);
+        if (!sync && s->codec == ZCS_CODEC_H264) {
+            sync = zcs_h264_annexb_is_sync_key(s->data, s->len);
+        } else if (!sync && s->codec == ZCS_CODEC_H265) {
+            sync = zcs_h265_annexb_is_sync_key(s->data, s->len);
         }
         if (!sync) {
             continue;
@@ -559,7 +559,7 @@ void zms_vod_buffer_reader_seek_video_key(zms_vod_buffer_reader *rd)
  * 视频关键帧（seek_video_key）——精确到 ms 的帧未必是关键帧，无法独立解码。
  * out_ms 回报实际落点（关键帧的 dts），便于上层校正 UI/进度。返回 1 命中，0 未找到。
  */
-int zms_vod_buffer_reader_seek_ms(zms_vod_buffer_reader *rd, uint64_t ms, uint64_t *out_ms)
+int zcs_vod_buffer_reader_seek_ms(zcs_vod_buffer_reader *rd, uint64_t ms, uint64_t *out_ms)
 {
     uint64_t seq, oldest;
     const vod_slot *s;
@@ -588,10 +588,10 @@ int zms_vod_buffer_reader_seek_ms(zms_vod_buffer_reader *rd, uint64_t ms, uint64
                 *out_ms = s->dts_ms;
             }
             zb_mutex_unlock(rd->fifo->mtx);
-            zms_vod_buffer_reader_seek_video_key(rd);
+            zcs_vod_buffer_reader_seek_video_key(rd);
             if (out_ms) {
-                zms_gop_slot slot;
-                if (zms_vod_buffer_reader_peek_muxed(rd, &slot)) {
+                zcs_gop_slot slot;
+                if (zcs_vod_buffer_reader_peek_muxed(rd, &slot)) {
                     *out_ms = slot.dts_ms;
                 }
             }
@@ -602,7 +602,7 @@ int zms_vod_buffer_reader_seek_ms(zms_vod_buffer_reader *rd, uint64_t ms, uint64
     return 0;
 }
 
-size_t zms_vod_buffer_reader_lag(zms_vod_buffer_reader *rd)
+size_t zcs_vod_buffer_reader_lag(zcs_vod_buffer_reader *rd)
 {
     if (!rd || !rd->fifo) {
         return 0;

@@ -2,21 +2,21 @@
  * @file sidecar.c
  * @brief HLS 录制 sidecar 与定时器装配。
  */
-#include "zms/play/hls/sidecar.h"
-#include "zms/play/dash/sidecar.h"
-#include "zms/play/hls/segmenter.h"
+#include "zcs/play/hls/sidecar.h"
+#include "zcs/play/dash/sidecar.h"
+#include "zcs/play/hls/segmenter.h"
 #include "play/hls/hls_io.h"
-#include "zms/egress/recorder/egress_segment_recorder.h"
-#include "zms/core/stream/hub.h"
-#include "zms/vod/io/codec_ext.h"
+#include "zcs/egress/recorder/egress_segment_recorder.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/vod/io/codec_ext.h"
 #include "zn/util/log.h"
 #include <string.h>
 
-static zms_http_hls_opts g_hls;
+static zcs_http_hls_opts g_hls;
 static zn_poller *g_poller;
-static zms_media_events g_user_events;
+static zcs_media_events g_user_events;
 
-void zms_http_hls_default_opts(zms_http_hls_opts *opts)
+void zcs_http_hls_default_opts(zcs_http_hls_opts *opts)
 {
     if (!opts) {
         return;
@@ -31,19 +31,19 @@ void zms_http_hls_default_opts(zms_http_hls_opts *opts)
     opts->save_path[0] = 0;
 }
 
-static void hls_start_segmenter(const zms_media_tuple *tuple)
+static void hls_start_segmenter(const zcs_media_tuple *tuple)
 {
-    zms_http_hls_segmenter_opts ropts;
-    zms_media_source *src;
+    zcs_http_hls_segmenter_opts ropts;
+    zcs_media_source *src;
 
     if (!g_hls.enable || g_hls.demand || !tuple) {
         return;
     }
-    src = zms_media_source_find(tuple->schema, tuple->app, tuple->stream);
-    if (!src || zms_media_source_segment_rec_get(src, ZMS_SEGMENT_REC_HLS)) {
+    src = zcs_media_source_find(tuple->schema, tuple->app, tuple->stream);
+    if (!src || zcs_media_source_segment_rec_get(src, ZCS_SEGMENT_REC_HLS)) {
         return;
     }
-    if (zms_media_source_is_vod(src)) {
+    if (zcs_media_source_is_vod(src)) {
         return;
     }
 
@@ -52,33 +52,33 @@ static void hls_start_segmenter(const zms_media_tuple *tuple)
     ropts.enable_audio = g_hls.enable_audio;
     ropts.force_fmp4 = g_hls.force_fmp4;
     ropts.save_path = g_hls.save_path[0] ? g_hls.save_path : NULL;
-    (void)zms_segment_recorder_create_live(src, ZMS_SEGMENT_REC_HLS, &ropts);
+    (void)zcs_segment_recorder_create_live(src, ZCS_SEGMENT_REC_HLS, &ropts);
     if (g_poller) {
-        zms_segment_recorder_bind_timer(src, ZMS_SEGMENT_REC_HLS, g_poller);
+        zcs_segment_recorder_bind_timer(src, ZCS_SEGMENT_REC_HLS, g_poller);
     }
 }
 
-void zms_http_hls_bind_recorder_timer(zms_media_source *src, zn_poller *poller)
+void zcs_http_hls_bind_recorder_timer(zcs_media_source *src, zn_poller *poller)
 {
     (void)poller;
     if (!src) {
         return;
     }
-    zms_segment_recorder_bind_timer(src, ZMS_SEGMENT_REC_HLS, g_poller);
+    zcs_segment_recorder_bind_timer(src, ZCS_SEGMENT_REC_HLS, g_poller);
 }
 
-zn_poller *zms_http_hls_main_poller(void)
+zn_poller *zcs_http_hls_main_poller(void)
 {
     return g_poller;
 }
 
-void zms_http_hls_ensure_recorder(zms_media_source *src, zn_poller *poller)
+void zcs_http_hls_ensure_recorder(zcs_media_source *src, zn_poller *poller)
 {
-    zms_http_hls_segmenter_opts ropts;
+    zcs_http_hls_segmenter_opts ropts;
     zn_err_t err;
 
     (void)poller;
-    if (!src || zms_media_source_is_vod(src)) {
+    if (!src || zcs_media_source_is_vod(src)) {
         return;
     }
 
@@ -87,41 +87,41 @@ void zms_http_hls_ensure_recorder(zms_media_source *src, zn_poller *poller)
     ropts.enable_audio = g_hls.enable_audio;
     ropts.force_fmp4 = g_hls.force_fmp4;
     ropts.save_path = g_hls.save_path[0] ? g_hls.save_path : NULL;
-    err = zms_segment_recorder_ensure_live(src, ZMS_SEGMENT_REC_HLS, g_poller, &ropts);
+    err = zcs_segment_recorder_ensure_live(src, ZCS_SEGMENT_REC_HLS, g_poller, &ropts);
     if (err != ZN_OK) {
         zn_warn("HLS ensure recorder failed: %s/%s err=%d", src->app, src->stream, (int)err);
     }
 }
 
-static void hls_stop_segmenter(const zms_media_tuple *tuple)
+static void hls_stop_segmenter(const zcs_media_tuple *tuple)
 {
-    zms_media_source *src;
+    zcs_media_source *src;
 
     if (!tuple) {
         return;
     }
-    src = zms_media_source_find(tuple->schema, tuple->app, tuple->stream);
+    src = zcs_media_source_find(tuple->schema, tuple->app, tuple->stream);
     if (!src) {
         return;
     }
-    zms_segment_recorder_destroy_live(src, ZMS_SEGMENT_REC_HLS);
+    zcs_segment_recorder_destroy_live(src, ZCS_SEGMENT_REC_HLS);
 }
 
-static void dash_start_segmenter(const zms_media_tuple *tuple)
+static void dash_start_segmenter(const zcs_media_tuple *tuple)
 {
-    zms_media_source *src;
+    zcs_media_source *src;
 
     if (!tuple || g_hls.dash_demand) {
         return;
     }
-    src = zms_media_source_find(tuple->schema, tuple->app, tuple->stream);
-    if (!src || zms_media_source_is_vod(src) || !src->gop_queue) {
+    src = zcs_media_source_find(tuple->schema, tuple->app, tuple->stream);
+    if (!src || zcs_media_source_is_vod(src) || !src->gop_queue) {
         return;
     }
-    zms_http_dash_ensure_recorder(src, g_poller);
+    zcs_http_dash_ensure_recorder(src, g_poller);
 }
 
-static void on_publish_chain(const zms_media_tuple *tuple, zms_media_origin origin, void *user)
+static void on_publish_chain(const zcs_media_tuple *tuple, zcs_media_origin origin, void *user)
 {
     (void)user;
     hls_start_segmenter(tuple);
@@ -131,21 +131,21 @@ static void on_publish_chain(const zms_media_tuple *tuple, zms_media_origin orig
     }
 }
 
-static void dash_stop_segmenter(const zms_media_tuple *tuple)
+static void dash_stop_segmenter(const zcs_media_tuple *tuple)
 {
-    zms_media_source *src;
+    zcs_media_source *src;
 
     if (!tuple) {
         return;
     }
-    src = zms_media_source_find(tuple->schema, tuple->app, tuple->stream);
+    src = zcs_media_source_find(tuple->schema, tuple->app, tuple->stream);
     if (!src) {
         return;
     }
-    zms_segment_recorder_destroy_live(src, ZMS_SEGMENT_REC_DASH);
+    zcs_segment_recorder_destroy_live(src, ZCS_SEGMENT_REC_DASH);
 }
 
-static void on_publish_fini_chain(const zms_media_tuple *tuple, zms_media_origin origin, void *user)
+static void on_publish_fini_chain(const zcs_media_tuple *tuple, zcs_media_origin origin, void *user)
 {
     (void)user;
     hls_stop_segmenter(tuple);
@@ -155,36 +155,36 @@ static void on_publish_fini_chain(const zms_media_tuple *tuple, zms_media_origin
     }
 }
 
-void zms_http_hls_init(zn_poller *poller, const zms_http_hls_opts *hls,
-                       const zms_media_events *events, int none_reader_delay_ms)
+void zcs_http_hls_init(zn_poller *poller, const zcs_http_hls_opts *hls,
+                       const zcs_media_events *events, int none_reader_delay_ms)
 {
     if (hls) {
         g_hls = *hls;
     } else {
-        zms_http_hls_default_opts(&g_hls);
+        zcs_http_hls_default_opts(&g_hls);
     }
     g_poller = poller;
-    g_user_events = events ? *events : (zms_media_events){0};
+    g_user_events = events ? *events : (zcs_media_events){0};
 
-    zms_segment_recorder_register_builtins();
-    zms_vod_codec_ext_register_all();
+    zcs_segment_recorder_register_builtins();
+    zcs_vod_codec_ext_register_all();
     if (g_hls.enable)
-        zms_hls_io_init();
+        zcs_hls_io_init();
 
-    zms_media_events wrap = g_user_events;
+    zcs_media_events wrap = g_user_events;
     if (g_hls.enable) {
         wrap.on_media_publish = on_publish_chain;
         wrap.on_media_publish_fini = on_publish_fini_chain;
         zn_info("HLS enabled: seg=%.1fs count=%u audio=%d", g_hls.segment_duration_sec,
                  g_hls.segment_count, g_hls.enable_audio);
     }
-    zms_media_events_set(poller, &wrap, none_reader_delay_ms);
+    zcs_media_events_set(poller, &wrap, none_reader_delay_ms);
 }
 
-void zms_http_hls_fini(void)
+void zcs_http_hls_fini(void)
 {
-    zms_hls_io_fini();
+    zcs_hls_io_fini();
     g_poller = NULL;
-    zms_http_hls_default_opts(&g_hls);
+    zcs_http_hls_default_opts(&g_hls);
     memset(&g_user_events, 0, sizeof(g_user_events));
 }

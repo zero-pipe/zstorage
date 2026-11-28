@@ -2,29 +2,29 @@
  * @file player.c
  * @brief 远端拉流播放器（组合各协议客户端）。
  */
-#include "zms/pull/player.h"
-#include "zms/core/module_registry.h"
-#include "zms/protocol/http/hls_client.h"
-#include "zms/protocol/http/flv_client.h"
-#include "zms/protocol/rtsp/client.h"
+#include "zcs/pull/player.h"
+#include "zcs/core/module_registry.h"
+#include "zcs/protocol/http/hls_client.h"
+#include "zcs/protocol/http/flv_client.h"
+#include "zcs/protocol/rtsp/client.h"
 #include <stdlib.h>
 #include <string.h>
 
-typedef enum zms_player_backend {
+typedef enum zcs_player_backend {
     PLAYER_BACKEND_INVALID = 0,
     PLAYER_BACKEND_RTSP,
     PLAYER_BACKEND_HTTP_FLV,
     PLAYER_BACKEND_HLS,
     PLAYER_BACKEND_RTMP_UNSUPPORTED,
-} zms_player_backend;
+} zcs_player_backend;
 
-struct zms_player {
-    zms_player_opts opts;
-    zms_player_backend backend;
+struct zcs_player {
+    zcs_player_opts opts;
+    zcs_player_backend backend;
     union {
-        zms_rtsp_client *rtsp;
-        zms_http_flv_client *http_flv;
-        zms_http_hls_client *hls;
+        zcs_rtsp_client *rtsp;
+        zcs_http_flv_client *http_flv;
+        zcs_http_hls_client *hls;
         void *ptr;
     } u;
 };
@@ -45,7 +45,7 @@ static int contains_token(const char *s, const char *token)
     return s && token && strstr(s, token) != NULL;
 }
 
-static zms_player_backend detect_backend(const char *url)
+static zcs_player_backend detect_backend(const char *url)
 {
     if (starts_with(url, "rtsp://") || starts_with(url, "rtsps://")) {
         return PLAYER_BACKEND_RTSP;
@@ -64,23 +64,23 @@ static zms_player_backend detect_backend(const char *url)
 
 static void player_on_ready(void *user)
 {
-    zms_player *p = (zms_player *)user;
+    zcs_player *p = (zcs_player *)user;
     if (p && p->opts.on_ready) {
         p->opts.on_ready(p->opts.user);
     }
 }
 
-static void player_on_track(const zms_media_track *track, void *user)
+static void player_on_track(const zcs_media_track *track, void *user)
 {
-    zms_player *p = (zms_player *)user;
+    zcs_player *p = (zcs_player *)user;
     if (p && p->opts.on_track) {
         p->opts.on_track(track, p->opts.user);
     }
 }
 
-static void player_on_frame(const zms_frame *frame, void *user)
+static void player_on_frame(const zcs_frame *frame, void *user)
 {
-    zms_player *p = (zms_player *)user;
+    zcs_player *p = (zcs_player *)user;
     if (p && p->opts.on_frame) {
         p->opts.on_frame(frame, p->opts.user);
     }
@@ -88,15 +88,15 @@ static void player_on_frame(const zms_frame *frame, void *user)
 
 static void player_on_error(zn_err_t err, void *user)
 {
-    zms_player *p = (zms_player *)user;
+    zcs_player *p = (zcs_player *)user;
     if (p && p->opts.on_error) {
         p->opts.on_error(err, p->opts.user);
     }
 }
 
-static int player_create_rtsp(zms_player *p)
+static int player_create_rtsp(zcs_player *p)
 {
-    zms_rtsp_client_opts opts;
+    zcs_rtsp_client_opts opts;
 
     memset(&opts, 0, sizeof(opts));
     opts.poller = p->opts.poller;
@@ -110,13 +110,13 @@ static int player_create_rtsp(zms_player *p)
     opts.on_frame = player_on_frame;
     opts.on_error = player_on_error;
     opts.user = p;
-    p->u.rtsp = zms_rtsp_client_create(&opts);
+    p->u.rtsp = zcs_rtsp_client_create(&opts);
     return p->u.rtsp != NULL;
 }
 
-static int player_create_http_flv(zms_player *p)
+static int player_create_http_flv(zcs_player *p)
 {
-    zms_http_flv_client_opts opts;
+    zcs_http_flv_client_opts opts;
 
     memset(&opts, 0, sizeof(opts));
     opts.poller = p->opts.poller;
@@ -126,13 +126,13 @@ static int player_create_http_flv(zms_player *p)
     opts.on_frame = player_on_frame;
     opts.on_error = player_on_error;
     opts.user = p;
-    p->u.http_flv = zms_http_flv_client_create(&opts);
+    p->u.http_flv = zcs_http_flv_client_create(&opts);
     return p->u.http_flv != NULL;
 }
 
-static int player_create_hls(zms_player *p)
+static int player_create_hls(zcs_player *p)
 {
-    zms_http_hls_client_opts opts;
+    zcs_http_hls_client_opts opts;
 
     memset(&opts, 0, sizeof(opts));
     opts.poller = p->opts.poller;
@@ -142,24 +142,24 @@ static int player_create_hls(zms_player *p)
     opts.on_frame = player_on_frame;
     opts.on_error = player_on_error;
     opts.user = p;
-    p->u.hls = zms_http_hls_client_create(&opts);
+    p->u.hls = zcs_http_hls_client_create(&opts);
     return p->u.hls != NULL;
 }
 
-zms_player *zms_player_create(const zms_player_opts *opts)
+zcs_player *zcs_player_create(const zcs_player_opts *opts)
 {
-    zms_player *p;
+    zcs_player *p;
 
     if (!opts || !opts->poller || !opts->url) {
         return NULL;
     }
-    p = (zms_player *)calloc(1, sizeof(*p));
+    p = (zcs_player *)calloc(1, sizeof(*p));
     if (!p) {
         return NULL;
     }
     p->opts = *opts;
     p->backend = detect_backend(opts->url);
-    zms_modules_register_all();
+    zcs_modules_register_all();
 
     switch (p->backend) {
     case PLAYER_BACKEND_RTSP:
@@ -185,25 +185,25 @@ zms_player *zms_player_create(const zms_player_opts *opts)
     return p;
 
 fail:
-    zms_player_destroy(p);
+    zcs_player_destroy(p);
     return NULL;
 }
 
-void zms_player_destroy(zms_player *p)
+void zcs_player_destroy(zcs_player *p)
 {
     if (!p) {
         return;
     }
-    zms_player_stop(p);
+    zcs_player_stop(p);
     switch (p->backend) {
     case PLAYER_BACKEND_RTSP:
-        zms_rtsp_client_destroy(p->u.rtsp);
+        zcs_rtsp_client_destroy(p->u.rtsp);
         break;
     case PLAYER_BACKEND_HTTP_FLV:
-        zms_http_flv_client_destroy(p->u.http_flv);
+        zcs_http_flv_client_destroy(p->u.http_flv);
         break;
     case PLAYER_BACKEND_HLS:
-        zms_http_hls_client_destroy(p->u.hls);
+        zcs_http_hls_client_destroy(p->u.hls);
         break;
     default:
         break;
@@ -211,7 +211,7 @@ void zms_player_destroy(zms_player *p)
     free(p);
 }
 
-zn_err_t zms_player_play(zms_player *p)
+zn_err_t zcs_player_play(zcs_player *p)
 {
     zn_err_t err = ZN_ERR_INVALID;
 
@@ -220,13 +220,13 @@ zn_err_t zms_player_play(zms_player *p)
     }
     switch (p->backend) {
     case PLAYER_BACKEND_RTSP:
-        err = zms_rtsp_client_play(p->u.rtsp);
+        err = zcs_rtsp_client_play(p->u.rtsp);
         break;
     case PLAYER_BACKEND_HTTP_FLV:
-        err = zms_http_flv_client_play(p->u.http_flv);
+        err = zcs_http_flv_client_play(p->u.http_flv);
         break;
     case PLAYER_BACKEND_HLS:
-        err = zms_http_hls_client_play(p->u.hls);
+        err = zcs_http_hls_client_play(p->u.hls);
         break;
     case PLAYER_BACKEND_RTMP_UNSUPPORTED:
         err = ZN_ERR_NOT_IMPL;
@@ -241,27 +241,27 @@ zn_err_t zms_player_play(zms_player *p)
     return err;
 }
 
-void zms_player_stop(zms_player *p)
+void zcs_player_stop(zcs_player *p)
 {
     if (!p) {
         return;
     }
     switch (p->backend) {
     case PLAYER_BACKEND_RTSP:
-        zms_rtsp_client_stop(p->u.rtsp);
+        zcs_rtsp_client_stop(p->u.rtsp);
         break;
     case PLAYER_BACKEND_HTTP_FLV:
-        zms_http_flv_client_stop(p->u.http_flv);
+        zcs_http_flv_client_stop(p->u.http_flv);
         break;
     case PLAYER_BACKEND_HLS:
-        zms_http_hls_client_stop(p->u.hls);
+        zcs_http_hls_client_stop(p->u.hls);
         break;
     default:
         break;
     }
 }
 
-const char *zms_player_protocol(const zms_player *p)
+const char *zcs_player_protocol(const zcs_player *p)
 {
     if (!p) {
         return NULL;

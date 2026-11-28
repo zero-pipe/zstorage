@@ -7,18 +7,18 @@
  *   sdp_answer.c 应答 SDP 文本构造（video/audio/media 段、bundle、候选、TWCC）
  *   sdp_client.c 主动连接：生成 offer、应用 answer、probe
  */
-#ifndef ZMS_SRC_SESSION_WEBRTC_SDP_INTERNAL_H
-#define ZMS_SRC_SESSION_WEBRTC_SDP_INTERNAL_H
+#ifndef ZCS_SRC_SESSION_WEBRTC_SDP_INTERNAL_H
+#define ZCS_SRC_SESSION_WEBRTC_SDP_INTERNAL_H
 
 #include "session/webrtc/session_internal.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/protocol/rtsp/sdp.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/protocol/rtsp/sdp.h"
 #include <stddef.h>
 #include <stdint.h>
 
 /** 协商得到的单轨参数。 */
 typedef struct webrtc_neg_track {
-    zms_codec_id codec;
+    zcs_codec_id codec;
     uint8_t pt;
     int rate;
     int channels;
@@ -36,20 +36,20 @@ int webrtc_parse_remote_ice(sdp_t *sdp, char *ufrag, size_t ufrag_cap, char *pwd
 /** 首个指定类型媒体段的索引；无则 -1。 */
 int webrtc_media_index(sdp_t *sdp, const char *media_type);
 
-/** 编码名 → zms_codec_id（未知返回 ZMS_CODEC_INVALID）。 */
-zms_codec_id webrtc_codec_from_encoding(const char *encoding);
+/** 编码名 → zcs_codec_id（未知返回 ZCS_CODEC_INVALID）。 */
+zcs_codec_id webrtc_codec_from_encoding(const char *encoding);
 
 /** 从源/回放读取 H.264 profile 与 fmtp 参数。 */
-void webrtc_h264_load_fmtp(const zms_webrtc_session *s, char *profile, size_t profile_cap,
+void webrtc_h264_load_fmtp(const zcs_webrtc_session *s, char *profile, size_t profile_cap,
                            char *sprop, size_t sprop_cap);
 
 /** 协商 offer 到会话：写 PT/mid/编解码/发布布局。成功返回 0。 */
-int webrtc_session_negotiate(zms_webrtc_session *mut, sdp_t *sdp, int for_play);
+int webrtc_session_negotiate(zcs_webrtc_session *mut, sdp_t *sdp, int for_play);
 
 /** 读 offer 的 a=setup，返回 1 表示 passive。 */
 int webrtc_offer_setup_passive(sdp_t *sdp);
 
 /** WHIP：把 offer 的 H.264 sprop-parameter-sets 存进会话（发布用）。 */
-int webrtc_publish_store_offer_h264_sprop(zms_webrtc_session *s, sdp_t *sdp);
+int webrtc_publish_store_offer_h264_sprop(zcs_webrtc_session *s, sdp_t *sdp);
 
-#endif /* ZMS_SRC_SESSION_WEBRTC_SDP_INTERNAL_H */
+#endif /* ZCS_SRC_SESSION_WEBRTC_SDP_INTERNAL_H */

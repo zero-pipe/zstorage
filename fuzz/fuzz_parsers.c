@@ -18,33 +18,33 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "zms/protocol/http/parser.h"
-#include "zms/protocol/http/request_reader.h"
-#include "zms/protocol/rtsp/parser.h"
-#include "zms/protocol/rtmp/protocol.h"
-#include "zms/message/xml.h"
+#include "zcs/protocol/http/parser.h"
+#include "zcs/protocol/http/request_reader.h"
+#include "zcs/protocol/rtsp/parser.h"
+#include "zcs/protocol/rtmp/protocol.h"
+#include "zcs/message/xml.h"
 #include "zn/util/log.h"
 #include "device/gb28181/gb28181_internal.h"
 
 /* ── HTTP 报文解析 ─────────────────────────────────────────────────────── */
 static void fuzz_http(const uint8_t *data, size_t size)
 {
-    zms_http_parser p;
+    zcs_http_parser p;
 
-    zms_http_parser_init(&p);
-    (void)zms_http_parser_parse(&p, (const char *)data, size);
+    zcs_http_parser_init(&p);
+    (void)zcs_http_parser_parse(&p, (const char *)data, size);
     /* 顺带读一次头与 query，覆盖访问器 */
-    (void)zms_http_parser_header(&p, "Content-Length");
-    (void)zms_http_parser_header(&p, "Range");
+    (void)zcs_http_parser_header(&p, "Content-Length");
+    (void)zcs_http_parser_header(&p, "Range");
     {
-        char url[ZMS_HTTP_URL_MAX];
-        (void)zms_http_parser_full_url(&p, url, sizeof(url));
+        char url[ZCS_HTTP_URL_MAX];
+        (void)zcs_http_parser_full_url(&p, url, sizeof(url));
     }
-    zms_http_parser_clear(&p);
+    zcs_http_parser_clear(&p);
 }
 
 /* ── HTTP 请求分帧（splitter + request_reader），按块喂入以覆盖增量路径 ── */
-static void on_req(const zms_http_request *req, void *user)
+static void on_req(const zcs_http_request *req, void *user)
 {
     (void)req;
     (void)user;
@@ -52,8 +52,8 @@ static void on_req(const zms_http_request *req, void *user)
 
 static void fuzz_http_reader(const uint8_t *data, size_t size)
 {
-    zms_http_request_reader_opts opts = {.on_request = on_req, .user = NULL};
-    zms_http_request_reader *rd = zms_http_request_reader_create(&opts);
+    zcs_http_request_reader_opts opts = {.on_request = on_req, .user = NULL};
+    zcs_http_request_reader *rd = zcs_http_request_reader_create(&opts);
     size_t off = 0;
 
     if (!rd) {
@@ -65,26 +65,26 @@ static void fuzz_http_reader(const uint8_t *data, size_t size)
         if (off + chunk > size) {
             chunk = size - off;
         }
-        (void)zms_http_request_reader_input(rd, data + off, chunk);
+        (void)zcs_http_request_reader_input(rd, data + off, chunk);
         off += chunk;
     }
-    zms_http_request_reader_destroy(rd);
+    zcs_http_request_reader_destroy(rd);
 }
 
 /* ── RTSP 消息解析 ─────────────────────────────────────────────────────── */
 static void fuzz_rtsp(const uint8_t *data, size_t size)
 {
-    zms_rtsp_message msg;
+    zcs_rtsp_message msg;
 
     memset(&msg, 0, sizeof(msg));
-    zms_msg_init(&msg.msg);
+    zcs_msg_init(&msg.msg);
     {
         size_t consumed = 0;
-        (void)zms_rtsp_message_parse((const char *)data, size, &msg, &consumed);
+        (void)zcs_rtsp_message_parse((const char *)data, size, &msg, &consumed);
     }
-    (void)zms_rtsp_message_get(&msg, "CSeq");
-    (void)zms_rtsp_message_content_length(&msg);
-    zms_rtsp_message_clear(&msg);
+    (void)zcs_rtsp_message_get(&msg, "CSeq");
+    (void)zcs_rtsp_message_content_length(&msg);
+    zcs_rtsp_message_clear(&msg);
 }
 
 /* ── SIP 消息解析（GB28181 设备/平台信令面）────────────────────────────── */
@@ -111,15 +111,15 @@ static void fuzz_xml(const uint8_t *data, size_t size)
     buf[n] = '\0';
     {
         char out[256];
-        (void)zms_xml_find(buf, "DeviceID");
-        (void)zms_xml_text(buf, "CmdType", out, sizeof(out));
-        (void)zms_xml_attr(buf, "Item", "Name", out, sizeof(out));
-        (void)zms_xml_local_name(buf, out, sizeof(out));
+        (void)zcs_xml_find(buf, "DeviceID");
+        (void)zcs_xml_text(buf, "CmdType", out, sizeof(out));
+        (void)zcs_xml_attr(buf, "Item", "Name", out, sizeof(out));
+        (void)zcs_xml_local_name(buf, out, sizeof(out));
     }
 }
 
 /* ── RTMP chunk 流解析 ─────────────────────────────────────────────────── */
-static void on_chunk(const zms_rtmp_chunk *chunk, void *user)
+static void on_chunk(const zcs_rtmp_chunk *chunk, void *user)
 {
     (void)chunk;
     (void)user;
@@ -127,14 +127,14 @@ static void on_chunk(const zms_rtmp_chunk *chunk, void *user)
 
 static void fuzz_rtmp(const uint8_t *data, size_t size)
 {
-    zms_rtmp_protocol_opts opts = {.on_chunk = on_chunk, .on_cmd = NULL, .user = NULL};
-    zms_rtmp_protocol *p = zms_rtmp_protocol_create_established(&opts);
+    zcs_rtmp_protocol_opts opts = {.on_chunk = on_chunk, .on_cmd = NULL, .user = NULL};
+    zcs_rtmp_protocol *p = zcs_rtmp_protocol_create_established(&opts);
 
     if (!p) {
         return;
     }
-    (void)zms_rtmp_protocol_input(p, data, size);
-    zms_rtmp_protocol_destroy(p);
+    (void)zcs_rtmp_protocol_input(p, data, size);
+    zcs_rtmp_protocol_destroy(p);
 }
 
 /* ── 入口：首字节选择靶，其余作为输入 ──────────────────────────────────── */

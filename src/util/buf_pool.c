@@ -2,8 +2,8 @@
  * @file buf_pool.c
  * @brief 缓冲区池（poller 本地池）。
  */
-#include "zms/util/buf_pool.h"
-#include "zms/ops/config/config.h"
+#include "zcs/util/buf_pool.h"
+#include "zcs/ops/config/config.h"
 #include "zn/poller/poller_pool.h"
 #include "zn/util/buf.h"
 #include "zn/util/log.h"
@@ -11,27 +11,27 @@
 #include <string.h>
 
 static int g_buf_pool_enabled = 1;
-static int g_buf_pool_mode = ZMS_BUF_POOL_MODE_HYBRID;
+static int g_buf_pool_mode = ZCS_BUF_POOL_MODE_HYBRID;
 static zn_buf_pool *g_global_pool;
 
-static zn_buf_pool_opts pool_opts_from_cfg(const zms_config *cfg, int thread_safe)
+static zn_buf_pool_opts pool_opts_from_cfg(const zcs_config *cfg, int thread_safe)
 {
     zn_buf_pool_opts opt;
 
     memset(&opt, 0, sizeof(opt));
     opt.max_per_bucket = cfg && cfg->general.buf_pool_max_per_bucket > 0
                              ? cfg->general.buf_pool_max_per_bucket
-                             : ZMS_BUF_POOL_MAX_PER_BUCKET_DEFAULT;
+                             : ZCS_BUF_POOL_MAX_PER_BUCKET_DEFAULT;
     opt.thread_safe = thread_safe ? 1 : 0;
     return opt;
 }
 
-void zms_buf_pool_init(const zms_config *cfg)
+void zcs_buf_pool_init(const zcs_config *cfg)
 {
-    zms_buf_pool_fini();
+    zcs_buf_pool_fini();
 
     g_buf_pool_enabled = cfg ? cfg->general.buf_pool_enable : 1;
-    g_buf_pool_mode = cfg ? cfg->general.buf_pool_mode : ZMS_BUF_POOL_MODE_HYBRID;
+    g_buf_pool_mode = cfg ? cfg->general.buf_pool_mode : ZCS_BUF_POOL_MODE_HYBRID;
 
     if (!g_buf_pool_enabled) {
         zn_buf_set_shared_pool(NULL);
@@ -39,8 +39,8 @@ void zms_buf_pool_init(const zms_config *cfg)
         return;
     }
 
-    if (g_buf_pool_mode == ZMS_BUF_POOL_MODE_GLOBAL ||
-        g_buf_pool_mode == ZMS_BUF_POOL_MODE_HYBRID) {
+    if (g_buf_pool_mode == ZCS_BUF_POOL_MODE_GLOBAL ||
+        g_buf_pool_mode == ZCS_BUF_POOL_MODE_HYBRID) {
         /* 全局池跨 poller / ring，必须加锁 */
         zn_buf_pool_opts opt = pool_opts_from_cfg(cfg, 1);
         g_global_pool = zn_buf_pool_create(&opt);
@@ -50,7 +50,7 @@ void zms_buf_pool_init(const zms_config *cfg)
     }
 }
 
-void zms_buf_pool_fini(void)
+void zcs_buf_pool_fini(void)
 {
     if (g_global_pool) {
         zn_buf_pool_stats st;
@@ -67,13 +67,13 @@ void zms_buf_pool_fini(void)
     }
 }
 
-void zms_poller_pool_buf_attach(zn_poller_pool *pool, const zms_config *cfg)
+void zcs_poller_pool_buf_attach(zn_poller_pool *pool, const zcs_config *cfg)
 {
     if (!pool || !cfg || !cfg->general.buf_pool_enable) {
         return;
     }
-    if (cfg->general.buf_pool_mode != ZMS_BUF_POOL_MODE_PER_POLLER &&
-        cfg->general.buf_pool_mode != ZMS_BUF_POOL_MODE_HYBRID) {
+    if (cfg->general.buf_pool_mode != ZCS_BUF_POOL_MODE_PER_POLLER &&
+        cfg->general.buf_pool_mode != ZCS_BUF_POOL_MODE_HYBRID) {
         return;
     }
 
@@ -86,24 +86,24 @@ void zms_poller_pool_buf_attach(zn_poller_pool *pool, const zms_config *cfg)
     }
 }
 
-void zms_poller_pool_buf_detach(zn_poller_pool *pool)
+void zcs_poller_pool_buf_detach(zn_poller_pool *pool)
 {
     if (pool) {
         zn_poller_pool_detach_buf_pools(pool);
     }
 }
 
-int zms_buf_pool_enabled(void)
+int zcs_buf_pool_enabled(void)
 {
     return g_buf_pool_enabled;
 }
 
-int zms_buf_pool_mode(void)
+int zcs_buf_pool_mode(void)
 {
     return g_buf_pool_mode;
 }
 
-int zms_buf_pool_get_stats(zn_buf_pool_stats *out)
+int zcs_buf_pool_get_stats(zn_buf_pool_stats *out)
 {
     if (!out) {
         return 0;
@@ -116,14 +116,14 @@ int zms_buf_pool_get_stats(zn_buf_pool_stats *out)
     return 1;
 }
 
-void zms_buf_pool_reset_stats(void)
+void zcs_buf_pool_reset_stats(void)
 {
     if (g_global_pool) {
         zn_buf_pool_reset_stats(g_global_pool);
     }
 }
 
-void *zms_buf_pool_acquire(size_t size, size_t *out_cap)
+void *zcs_buf_pool_acquire(size_t size, size_t *out_cap)
 {
     if (size == 0) {
         return NULL;
@@ -138,7 +138,7 @@ void *zms_buf_pool_acquire(size_t size, size_t *out_cap)
     return p;
 }
 
-void zms_buf_pool_release(void *ptr, size_t cap)
+void zcs_buf_pool_release(void *ptr, size_t cap)
 {
     if (!ptr) {
         return;
@@ -151,13 +151,13 @@ void zms_buf_pool_release(void *ptr, size_t cap)
     (void)cap;
 }
 
-void zms_buf_pool_slot_clear(uint8_t **data, size_t *cap)
+void zcs_buf_pool_slot_clear(uint8_t **data, size_t *cap)
 {
     if (!data) {
         return;
     }
     if (*data) {
-        zms_buf_pool_release(*data, cap ? *cap : 0);
+        zcs_buf_pool_release(*data, cap ? *cap : 0);
         *data = NULL;
     }
     if (cap) {
@@ -165,7 +165,7 @@ void zms_buf_pool_slot_clear(uint8_t **data, size_t *cap)
     }
 }
 
-void *zms_buf_pool_slot_resize(uint8_t **data, size_t *cap, size_t len)
+void *zcs_buf_pool_slot_resize(uint8_t **data, size_t *cap, size_t len)
 {
     if (!data || !cap || len == 0) {
         return NULL;
@@ -173,8 +173,8 @@ void *zms_buf_pool_slot_resize(uint8_t **data, size_t *cap, size_t len)
     if (*data && *cap >= len) {
         return *data;
     }
-    zms_buf_pool_slot_clear(data, cap);
-    *data = (uint8_t *)zms_buf_pool_acquire(len, cap);
+    zcs_buf_pool_slot_clear(data, cap);
+    *data = (uint8_t *)zcs_buf_pool_acquire(len, cap);
     return *data;
 }
 
@@ -189,7 +189,7 @@ static void *acquire_for_poller(zn_poller *poller, size_t size, size_t *out_cap)
     if (g_buf_pool_enabled && local) {
         return zn_buf_pool_acquire(local, size, out_cap);
     }
-    return zms_buf_pool_acquire(size, out_cap);
+    return zcs_buf_pool_acquire(size, out_cap);
 }
 
 static void release_for_poller(zn_poller *poller, void *ptr, size_t cap)
@@ -203,11 +203,11 @@ static void release_for_poller(zn_poller *poller, void *ptr, size_t cap)
     if (g_buf_pool_enabled && local) {
         zn_buf_pool_release(local, ptr, cap);
     } else {
-        zms_buf_pool_release(ptr, cap);
+        zcs_buf_pool_release(ptr, cap);
     }
 }
 
-void zms_buf_pool_slot_clear_poller(uint8_t **data, size_t *cap, zn_poller *poller)
+void zcs_buf_pool_slot_clear_poller(uint8_t **data, size_t *cap, zn_poller *poller)
 {
     if (!data) {
         return;
@@ -221,7 +221,7 @@ void zms_buf_pool_slot_clear_poller(uint8_t **data, size_t *cap, zn_poller *poll
     }
 }
 
-void *zms_buf_pool_slot_resize_poller(uint8_t **data, size_t *cap, size_t len, zn_poller *poller)
+void *zcs_buf_pool_slot_resize_poller(uint8_t **data, size_t *cap, size_t len, zn_poller *poller)
 {
     if (!data || !cap || len == 0) {
         return NULL;
@@ -229,7 +229,7 @@ void *zms_buf_pool_slot_resize_poller(uint8_t **data, size_t *cap, size_t len, z
     if (*data && *cap >= len) {
         return *data;
     }
-    zms_buf_pool_slot_clear_poller(data, cap, poller);
+    zcs_buf_pool_slot_clear_poller(data, cap, poller);
     *data = (uint8_t *)acquire_for_poller(poller, len, cap);
     return *data;
 }

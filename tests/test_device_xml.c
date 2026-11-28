@@ -2,9 +2,9 @@
  * @file test_device_xml.c
  * @brief 共享 XML 层与命令表：前缀无关查找、实体、属性、Action 提取、能力门控。
  */
-#include "zms/device/core/device_command.h"
-#include "zms/device/core/device_core.h"
-#include "zms/device/core/device_xml.h"
+#include "zcs/device/core/device_command.h"
+#include "zcs/device/core/device_core.h"
+#include "zcs/device/core/device_xml.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -17,7 +17,7 @@
         }                                                                                          \
     } while (0)
 
-static int exec_noop(const zms_device_cmd_ctx *ctx)
+static int exec_noop(const zcs_device_cmd_ctx *ctx)
 {
     (void)ctx;
     return 0;
@@ -32,48 +32,48 @@ int main(void)
                       "<trt:Profiles token=\"prof-9\"/>"
                       "</trt:GetProfiles></s:Body></s:Envelope>";
     const char *tag;
-    zms_device_channel_info ch;
+    zcs_device_channel_info ch;
 
-    CHECK(zms_xml_text(xml, "ProfileToken", val, sizeof(val)) == 0);
+    CHECK(zcs_xml_text(xml, "ProfileToken", val, sizeof(val)) == 0);
     CHECK(strcmp(val, "tok-1") == 0);
-    CHECK(zms_xml_text(xml, "Name", val, sizeof(val)) == 0);
+    CHECK(zcs_xml_text(xml, "Name", val, sizeof(val)) == 0);
     CHECK(strcmp(val, "a & b") == 0);
-    CHECK(zms_xml_attr(xml, "Profiles", "token", val, sizeof(val)) == 0);
+    CHECK(zcs_xml_attr(xml, "Profiles", "token", val, sizeof(val)) == 0);
     CHECK(strcmp(val, "prof-9") == 0);
-    CHECK(zms_xml_first_child_name(xml, "Body", val, sizeof(val)) == 0);
+    CHECK(zcs_xml_first_child_name(xml, "Body", val, sizeof(val)) == 0);
     CHECK(strcmp(val, "GetProfiles") == 0);
-    tag = zms_xml_find_tag_start(xml, NULL, "GetProfiles");
+    tag = zcs_xml_find_tag_start(xml, NULL, "GetProfiles");
     CHECK(tag != NULL);
-    CHECK(zms_xml_local_name(tag, val, sizeof(val)) == 0);
+    CHECK(zcs_xml_local_name(tag, val, sizeof(val)) == 0);
     CHECK(strcmp(val, "GetProfiles") == 0);
-    CHECK(zms_xml_text(xml, "Missing", val, sizeof(val)) != 0);
+    CHECK(zcs_xml_text(xml, "Missing", val, sizeof(val)) != 0);
 
     {
-        static const zms_device_cmd cmds[] = {
+        static const zcs_device_cmd cmds[] = {
             {"GetProfiles", "action", 0, exec_noop},
-            {"PTZ", "action", ZMS_DEV_CAP_PTZ, exec_noop},
+            {"PTZ", "action", ZCS_DEV_CAP_PTZ, exec_noop},
         };
-        const zms_device_cmd *cmd;
+        const zcs_device_cmd *cmd;
 
-        zms_device_core_init();
-        cmd = zms_device_cmd_find(cmds, sizeof(cmds) / sizeof(cmds[0]), "getprofiles");
+        zcs_device_core_init();
+        cmd = zcs_device_cmd_find(cmds, sizeof(cmds) / sizeof(cmds[0]), "getprofiles");
         CHECK(cmd == &cmds[0]);
-        CHECK(zms_device_cmd_allowed(cmd));
-        cmd = zms_device_cmd_find(cmds, sizeof(cmds) / sizeof(cmds[0]), "PTZ");
+        CHECK(zcs_device_cmd_allowed(cmd));
+        cmd = zcs_device_cmd_find(cmds, sizeof(cmds) / sizeof(cmds[0]), "PTZ");
         CHECK(cmd == &cmds[1]);
-        CHECK(!zms_device_cmd_allowed(cmd));
+        CHECK(!zcs_device_cmd_allowed(cmd));
 
         memset(&ch, 0, sizeof(ch));
         snprintf(ch.id, sizeof(ch.id), "ch1");
         snprintf(ch.app, sizeof(ch.app), "live");
         snprintf(ch.stream, sizeof(ch.stream), "cam1");
-        ch.flags = ZMS_DEV_CH_GB;
-        ch.caps = ZMS_DEV_CAP_PTZ;
-        CHECK(zms_device_core_register(&ch) == 0);
-        CHECK(zms_device_core_any_cap(ZMS_DEV_CAP_PTZ));
-        CHECK(zms_device_cmd_allowed(cmd));
-        CHECK(zms_device_core_unregister("ch1") == 0);
-        zms_device_core_fini();
+        ch.flags = ZCS_DEV_CH_GB;
+        ch.caps = ZCS_DEV_CAP_PTZ;
+        CHECK(zcs_device_core_register(&ch) == 0);
+        CHECK(zcs_device_core_any_cap(ZCS_DEV_CAP_PTZ));
+        CHECK(zcs_device_cmd_allowed(cmd));
+        CHECK(zcs_device_core_unregister("ch1") == 0);
+        zcs_device_core_fini();
     }
 
     printf("test_device_xml ok\n");

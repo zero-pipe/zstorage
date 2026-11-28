@@ -2,7 +2,7 @@
  * @file device_xml.c
  * @brief 设备协议共用 XML 辅助实现。
  */
-#include "zms/device/core/device_xml.h"
+#include "zcs/device/core/device_xml.h"
 
 #include <ctype.h>
 #include <string.h>
@@ -47,7 +47,7 @@ static int tag_is(const char *p, const char *name, size_t name_len)
     return (size_t)(q - local) == name_len && ascii_ieq_n(local, name, name_len);
 }
 
-const char *zms_xml_find_between(const char *from, const char *end, const char *name)
+const char *zcs_xml_find_between(const char *from, const char *end, const char *name)
 {
     size_t name_len;
     const char *p;
@@ -71,7 +71,7 @@ const char *zms_xml_find_between(const char *from, const char *end, const char *
     return NULL;
 }
 
-const char *zms_xml_find_tag_start(const char *from, const char *end, const char *name)
+const char *zcs_xml_find_tag_start(const char *from, const char *end, const char *name)
 {
     size_t name_len;
     const char *p;
@@ -93,9 +93,9 @@ const char *zms_xml_find_tag_start(const char *from, const char *end, const char
     return NULL;
 }
 
-const char *zms_xml_find(const char *from, const char *name)
+const char *zcs_xml_find(const char *from, const char *name)
 {
-    return zms_xml_find_between(from, NULL, name);
+    return zcs_xml_find_between(from, NULL, name);
 }
 
 static void xml_unescape(char *s)
@@ -136,7 +136,7 @@ static void xml_unescape(char *s)
     *w = '\0';
 }
 
-int zms_xml_text_between(const char *from, const char *end, const char *name, char *out,
+int zcs_xml_text_between(const char *from, const char *end, const char *name, char *out,
                          size_t cap)
 {
     const char *t;
@@ -147,7 +147,7 @@ int zms_xml_text_between(const char *from, const char *end, const char *name, ch
         return -1;
     }
     out[0] = '\0';
-    t = zms_xml_find_between(from, end, name);
+    t = zcs_xml_find_between(from, end, name);
     if (!t || (end && t >= end)) {
         return -1;
     }
@@ -172,12 +172,12 @@ int zms_xml_text_between(const char *from, const char *end, const char *name, ch
     return 0;
 }
 
-int zms_xml_text(const char *from, const char *name, char *out, size_t cap)
+int zcs_xml_text(const char *from, const char *name, char *out, size_t cap)
 {
-    return zms_xml_text_between(from, NULL, name, out, cap);
+    return zcs_xml_text_between(from, NULL, name, out, cap);
 }
 
-int zms_xml_attr(const char *from, const char *name, const char *attr, char *out, size_t cap)
+int zcs_xml_attr(const char *from, const char *name, const char *attr, char *out, size_t cap)
 {
     size_t name_len;
     size_t attr_len;
@@ -249,7 +249,7 @@ int zms_xml_attr(const char *from, const char *name, const char *attr, char *out
     return -1;
 }
 
-int zms_xml_local_name(const char *tag_start, char *out, size_t cap)
+int zcs_xml_local_name(const char *tag_start, char *out, size_t cap)
 {
     const char *p;
     const char *local;
@@ -286,7 +286,7 @@ int zms_xml_local_name(const char *tag_start, char *out, size_t cap)
     return out[0] ? 0 : -1;
 }
 
-int zms_xml_first_child_name(const char *xml, const char *parent, char *out, size_t cap)
+int zcs_xml_first_child_name(const char *xml, const char *parent, char *out, size_t cap)
 {
     const char *p;
     const char *gt;
@@ -295,7 +295,7 @@ int zms_xml_first_child_name(const char *xml, const char *parent, char *out, siz
         return -1;
     }
     out[0] = '\0';
-    p = zms_xml_find_tag_start(xml, NULL, parent);
+    p = zcs_xml_find_tag_start(xml, NULL, parent);
     if (!p) {
         return -1;
     }
@@ -310,5 +310,5 @@ int zms_xml_first_child_name(const char *xml, const char *parent, char *out, siz
     if (*p != '<') {
         return -1;
     }
-    return zms_xml_local_name(p, out, cap);
+    return zcs_xml_local_name(p, out, cap);
 }

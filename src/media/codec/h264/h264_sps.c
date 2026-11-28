@@ -2,7 +2,7 @@
  * @file h264_sps.c
  * @brief H.264 SPS 解析。
  */
-#include "zms/media/codec/h264/h264_sps.h"
+#include "zcs/media/codec/h264/h264_sps.h"
 #include <string.h>
 
 typedef struct {
@@ -84,7 +84,7 @@ static void skip_scaling_list(br *b, int size)
     }
 }
 
-int zms_h264_sps_parse(const uint8_t *sps, size_t len, zms_h264_sps_info *info)
+int zcs_h264_sps_parse(const uint8_t *sps, size_t len, zcs_h264_sps_info *info)
 {
     int chroma = 1; /* 缺省 4:2:0 */
 

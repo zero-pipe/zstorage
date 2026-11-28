@@ -2,8 +2,8 @@
  * @file av1_over_rtmp.c
  * @brief AV1 在 RTMP/FLV 的 config、序列头与打包。
  */
-#include "zms/media/codec/av1/av1_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/av1/av1_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
 #include "zm/codec/bitstream.h"
 #include "zm/format/flv.h"
 #include <string.h>
@@ -30,7 +30,7 @@ static const uint8_t *locate_av1c(const uint8_t *data, size_t len, size_t *av1c_
     if (!data || !av1c_len || len < 2) {
         return NULL;
     }
-    if (zms_flv_tag_video_codec(data, len) == ZMS_CODEC_AV1) {
+    if (zcs_flv_tag_video_codec(data, len) == ZCS_CODEC_AV1) {
         hdr = flv_video_tag_header_read(&vh, data, len);
         if (hdr > 0 && vh.avpacket == FLV_SEQUENCE_HEADER && (size_t)hdr < len) {
             *av1c_len = len - (size_t)hdr;
@@ -41,7 +41,7 @@ static const uint8_t *locate_av1c(const uint8_t *data, size_t len, size_t *av1c_
     return data;
 }
 
-int zms_av1_over_rtmp_config_extradata(const uint8_t *data, size_t len, const uint8_t **av1c,
+int zcs_av1_over_rtmp_config_extradata(const uint8_t *data, size_t len, const uint8_t **av1c,
                                        size_t *av1c_len)
 {
     if (!data || len < 2 || !av1c || !av1c_len) {
@@ -51,7 +51,7 @@ int zms_av1_over_rtmp_config_extradata(const uint8_t *data, size_t len, const ui
     return *av1c && *av1c_len > 0;
 }
 
-zn_err_t zms_av1_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_t *out, size_t cap,
+zn_err_t zcs_av1_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_t *out, size_t cap,
                                       size_t *out_len)
 {
     struct aom_av1_t av1;
@@ -64,7 +64,7 @@ zn_err_t zms_av1_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_t
         return ZN_ERR_INVALID;
     }
 
-    if (zms_flv_tag_video_codec(cfg, cfg_len) == ZMS_CODEC_AV1) {
+    if (zcs_flv_tag_video_codec(cfg, cfg_len) == ZCS_CODEC_AV1) {
         struct flv_video_tag_header_t vh;
         int rh = flv_video_tag_header_read(&vh, cfg, cfg_len);
         if (rh > 0 && vh.avpacket == FLV_SEQUENCE_HEADER && cfg_len <= cap) {
@@ -74,7 +74,7 @@ zn_err_t zms_av1_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_t
         }
     }
 
-    if (!zms_av1_over_rtmp_config_extradata(cfg, cfg_len, &av1c, &av1c_len) || !av1c ||
+    if (!zcs_av1_over_rtmp_config_extradata(cfg, cfg_len, &av1c, &av1c_len) || !av1c ||
         av1c_len < 4) {
         return ZN_ERR_INVALID;
     }
@@ -96,7 +96,7 @@ zn_err_t zms_av1_flv_sequence_header(const uint8_t *cfg, size_t cfg_len, uint8_t
     return ZN_OK;
 }
 
-zn_err_t zms_av1_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len, const uint8_t *obu,
+zn_err_t zcs_av1_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len, const uint8_t *obu,
                                     size_t len, int key, uint8_t *out, size_t cap, size_t *out_len)
 {
     int hdr;
@@ -121,7 +121,7 @@ zn_err_t zms_av1_over_rtmp_pack_es(const uint8_t *video_cfg, size_t cfg_len, con
     return ZN_OK;
 }
 
-int zms_av1_extradata_from_obu(const uint8_t *obu, size_t len, uint8_t *out, size_t cap, int *width,
+int zcs_av1_extradata_from_obu(const uint8_t *obu, size_t len, uint8_t *out, size_t cap, int *width,
                                int *height)
 {
     struct aom_av1_t av1;
@@ -167,7 +167,7 @@ static int av1_seq_hdr_handler(void *param, const uint8_t *obu, size_t bytes)
     return 0;
 }
 
-int zms_av1_obu_has_sequence_header(const uint8_t *obu, size_t len)
+int zcs_av1_obu_has_sequence_header(const uint8_t *obu, size_t len)
 {
     av1_seq_hdr_ctx ctx;
 
@@ -181,14 +181,14 @@ int zms_av1_obu_has_sequence_header(const uint8_t *obu, size_t len)
     return ctx.found;
 }
 
-int zms_av1_obu_is_sync_key(const uint8_t *obu, size_t len)
+int zcs_av1_obu_is_sync_key(const uint8_t *obu, size_t len)
 {
     struct aom_av1_t av1;
 
     if (!obu || len < 2) {
         return 0;
     }
-    if (!zms_av1_obu_has_sequence_header(obu, len)) {
+    if (!zcs_av1_obu_has_sequence_header(obu, len)) {
         return 0;
     }
     memset(&av1, 0, sizeof(av1));

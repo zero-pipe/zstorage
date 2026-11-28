@@ -2,13 +2,13 @@
  * @file flv_wire.c
  * @brief FLV header / tag 协议规范写出。
  */
-#include "zms/media/container/flv/flv_wire.h"
+#include "zcs/media/container/flv/flv_wire.h"
 #include "zm/format/flv.h"
 #include <string.h>
 
 #define FLV_TAG_HEADER_SIZE 11
 
-zn_err_t zms_flv_write_header(uint8_t *out, size_t cap, size_t *out_len, int has_audio,
+zn_err_t zcs_flv_write_header(uint8_t *out, size_t cap, size_t *out_len, int has_audio,
                                int has_video)
 {
     int n;
@@ -43,7 +43,7 @@ static int flv_type_from_rtmp(uint8_t type_id)
     return FLV_TYPE_AUDIO;
 }
 
-zn_err_t zms_flv_write_tag(uint8_t *out, size_t cap, size_t *out_len, uint8_t type_id,
+zn_err_t zcs_flv_write_tag(uint8_t *out, size_t cap, size_t *out_len, uint8_t type_id,
                             uint32_t tag_dts_ms, const void *data, size_t len)
 {
     uint8_t scratch[FLV_TAG_HEADER_SIZE + 4];

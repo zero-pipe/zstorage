@@ -5,4 +5,4 @@ docs
 *.log
 record
 logs
-zms_test_rec_async
+zcs_test_rec_async

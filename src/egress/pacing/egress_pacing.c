@@ -1,15 +1,15 @@
 /**
  * @file egress_pacing.c
- * @brief 播放 pacing 运行时阈值（config.ini / zms_egress_pacing_init）。
+ * @brief 播放 pacing 运行时阈值（config.ini / zcs_egress_pacing_init）。
  */
-#include "zms/egress/pacing/egress_pacing.h"
-#include "zms/core/gop/limits.h"
+#include "zcs/egress/pacing/egress_pacing.h"
+#include "zcs/core/gop/limits.h"
 #include <string.h>
 
-static zms_egress_pacing g_pacing;
+static zcs_egress_pacing g_pacing;
 static int g_egress_pacing_initialized;
 
-static void play_pacing_clamp(zms_egress_pacing *p)
+static void play_pacing_clamp(zcs_egress_pacing *p)
 {
     if (!p) {
         return;
@@ -49,13 +49,13 @@ static void play_pacing_clamp(zms_egress_pacing *p)
     }
 }
 
-void zms_egress_pacing_defaults(zms_egress_pacing *p)
+void zcs_egress_pacing_defaults(zcs_egress_pacing *p)
 {
     if (!p) {
         return;
     }
     memset(p, 0, sizeof(*p));
-    p->ring_max_lag = ZMS_GOP_QUEUE_PLAY_MAX_LAG;
+    p->ring_max_lag = ZCS_GOP_QUEUE_PLAY_MAX_LAG;
     p->catchup_lag = 16u;
     p->frame_budget_live = 8u;
     p->frame_budget_catchup = 96u;
@@ -66,16 +66,16 @@ void zms_egress_pacing_defaults(zms_egress_pacing *p)
     p->vod_catchup_seek = 32u;
     p->vod_prefill_lag = 32u;
     p->resync_lag = 16u;
-    p->resync_lag_max = ZMS_GOP_QUEUE_PLAY_MAX_LAG * 4u;
+    p->resync_lag_max = ZCS_GOP_QUEUE_PLAY_MAX_LAG * 4u;
     p->resync_cooldown_ms = 3000u;
     p->pace_lead_ms = 350u;
     p->slow_consumer_kick_lag = p->resync_lag_max;
 }
 
-void zms_egress_pacing_init(const zms_egress_pacing *cfg)
+void zcs_egress_pacing_init(const zcs_egress_pacing *cfg)
 {
     if (!cfg) {
-        zms_egress_pacing_defaults(&g_pacing);
+        zcs_egress_pacing_defaults(&g_pacing);
     } else {
         g_pacing = *cfg;
         if (g_pacing.burst_budget == 0) {
@@ -89,16 +89,16 @@ void zms_egress_pacing_init(const zms_egress_pacing *cfg)
     g_egress_pacing_initialized = 1;
 }
 
-void zms_egress_pacing_fini(void)
+void zcs_egress_pacing_fini(void)
 {
     g_egress_pacing_initialized = 0;
     memset(&g_pacing, 0, sizeof(g_pacing));
 }
 
-const zms_egress_pacing *zms_egress_pacing_get(void)
+const zcs_egress_pacing *zcs_egress_pacing_get(void)
 {
     if (!g_egress_pacing_initialized) {
-        zms_egress_pacing_init(NULL);
+        zcs_egress_pacing_init(NULL);
     }
     return &g_pacing;
 }

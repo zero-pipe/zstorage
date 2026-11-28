@@ -4,8 +4,8 @@
  */
 #include "ops/api/webapi/gb28181_api.h"
 
-#include "zms/device/gb28181/gb28181.h"
-#include "zms/device/gb28181/gb28181_platform.h"
+#include "zcs/device/gb28181/gb28181.h"
+#include "zcs/device/gb28181/gb28181_platform.h"
 
 #include <stdarg.h>
 #include <stddef.h>
@@ -88,15 +88,15 @@ static int handle_status(jb_t *j)
     jb_fmt(j,
            "{\"code\":0,\"msg\":\"success\",\"data\":{\"running\":%d,\"registered\":%d,"
            "\"sessions\":%d}}",
-           zms_gb28181_running(), zms_gb28181_registered(), zms_gb28181_session_count());
+           zcs_gb28181_running(), zcs_gb28181_registered(), zcs_gb28181_session_count());
     return (int)j->len;
 }
 
 static int handle_channels(jb_t *j)
 {
     /* 通道快照几十 KB：堆上取，别放 poller 栈。 */
-    zms_gb28181_channel_info *ch =
-        (zms_gb28181_channel_info *)calloc(ZMS_GB28181_CHANNEL_MAX, sizeof(*ch));
+    zcs_gb28181_channel_info *ch =
+        (zcs_gb28181_channel_info *)calloc(ZCS_GB28181_CHANNEL_MAX, sizeof(*ch));
     size_t n;
     size_t i;
     int rc = 0;
@@ -104,7 +104,7 @@ static int handle_channels(jb_t *j)
     if (!ch) {
         return -1;
     }
-    n = zms_gb28181_channels(ch, ZMS_GB28181_CHANNEL_MAX);
+    n = zcs_gb28181_channels(ch, ZCS_GB28181_CHANNEL_MAX);
 
     jb_puts(j, "{\"code\":0,\"msg\":\"success\",\"data\":[");
     for (i = 0; i < n; ++i) {
@@ -128,8 +128,8 @@ static int handle_channels(jb_t *j)
 
 static int handle_platform_devices(jb_t *j)
 {
-    zms_gb28181_platform_device *devs =
-        (zms_gb28181_platform_device *)calloc(ZMS_GB_PLATFORM_CHANNEL_MAX, sizeof(*devs));
+    zcs_gb28181_platform_device *devs =
+        (zcs_gb28181_platform_device *)calloc(ZCS_GB_PLATFORM_CHANNEL_MAX, sizeof(*devs));
     size_t n;
     size_t i;
     int rc;
@@ -137,7 +137,7 @@ static int handle_platform_devices(jb_t *j)
     if (!devs) {
         return -1;
     }
-    n = zms_gb28181_platform_devices(devs, ZMS_GB_PLATFORM_CHANNEL_MAX);
+    n = zcs_gb28181_platform_devices(devs, ZCS_GB_PLATFORM_CHANNEL_MAX);
 
     jb_puts(j, "{\"code\":0,\"msg\":\"success\",\"data\":[");
     for (i = 0; i < n; ++i) {
@@ -162,10 +162,10 @@ static int handle_platform_devices(jb_t *j)
     return rc;
 }
 
-static int handle_platform_channels(const zms_gb28181_api_req *req, jb_t *j)
+static int handle_platform_channels(const zcs_gb28181_api_req *req, jb_t *j)
 {
-    zms_gb28181_platform_channel *chs =
-        (zms_gb28181_platform_channel *)calloc(ZMS_GB_PLATFORM_CHANNEL_MAX, sizeof(*chs));
+    zcs_gb28181_platform_channel *chs =
+        (zcs_gb28181_platform_channel *)calloc(ZCS_GB_PLATFORM_CHANNEL_MAX, sizeof(*chs));
     const char *device = req->device && req->device[0] ? req->device : req->channel;
     size_t n;
     size_t i;
@@ -179,7 +179,7 @@ static int handle_platform_channels(const zms_gb28181_api_req *req, jb_t *j)
         free(chs);
         return (int)j->len;
     }
-    n = zms_gb28181_platform_channels(device, chs, ZMS_GB_PLATFORM_CHANNEL_MAX);
+    n = zcs_gb28181_platform_channels(device, chs, ZCS_GB_PLATFORM_CHANNEL_MAX);
     jb_puts(j, "{\"code\":0,\"msg\":\"success\",\"data\":[");
     for (i = 0; i < n; ++i) {
         jb_puts(j, i ? ",{\"id\":\"" : "{\"id\":\"");
@@ -196,7 +196,7 @@ static int handle_platform_channels(const zms_gb28181_api_req *req, jb_t *j)
     return rc;
 }
 
-static int handle_platform_query(const zms_gb28181_api_req *req, jb_t *j)
+static int handle_platform_query(const zcs_gb28181_api_req *req, jb_t *j)
 {
     int rc;
 
@@ -204,7 +204,7 @@ static int handle_platform_query(const zms_gb28181_api_req *req, jb_t *j)
         jb_puts(j, "{\"code\":-1,\"msg\":\"missing device/cmd\"}");
         return (int)j->len;
     }
-    rc = zms_gb28181_platform_query(req->device, req->cmd);
+    rc = zcs_gb28181_platform_query(req->device, req->cmd);
     if (rc != 0) {
         jb_puts(j, "{\"code\":-1,\"msg\":\"query not sent\"}");
         return (int)j->len;
@@ -215,8 +215,8 @@ static int handle_platform_query(const zms_gb28181_api_req *req, jb_t *j)
 
 static int handle_platform_sessions(jb_t *j)
 {
-    zms_gb28181_platform_session *s =
-        (zms_gb28181_platform_session *)calloc(ZMS_GB_PLATFORM_CHANNEL_MAX, sizeof(*s));
+    zcs_gb28181_platform_session *s =
+        (zcs_gb28181_platform_session *)calloc(ZCS_GB_PLATFORM_CHANNEL_MAX, sizeof(*s));
     size_t n;
     size_t i;
     int rc;
@@ -224,7 +224,7 @@ static int handle_platform_sessions(jb_t *j)
     if (!s) {
         return -1;
     }
-    n = zms_gb28181_platform_sessions(s, ZMS_GB_PLATFORM_CHANNEL_MAX);
+    n = zcs_gb28181_platform_sessions(s, ZCS_GB_PLATFORM_CHANNEL_MAX);
 
     jb_puts(j, "{\"code\":0,\"msg\":\"success\",\"data\":[");
     for (i = 0; i < n; ++i) {
@@ -249,7 +249,7 @@ static int handle_platform_sessions(jb_t *j)
     return rc;
 }
 
-static int handle_platform_invite(const zms_gb28181_api_req *req, jb_t *j)
+static int handle_platform_invite(const zcs_gb28181_api_req *req, jb_t *j)
 {
     const char *device = req->device;
     const char *channel = req->channel;
@@ -259,7 +259,7 @@ static int handle_platform_invite(const zms_gb28181_api_req *req, jb_t *j)
         jb_puts(j, "{\"code\":-1,\"msg\":\"missing device/channel\"}");
         return (int)j->len;
     }
-    rc = zms_gb28181_platform_invite(device, channel, req->app, req->stream, req->tcp);
+    rc = zcs_gb28181_platform_invite(device, channel, req->app, req->stream, req->tcp);
     if (rc != 0) {
         jb_puts(j, "{\"code\":-1,\"msg\":\"invite failed\"}");
         return (int)j->len;
@@ -268,13 +268,13 @@ static int handle_platform_invite(const zms_gb28181_api_req *req, jb_t *j)
     return (int)j->len;
 }
 
-static int handle_platform_bye(const zms_gb28181_api_req *req, jb_t *j)
+static int handle_platform_bye(const zcs_gb28181_api_req *req, jb_t *j)
 {
     if (!req->call_id || !req->call_id[0]) {
         jb_puts(j, "{\"code\":-1,\"msg\":\"missing call_id\"}");
         return (int)j->len;
     }
-    if (zms_gb28181_platform_bye(req->call_id) != 0) {
+    if (zcs_gb28181_platform_bye(req->call_id) != 0) {
         jb_puts(j, "{\"code\":-1,\"msg\":\"bye failed\"}");
         return (int)j->len;
     }
@@ -282,13 +282,13 @@ static int handle_platform_bye(const zms_gb28181_api_req *req, jb_t *j)
     return (int)j->len;
 }
 
-static int handle_platform_ptz(const zms_gb28181_api_req *req, jb_t *j)
+static int handle_platform_ptz(const zcs_gb28181_api_req *req, jb_t *j)
 {
     if (!req->device || !req->device[0] || !req->channel || !req->channel[0]) {
         jb_puts(j, "{\"code\":-1,\"msg\":\"missing device/channel\"}");
         return (int)j->len;
     }
-    if (zms_gb28181_platform_ptz(req->device, req->channel, req->pan, req->tilt, req->zoom,
+    if (zcs_gb28181_platform_ptz(req->device, req->channel, req->pan, req->tilt, req->zoom,
                                  req->stop) != 0) {
         jb_puts(j, "{\"code\":-1,\"msg\":\"ptz not sent\"}");
         return (int)j->len;
@@ -297,14 +297,14 @@ static int handle_platform_ptz(const zms_gb28181_api_req *req, jb_t *j)
     return (int)j->len;
 }
 
-static int handle_platform_record_query(const zms_gb28181_api_req *req, jb_t *j)
+static int handle_platform_record_query(const zcs_gb28181_api_req *req, jb_t *j)
 {
     if (!req->device || !req->device[0] || !req->channel || !req->channel[0] || !req->start ||
         !req->end) {
         jb_puts(j, "{\"code\":-1,\"msg\":\"missing device/channel/start/end\"}");
         return (int)j->len;
     }
-    if (zms_gb28181_platform_record_query(req->device, req->channel, req->start, req->end) != 0) {
+    if (zcs_gb28181_platform_record_query(req->device, req->channel, req->start, req->end) != 0) {
         jb_puts(j, "{\"code\":-1,\"msg\":\"query not sent\"}");
         return (int)j->len;
     }
@@ -312,10 +312,10 @@ static int handle_platform_record_query(const zms_gb28181_api_req *req, jb_t *j)
     return (int)j->len;
 }
 
-static int handle_platform_records(const zms_gb28181_api_req *req, jb_t *j)
+static int handle_platform_records(const zcs_gb28181_api_req *req, jb_t *j)
 {
-    zms_gb28181_platform_record *rec =
-        (zms_gb28181_platform_record *)calloc(32, sizeof(*rec));
+    zcs_gb28181_platform_record *rec =
+        (zcs_gb28181_platform_record *)calloc(32, sizeof(*rec));
     size_t n;
     size_t i;
     int rc;
@@ -328,7 +328,7 @@ static int handle_platform_records(const zms_gb28181_api_req *req, jb_t *j)
         free(rec);
         return (int)j->len;
     }
-    n = zms_gb28181_platform_records(req->device, req->channel, rec, 32);
+    n = zcs_gb28181_platform_records(req->device, req->channel, rec, 32);
     jb_puts(j, "{\"code\":0,\"msg\":\"success\",\"data\":[");
     for (i = 0; i < n; ++i) {
         jb_puts(j, i ? ",{\"channel_id\":\"" : "{\"channel_id\":\"");
@@ -353,8 +353,8 @@ static int handle_platform_records(const zms_gb28181_api_req *req, jb_t *j)
 
 static int handle_platform_alarms(jb_t *j)
 {
-    zms_gb28181_platform_alarm *a =
-        (zms_gb28181_platform_alarm *)calloc(32, sizeof(*a));
+    zcs_gb28181_platform_alarm *a =
+        (zcs_gb28181_platform_alarm *)calloc(32, sizeof(*a));
     size_t n;
     size_t i;
     int rc;
@@ -362,7 +362,7 @@ static int handle_platform_alarms(jb_t *j)
     if (!a) {
         return -1;
     }
-    n = zms_gb28181_platform_alarms(a, 32);
+    n = zcs_gb28181_platform_alarms(a, 32);
 
     jb_puts(j, "{\"code\":0,\"msg\":\"success\",\"data\":[");
     for (i = 0; i < n; ++i) {
@@ -381,9 +381,9 @@ static int handle_platform_alarms(jb_t *j)
     return rc;
 }
 
-static int handle_alarm(const zms_gb28181_api_req *req, jb_t *j)
+static int handle_alarm(const zcs_gb28181_api_req *req, jb_t *j)
 {
-    int rc = zms_gb28181_alarm(req->channel, req->priority > 0 ? req->priority : 1,
+    int rc = zcs_gb28181_alarm(req->channel, req->priority > 0 ? req->priority : 1,
                                req->method > 0 ? req->method : 5,
                                req->description ? req->description : "alarm");
     if (rc != 0) {
@@ -394,7 +394,7 @@ static int handle_alarm(const zms_gb28181_api_req *req, jb_t *j)
     return (int)j->len;
 }
 
-int zms_webapi_gb28181_handle(const zms_gb28181_api_req *req, int *http_status, char *body,
+int zcs_webapi_gb28181_handle(const zcs_gb28181_api_req *req, int *http_status, char *body,
                               size_t body_cap)
 {
     jb_t j;

@@ -1,0 +1,27 @@
+[Unit]
+Description=Zero Media Server (ZCS) streaming server
+Documentation=https://github.com/zero-pipe/zero-media-server-new
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zcs
+Group=zcs
+WorkingDirectory=/var/lib/zcs
+ExecStart=/usr/local/bin/zcs-server --config /etc/zcs/config.ini --log /var/log/zcs/zcs.log
+# SIGHUP：重新打开日志文件（配合 logrotate）
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2s
+# 大并发需要更多 fd；LimitNOFILE 也要高于 [protocol] max_sessions 总和
+LimitNOFILE=524288
+# 不提升任何权限
+NoNewPrivileges=true
+PrivateTmp=true
+
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target

@@ -10,8 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef ZMS_FIXTURE_DIR
-#define ZMS_FIXTURE_DIR "tests/fixtures"
+#ifndef ZCS_FIXTURE_DIR
+#define ZCS_FIXTURE_DIR "tests/fixtures"
 #endif
 
 static int g_failures;
@@ -26,7 +26,7 @@ static int g_failures;
 
 int main(void)
 {
-    const char *path = getenv("ZMS_FIXTURE");
+    const char *path = getenv("ZCS_FIXTURE");
     zm_reader_cfg cfg;
     zm_reader *r;
     FILE *fp;
@@ -39,7 +39,7 @@ int main(void)
     size_t track_count;
 
     if (!path || !*path) {
-        path = ZMS_FIXTURE_DIR "/h264_aac.ts";
+        path = ZCS_FIXTURE_DIR "/h264_aac.ts";
     }
     fp = fopen(path, "rb");
     if (!fp) {

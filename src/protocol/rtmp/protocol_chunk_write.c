@@ -32,19 +32,19 @@ static size_t write_basic(uint8_t *out, size_t cap, uint8_t fmt, uint32_t csid)
     return 3;
 }
 
-zn_err_t rtmp_chunk_send(zms_rtmp_protocol *p, uint8_t type_id, uint32_t stream_id,
+zn_err_t rtmp_chunk_send(zcs_rtmp_protocol *p, uint8_t type_id, uint32_t stream_id,
                           uint32_t tag_dts_ms, const void *body, size_t len, uint8_t *out,
                           size_t cap, size_t *out_len)
 {
     if (!p || !out || !out_len) {
         return ZN_ERR_INVALID;
     }
-    uint32_t csid = (type_id == ZMS_RTMP_MSG_CMD || type_id == ZMS_RTMP_MSG_WIN_SIZE ||
-                     type_id == ZMS_RTMP_MSG_SET_PEER_BW || type_id == ZMS_RTMP_MSG_USER_CONTROL ||
-                     type_id == ZMS_RTMP_MSG_SET_CHUNK)
-                        ? ZMS_RTMP_CHUNK_SYSTEM
-                        : ZMS_RTMP_CHUNK_MEDIA;
-    size_t chunk_sz = p->out_chunk_size ? p->out_chunk_size : ZMS_RTMP_DEFAULT_CHUNK;
+    uint32_t csid = (type_id == ZCS_RTMP_MSG_CMD || type_id == ZCS_RTMP_MSG_WIN_SIZE ||
+                     type_id == ZCS_RTMP_MSG_SET_PEER_BW || type_id == ZCS_RTMP_MSG_USER_CONTROL ||
+                     type_id == ZCS_RTMP_MSG_SET_CHUNK)
+                        ? ZCS_RTMP_CHUNK_SYSTEM
+                        : ZCS_RTMP_CHUNK_MEDIA;
+    size_t chunk_sz = p->out_chunk_size ? p->out_chunk_size : ZCS_RTMP_DEFAULT_CHUNK;
     size_t pos = 0;
     const uint8_t *b = (const uint8_t *)body;
     size_t left = len;

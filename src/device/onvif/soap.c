@@ -3,10 +3,10 @@
  * @brief 极简 SOAP 1.2 / XML 层 + ONVIF 鉴权（WS-UsernameToken / Digest / Basic）。
  */
 #include "device/onvif/onvif_internal.h"
-#include "zms/util/md5.h"
-#include "zms/util/sha1.h"
+#include "zcs/util/md5.h"
+#include "zcs/util/sha1.h"
 #include "zn/util/log.h"
-#include "zms/util/base64.h"
+#include "zcs/util/base64.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,7 +38,7 @@ static void rand_bytes(uint8_t *out, size_t len)
     }
 }
 
-void zms_onvif_make_msgid(char *out, size_t cap)
+void zcs_onvif_make_msgid(char *out, size_t cap)
 {
     uint8_t r[16];
     rand_bytes(r, sizeof(r));
@@ -48,7 +48,7 @@ void zms_onvif_make_msgid(char *out, size_t cap)
              r[13], r[14], r[15]);
 }
 
-void zms_onvif_utc_now(char *out, size_t cap)
+void zcs_onvif_utc_now(char *out, size_t cap)
 {
     time_t t = time(NULL);
     struct tm tmv;
@@ -61,12 +61,12 @@ void zms_onvif_utc_now(char *out, size_t cap)
              tmv.tm_mday, tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
 }
 
-size_t zms_onvif_base64(const uint8_t *data, size_t len, char *out, size_t cap)
+size_t zcs_onvif_base64(const uint8_t *data, size_t len, char *out, size_t cap)
 {
     size_t n = 0;
 
     /* ONVIF 内部约定：容量不足返回 0（调用方已按此判错）。 */
-    if (zms_base64_encode(data, len, out, cap, &n) != ZN_OK) {
+    if (zcs_base64_encode(data, len, out, cap, &n) != ZN_OK) {
         return 0;
     }
     return n;
@@ -77,18 +77,18 @@ size_t zms_onvif_base64(const uint8_t *data, size_t len, char *out, size_t cap)
 static int b64_sha1_digest(const uint8_t *nonce, size_t nonce_len, const char *created,
                            const char *pass, char *out, size_t cap)
 {
-    zms_sha1_ctx ctx;
+    zcs_sha1_ctx ctx;
     uint8_t digest[20];
 
-    zms_sha1_init(&ctx);
-    zms_sha1_update(&ctx, nonce, nonce_len);
-    zms_sha1_update(&ctx, created, strlen(created));
-    zms_sha1_update(&ctx, pass, strlen(pass));
-    zms_sha1_final(&ctx, digest);
-    return zms_onvif_base64(digest, sizeof(digest), out, cap) > 0 ? 0 : -1;
+    zcs_sha1_init(&ctx);
+    zcs_sha1_update(&ctx, nonce, nonce_len);
+    zcs_sha1_update(&ctx, created, strlen(created));
+    zcs_sha1_update(&ctx, pass, strlen(pass));
+    zcs_sha1_final(&ctx, digest);
+    return zcs_onvif_base64(digest, sizeof(digest), out, cap) > 0 ? 0 : -1;
 }
 
-size_t zms_onvif_soap_build(char *out, size_t cap, const char *body_inner, const char *user,
+size_t zcs_onvif_soap_build(char *out, size_t cap, const char *body_inner, const char *user,
                             const char *pass)
 {
     char msgid[80];
@@ -97,7 +97,7 @@ size_t zms_onvif_soap_build(char *out, size_t cap, const char *body_inner, const
     if (!out || cap == 0 || !body_inner) {
         return 0;
     }
-    zms_onvif_make_msgid(msgid, sizeof(msgid));
+    zcs_onvif_make_msgid(msgid, sizeof(msgid));
 
     n = snprintf(
         out, cap,
@@ -120,8 +120,8 @@ size_t zms_onvif_soap_build(char *out, size_t cap, const char *body_inner, const
         char created[40];
 
         rand_bytes(nonce, sizeof(nonce));
-        zms_onvif_utc_now(created, sizeof(created));
-        if (zms_onvif_base64(nonce, sizeof(nonce), nonce_b64, sizeof(nonce_b64)) == 0 ||
+        zcs_onvif_utc_now(created, sizeof(created));
+        if (zcs_onvif_base64(nonce, sizeof(nonce), nonce_b64, sizeof(nonce_b64)) == 0 ||
             b64_sha1_digest(nonce, sizeof(nonce), created, pass, passwd_b64, sizeof(passwd_b64)) !=
                 0) {
             return 0;
@@ -270,16 +270,16 @@ static int build_digest_header(const char *user, const char *pass, const char *c
     snprintf(cnonce, sizeof(cnonce), "%08x%08x", onvif_rand(), onvif_rand());
 
     snprintf(a1, sizeof(a1), "%s:%s:%s", user, realm, pass);
-    zms_md5_hex_str(a1, ha1);
+    zcs_md5_hex_str(a1, ha1);
     snprintf(a2, sizeof(a2), "POST:%s", uri);
-    zms_md5_hex_str(a2, ha2);
+    zcs_md5_hex_str(a2, ha2);
 
     if (qop[0] && strstr(qop, "auth")) {
         snprintf(resp_src, sizeof(resp_src), "%s:%s:00000001:%s:auth:%s", ha1, nonce, cnonce, ha2);
     } else {
         snprintf(resp_src, sizeof(resp_src), "%s:%s:%s", ha1, nonce, ha2);
     }
-    zms_md5_hex_str(resp_src, response);
+    zcs_md5_hex_str(resp_src, response);
 
     if (opaque[0]) {
         snprintf(opaque_part, sizeof(opaque_part), ", opaque=\"%s\"", opaque);
@@ -302,10 +302,10 @@ static int build_digest_header(const char *user, const char *pass, const char *c
     }
 }
 
-static int soap_post_once(zms_onvif_client *c, const char *xaddr, const char *soap,
-                          const char *ctype, const char *extra_headers, zms_http_resp *resp)
+static int soap_post_once(zcs_onvif_client *c, const char *xaddr, const char *soap,
+                          const char *ctype, const char *extra_headers, zcs_http_resp *resp)
 {
-    zms_http_req req;
+    zcs_http_req req;
     memset(&req, 0, sizeof(req));
     req.url = xaddr;
     req.method = "POST";
@@ -314,7 +314,7 @@ static int soap_post_once(zms_onvif_client *c, const char *xaddr, const char *so
     req.body_len = strlen(soap);
     req.extra_headers = extra_headers;
     req.timeout_ms = c ? c->timeout_ms : 10000;
-    return zms_http_exec(&req, resp);
+    return zcs_http_exec(&req, resp);
 }
 
 static void fault_reason(const char *body, char *out, size_t cap)
@@ -349,12 +349,12 @@ static void fault_reason(const char *body, char *out, size_t cap)
     out[n] = '\0';
 }
 
-int zms_onvif_call(zms_onvif_client *c, const char *xaddr, const char *body_inner, char **out_body)
+int zcs_onvif_call(zcs_onvif_client *c, const char *xaddr, const char *body_inner, char **out_body)
 {
     /* SOAP 报文在堆上构建：64KB 量级不能放在线程栈上（ONVIF 客户端跑在
      * vod worker，同一份代码也可能被 API 线程调用）。 */
     char *soap = NULL;
-    char challenge[ZMS_ONVIF_CHALLENGE_MAX];
+    char challenge[ZCS_ONVIF_CHALLENGE_MAX];
     const char *ctype = "application/soap+xml; charset=utf-8";
     int attempts = 0;
     int xml_fallback_used = 0;
@@ -369,7 +369,7 @@ int zms_onvif_call(zms_onvif_client *c, const char *xaddr, const char *body_inne
     *out_body = NULL;
     challenge[0] = 0;
     have_creds = c->user[0] && c->pass[0];
-    soap = (char *)malloc(ZMS_ONVIF_BODY_MAX);
+    soap = (char *)malloc(ZCS_ONVIF_BODY_MAX);
     if (!soap) {
         return -1;
     }
@@ -377,12 +377,12 @@ int zms_onvif_call(zms_onvif_client *c, const char *xaddr, const char *body_inne
     use_plain = (c->auth_mode == 1) || !have_creds;
 
     while (attempts++ < 4) {
-        char extra[ZMS_ONVIF_EXTRA_HDR_MAX];
-        zms_http_resp resp;
+        char extra[ZCS_ONVIF_EXTRA_HDR_MAX];
+        zcs_http_resp resp;
         int rc;
 
         /* 每次尝试只构建当前需要的报文（带/不带 WS-Security）。 */
-        if (zms_onvif_soap_build(soap, ZMS_ONVIF_BODY_MAX, body_inner,
+        if (zcs_onvif_soap_build(soap, ZCS_ONVIF_BODY_MAX, body_inner,
                                  use_plain ? NULL : (have_creds ? c->user : NULL),
                                  use_plain ? NULL : (have_creds ? c->pass : NULL)) == 0) {
             zn_warn("onvif: build soap failed (%s)", xaddr);
@@ -390,7 +390,7 @@ int zms_onvif_call(zms_onvif_client *c, const char *xaddr, const char *body_inne
         }
         extra[0] = 0;
         if (challenge[0] && have_creds) {
-            char auth[ZMS_ONVIF_AUTH_HDR_MAX];
+            char auth[ZCS_ONVIF_AUTH_HDR_MAX];
             char uri[256];
             int auth_ok = 0;
 
@@ -402,10 +402,10 @@ int zms_onvif_call(zms_onvif_client *c, const char *xaddr, const char *body_inne
                 auth_ok = build_digest_header(c->user, c->pass, challenge, uri, auth,
                                               sizeof(auth)) == 0;
             } else {
-                char cred[ZMS_ONVIF_USER_MAX + ZMS_ONVIF_PASS_MAX + 2];
-                char b64[ZMS_ONVIF_AUTH_HDR_MAX];
+                char cred[ZCS_ONVIF_USER_MAX + ZCS_ONVIF_PASS_MAX + 2];
+                char b64[ZCS_ONVIF_AUTH_HDR_MAX];
                 snprintf(cred, sizeof(cred), "%s:%s", c->user, c->pass);
-                if (zms_onvif_base64((const uint8_t *)cred, strlen(cred), b64, sizeof(b64)) > 0) {
+                if (zcs_onvif_base64((const uint8_t *)cred, strlen(cred), b64, sizeof(b64)) > 0) {
                     int n = snprintf(auth, sizeof(auth), "Authorization: Basic %s\r\n", b64);
                     auth_ok = n > 0 && (size_t)n < sizeof(auth);
                 }
@@ -420,7 +420,7 @@ int zms_onvif_call(zms_onvif_client *c, const char *xaddr, const char *body_inne
         memset(&resp, 0, sizeof(resp));
         rc = soap_post_once(c, xaddr, soap, ctype, extra[0] ? extra : NULL, &resp);
         if (rc != 0) {
-            zms_http_resp_free(&resp);
+            zcs_http_resp_free(&resp);
             goto done;
         }
         if (resp.status == 200) {
@@ -429,7 +429,7 @@ int zms_onvif_call(zms_onvif_client *c, const char *xaddr, const char *body_inne
             }
             *out_body = resp.body;
             resp.body = NULL;
-            zms_http_resp_free(&resp);
+            zcs_http_resp_free(&resp);
             ret = 0;
             goto done;
         }
@@ -437,7 +437,7 @@ int zms_onvif_call(zms_onvif_client *c, const char *xaddr, const char *body_inne
             if (!challenge[0] && resp.headers) {
                 (void)header_value(resp.headers, "WWW-Authenticate", challenge, sizeof(challenge));
             }
-            zms_http_resp_free(&resp);
+            zcs_http_resp_free(&resp);
             if (challenge[0] && have_creds) {
                 continue;
             }
@@ -451,7 +451,7 @@ int zms_onvif_call(zms_onvif_client *c, const char *xaddr, const char *body_inne
                  * 用无 Security 的请求换取 401 挑战，再带 Digest 重试。 */
                 probe_plain = 1;
                 use_plain = 1;
-                zms_http_resp_free(&resp);
+                zcs_http_resp_free(&resp);
                 continue;
             }
             if (is_fault) {
@@ -459,24 +459,24 @@ int zms_onvif_call(zms_onvif_client *c, const char *xaddr, const char *body_inne
                 fault_reason(resp.body, reason, sizeof(reason));
                 zn_warn("onvif: %s -> HTTP %d (%s)", xaddr, resp.status,
                         reason[0] ? reason : "soap fault");
-                zms_http_resp_free(&resp);
+                zcs_http_resp_free(&resp);
                 goto done;
             }
             if (!xml_fallback_used) {
                 xml_fallback_used = 1;
                 ctype = "text/xml; charset=utf-8";
-                zms_http_resp_free(&resp);
+                zcs_http_resp_free(&resp);
                 continue;
             }
         }
         if (resp.status == 415 && !xml_fallback_used) {
             xml_fallback_used = 1;
             ctype = "text/xml; charset=utf-8";
-            zms_http_resp_free(&resp);
+            zcs_http_resp_free(&resp);
             continue;
         }
         zn_warn("onvif: %s -> HTTP %d", xaddr, resp.status);
-        zms_http_resp_free(&resp);
+        zcs_http_resp_free(&resp);
         goto done;
     }
 done:

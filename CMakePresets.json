@@ -21,7 +21,7 @@
     {
       "name": "windows-minimal",
       "displayName": "Windows Minimal (RTMP/RTSP/HTTP)",
-      "description": "No SRT. WebRTC follows the ZMS_ENABLE_WEBRTC default (ON); pass -DZMS_ENABLE_SRT=ON for SRT.",
+      "description": "No SRT. WebRTC follows the ZCS_ENABLE_WEBRTC default (ON); pass -DZCS_ENABLE_SRT=ON for SRT.",
       "inherits": "windows-base"
     },
     {

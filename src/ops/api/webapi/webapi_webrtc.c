@@ -3,24 +3,24 @@
  * @brief Web API WebRTC：统计、能力、主动客户端管理。
  */
 #include "ops/api/webapi/webapi_internal.h"
-#include "zms/media/media_limits.h"
-#if defined(ZMS_ENABLE_WEBRTC) && ZMS_ENABLE_WEBRTC
-#include "zms/session/webrtc/webrtc_server.h"
-#include "zms/ops/config/pull_ssl.h"
+#include "zcs/media/media_limits.h"
+#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
+#include "zcs/session/webrtc/webrtc_server.h"
+#include "zcs/ops/config/pull_ssl.h"
 #endif
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(ZMS_ENABLE_WEBRTC) && ZMS_ENABLE_WEBRTC
+#if defined(ZCS_ENABLE_WEBRTC) && ZCS_ENABLE_WEBRTC
 
 size_t webapi_handle_webrtc_stats(char *body, size_t body_cap, int *http_status)
 {
     /* 每会话统计 ~520B：按当前生效上限分配，堆上取，别放 poller 栈。 */
-    size_t cap = zms_webrtc_session_limit();
-    zms_webrtc_session_stats *st = (zms_webrtc_session_stats *)calloc(cap, sizeof(*st));
-    zms_webapi_json_buf jb = {body, body_cap, 0};
+    size_t cap = zcs_webrtc_session_limit();
+    zcs_webrtc_session_stats *st = (zcs_webrtc_session_stats *)calloc(cap, sizeof(*st));
+    zcs_webapi_json_buf jb = {body, body_cap, 0};
     size_t n;
     size_t i;
     uint64_t total_rtpq_bytes = 0;
@@ -29,9 +29,9 @@ size_t webapi_handle_webrtc_stats(char *body, size_t body_cap, int *http_status)
 
     if (!st) {
         *http_status = 500;
-        return webapi_respond_json(ZMS_API_OTHER_FAILED, "out of memory", NULL, body, body_cap);
+        return webapi_respond_json(ZCS_API_OTHER_FAILED, "out of memory", NULL, body, body_cap);
     }
-    n = zms_webrtc_session_stats_all(st, cap);
+    n = zcs_webrtc_session_stats_all(st, cap);
     if (webapi_jb_append(&jb, "{\"code\":0,\"data\":[") != 0) {
         goto fail;
     }
@@ -105,7 +105,7 @@ size_t webapi_handle_webrtc_stats(char *body, size_t body_cap, int *http_status)
 fail:
     *http_status = 500;
     free(st);
-    return webapi_respond_json(ZMS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
+    return webapi_respond_json(ZCS_API_OTHER_FAILED, "response too large", NULL, body, body_cap);
 }
 
 size_t webapi_handle_webrtc_capabilities(char *body, size_t body_cap, int *http_status)
@@ -121,11 +121,11 @@ size_t webapi_handle_webrtc_capabilities(char *body, size_t body_cap, int *http_
         "\"turnUdp\":true,\"turnTcp\":false,\"turnTls\":false,"
         "\"nack\":true,\"simulcast\":false,\"transcode\":false,"
         "\"maxSessions\":%u}}",
-        (unsigned)zms_webrtc_session_limit());
+        (unsigned)zcs_webrtc_session_limit());
 }
 
-size_t webapi_handle_start_webrtc_client(const zms_webapi_query_map *q, zms_webapi_json_buf *jb,
-                                         const zms_config *cfg)
+size_t webapi_handle_start_webrtc_client(const zcs_webapi_query_map *q, zcs_webapi_json_buf *jb,
+                                         const zcs_config *cfg)
 {
     void *ssl_ctx = NULL;
 
@@ -139,9 +139,9 @@ size_t webapi_handle_start_webrtc_client(const zms_webapi_query_map *q, zms_weba
                                                                                           : 0;
     }
     if (cfg && strncmp(q->url, "https://", 8) == 0) {
-        ssl_ctx = zms_pull_ssl_ctx(cfg);
+        ssl_ctx = zcs_pull_ssl_ctx(cfg);
     }
-    if (zms_webrtc_client_launch(q->kind, q->url, q->app, q->stream, q->token, ssl_ctx) != 0) {
+    if (zcs_webrtc_client_launch(q->kind, q->url, q->app, q->stream, q->token, ssl_ctx) != 0) {
         return webapi_jb_append(jb, "{\"code\":500,\"msg\":\"launch failed\"}") == 0 ? jb->len : 0;
     }
     if (webapi_jb_append(jb, "{\"code\":0,\"msg\":\"queued\",\"data\":{\"kind\":\"%s\",\"url\":\"%s\","
@@ -152,10 +152,10 @@ size_t webapi_handle_start_webrtc_client(const zms_webapi_query_map *q, zms_weba
     return jb->len;
 }
 
-size_t webapi_handle_get_webrtc_clients(zms_webapi_json_buf *jb)
+size_t webapi_handle_get_webrtc_clients(zcs_webapi_json_buf *jb)
 {
-    zms_webrtc_client_stats st[8];
-    size_t n = zms_webrtc_client_stats_all(st, sizeof(st) / sizeof(st[0]));
+    zcs_webrtc_client_stats st[8];
+    size_t n = zcs_webrtc_client_stats_all(st, sizeof(st) / sizeof(st[0]));
     size_t i;
 
     if (webapi_jb_append(jb, "{\"code\":0,\"data\":[") != 0) {
@@ -180,12 +180,12 @@ size_t webapi_handle_get_webrtc_clients(zms_webapi_json_buf *jb)
     return jb->len;
 }
 
-size_t webapi_handle_stop_webrtc_client(const zms_webapi_query_map *q, zms_webapi_json_buf *jb)
+size_t webapi_handle_stop_webrtc_client(const zcs_webapi_query_map *q, zcs_webapi_json_buf *jb)
 {
     if (!q || !jb || !q->id[0]) {
         return webapi_jb_append(jb, "{\"code\":400,\"msg\":\"id required\"}") == 0 ? jb->len : 0;
     }
-    if (zms_webrtc_client_stop(q->id) != 0) {
+    if (zcs_webrtc_client_stop(q->id) != 0) {
         return webapi_jb_append(jb, "{\"code\":404,\"msg\":\"not found\"}") == 0 ? jb->len : 0;
     }
     if (webapi_jb_append(jb, "{\"code\":0,\"msg\":\"stopping\",\"data\":{\"id\":\"%s\"}}", q->id) != 0) {
@@ -194,4 +194,4 @@ size_t webapi_handle_stop_webrtc_client(const zms_webapi_query_map *q, zms_webap
     return jb->len;
 }
 
-#endif /* ZMS_ENABLE_WEBRTC */
+#endif /* ZCS_ENABLE_WEBRTC */

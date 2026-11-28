@@ -3,7 +3,7 @@
  * @brief ONVIF 设备端：WS-Discovery 应答 + Device/Media1 SOAP 服务（HTTP 路由）。
  *
  * 设计取舍：
- *   - 不做持久化：profile/RTSP URI 全部由 `zms_media_source_foreach` 现算，
+ *   - 不做持久化：profile/RTSP URI 全部由 `zcs_media_source_foreach` 现算，
  *     设备端永远反映“当前活着的流”，避免注册表与 ONVIF 视图不一致的同步问题。
  *   - 响应走 sb_t 单缓冲累加 + 一次性发送：ONVIF 客户端（NVR/解码器）对
  *     残缺 XML 零容忍，任何截断都必须升级成 SOAP Fault，而不是发出半截。
@@ -12,17 +12,17 @@
  *   - 全局状态 g_srv 只在启动/停止时改写，运行期只读；PullPoint 的投递游标
  *     g_event_cursor_ms 是单订阅假设（本设备端只支持一个拉取点）。
  */
-#include "zms/device/onvif/onvif_server.h"
-#include "zms/device/core/device_command.h"
-#include "zms/device/core/device_core.h"
-#include "zms/device/core/device_event.h"
-#include "zms/device/core/device_ptz.h"
+#include "zcs/device/onvif/onvif_server.h"
+#include "zcs/device/core/device_command.h"
+#include "zcs/device/core/device_core.h"
+#include "zcs/device/core/device_event.h"
+#include "zcs/device/core/device_ptz.h"
 #include "device/onvif/onvif_internal.h"
-#include "zms/core/stream/hub.h"
-#include "zms/core/stream_track.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/protocol/http/route.h"
-#include "zms/protocol/http/session_api.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/core/stream_track.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/protocol/http/route.h"
+#include "zcs/protocol/http/session_api.h"
 #include "zn/platform.h"
 #include "zn/util/log.h"
 #include "zn/poller/poller.h"
@@ -197,26 +197,26 @@ static void device_addr(char *out, size_t cap, const char *service)
              g_srv.http_port, service);
 }
 
-static const char *encoding_name(zms_codec_id codec)
+static const char *encoding_name(zcs_codec_id codec)
 {
     switch (codec) {
-    case ZMS_CODEC_H264:
+    case ZCS_CODEC_H264:
         return "H264";
-    case ZMS_CODEC_H265:
+    case ZCS_CODEC_H265:
         return "H265";
     default:
         return NULL;
     }
 }
 
-static const char *audio_encoding_name(zms_codec_id codec)
+static const char *audio_encoding_name(zcs_codec_id codec)
 {
     switch (codec) {
-    case ZMS_CODEC_AAC:
+    case ZCS_CODEC_AAC:
         return "AAC";
-    case ZMS_CODEC_G711A:
+    case ZCS_CODEC_G711A:
         return "G711";
-    case ZMS_CODEC_G711U:
+    case ZCS_CODEC_G711U:
         return "G711";
     default:
         return NULL;
@@ -250,8 +250,8 @@ static void sanitize_token(const char *in, char *out, size_t cap)
 static void make_key_token(const char *vhost, const char *app, const char *stream, char *out,
                            size_t cap)
 {
-    char raw[ZMS_VHOST_MAX + ZMS_APP_MAX + ZMS_STREAM_MAX + 8];
-    if (vhost && vhost[0] && strcmp(vhost, ZMS_DEFAULT_VHOST) != 0) {
+    char raw[ZCS_VHOST_MAX + ZCS_APP_MAX + ZCS_STREAM_MAX + 8];
+    if (vhost && vhost[0] && strcmp(vhost, ZCS_DEFAULT_VHOST) != 0) {
         snprintf(raw, sizeof(raw), "%s_%s_%s", vhost, app, stream);
     } else {
         snprintf(raw, sizeof(raw), "%s_%s", app, stream);
@@ -259,7 +259,7 @@ static void make_key_token(const char *vhost, const char *app, const char *strea
     sanitize_token(raw, out, cap);
 }
 
-static void make_profile_token(const zms_media_source *s, char *out, size_t cap)
+static void make_profile_token(const zcs_media_source *s, char *out, size_t cap)
 {
     make_key_token(s->vhost, s->app, s->stream, out, cap);
 }
@@ -269,7 +269,7 @@ static void make_profile_token(const zms_media_source *s, char *out, size_t cap)
  * 特意排除 vod_buffer：ONVIF 是实时监控协议，点播源不该出现在 profile 列表里；
  * 没有 gop_queue 的源（纯转发/尚未起播）也没有可取的编码参数，同样跳过。
  */
-static int source_playable(const zms_media_source *s)
+static int source_playable(const zcs_media_source *s)
 {
     if (!s || !s->gop_queue || s->vod_buffer) {
         return 0;
@@ -286,14 +286,14 @@ typedef struct {
     int count;
 } profiles_ctx;
 
-static int profiles_visit(zms_media_source *s, void *user)
+static int profiles_visit(zcs_media_source *s, void *user)
 {
     profiles_ctx *ctx = (profiles_ctx *)user;
     sb_t *w = &ctx->w;
     char token[128];
     const char *enc;
     char name[160];
-    zms_device_channel_info ch;
+    zcs_device_channel_info ch;
 
     if (!source_playable(s)) {
         return 0;
@@ -305,7 +305,7 @@ static int profiles_visit(zms_media_source *s, void *user)
     make_profile_token(s, token, sizeof(token));
     /* 通道名来自设备核心；取不到就退化用 app/stream，保证 Name 永不为空——
      * 部分 NVR 会拒绝 Name 为空的 Profile。 */
-    if (zms_device_core_get_key(s->vhost, s->app, s->stream, &ch) == 0 && ch.name[0]) {
+    if (zcs_device_core_get_key(s->vhost, s->app, s->stream, &ch) == 0 && ch.name[0]) {
         snprintf(name, sizeof(name), "%s", ch.name);
     } else {
         snprintf(name, sizeof(name), "%s/%s", s->app, s->stream);
@@ -364,13 +364,13 @@ static int profiles_visit(zms_media_source *s, void *user)
 
 typedef struct {
     const char *token;
-    char vhost[ZMS_VHOST_MAX];
-    char app[ZMS_APP_MAX];
-    char stream[ZMS_STREAM_MAX];
+    char vhost[ZCS_VHOST_MAX];
+    char app[ZCS_APP_MAX];
+    char stream[ZCS_STREAM_MAX];
     int found;
 } uri_ctx;
 
-static int uri_visit(zms_media_source *s, void *user)
+static int uri_visit(zcs_media_source *s, void *user)
 {
     uri_ctx *ctx = (uri_ctx *)user;
     char token[128];
@@ -393,8 +393,8 @@ static void build_rtsp_uri(const char *vhost, const char *app, const char *strea
                            size_t cap)
 {
     const char *host = g_srv.host[0] ? g_srv.host : "127.0.0.1";
-    if (vhost && vhost[0] && strcmp(vhost, ZMS_DEFAULT_VHOST) != 0) {
-        /* 非默认 vhost：ZMS 从 URL 主机名解析 vhost */
+    if (vhost && vhost[0] && strcmp(vhost, ZCS_DEFAULT_VHOST) != 0) {
+        /* 非默认 vhost：ZCS 从 URL 主机名解析 vhost */
         host = vhost;
     }
     snprintf(out, cap, "rtsp://%s:%u/%s/%s", host, g_srv.rtsp_port, app, stream);
@@ -402,12 +402,12 @@ static void build_rtsp_uri(const char *vhost, const char *app, const char *strea
 
 /* ── SOAP 处理 ──────────────────────────────────────────────────────────── */
 
-static void respond_fault(zms_http_session *hs, const char *subcode, const char *reason);
+static void respond_fault(zcs_http_session *hs, const char *subcode, const char *reason);
 
 /* 统一的成功出口：补上信封闭合，检查截断后再发送。
  * 截断时改发 Fault——宁可让客户端收到一个明确的错误，也不能让它拿到
  * 非法的半截 XML（很多 NVR 收到坏包会直接断开并反复重连）。 */
-static void respond_soap(zms_http_session *hs, sb_t *w)
+static void respond_soap(zcs_http_session *hs, sb_t *w)
 {
     env_close(w);
     if (w->overflow) {
@@ -415,10 +415,10 @@ static void respond_soap(zms_http_session *hs, sb_t *w)
         respond_fault(hs, "OutOfMemory", "response too large");
         return;
     }
-    zms_http_response_send_bytes(hs, 200, "application/soap+xml; charset=utf-8", w->b, w->len);
+    zcs_http_response_send_bytes(hs, 200, "application/soap+xml; charset=utf-8", w->b, w->len);
 }
 
-static void respond_fault(zms_http_session *hs, const char *subcode, const char *reason)
+static void respond_fault(zcs_http_session *hs, const char *subcode, const char *reason)
 {
     char buf[1024];
     sb_t w;
@@ -432,7 +432,7 @@ static void respond_fault(zms_http_session *hs, const char *subcode, const char 
     sb_puts(&w, "</s:Value></s:Subcode></s:Code><s:Reason><s:Text xml:lang=\"en\">");
     sb_esc(&w, reason);
     sb_puts(&w, "</s:Text></s:Reason></s:Fault></s:Body></s:Envelope>");
-    zms_http_response_send_bytes(hs, 400, "application/soap+xml; charset=utf-8", w.b, w.len);
+    zcs_http_response_send_bytes(hs, 400, "application/soap+xml; charset=utf-8", w.b, w.len);
 }
 
 /*
@@ -440,7 +440,7 @@ static void respond_fault(zms_http_session *hs, const char *subcode, const char 
  * 校验与本机时钟偏差（偏太大就拒绝后续鉴权）。这里统一报 UTC（不论本地时区），
  * 并把 DateTimeType 标成 NTP——虽然设备本身未跑 NTP，但声明为 NTP 能让客户端
  * 跳过“需要先设置时间的初始化流程”。 */
-static void handle_get_system_date_time(zms_http_session *hs)
+static void handle_get_system_date_time(zcs_http_session *hs)
 {
     char buf[2048];
     sb_t w;
@@ -466,19 +466,19 @@ static void handle_get_system_date_time(zms_http_session *hs)
     respond_soap(hs, &w);
 }
 
-static void handle_get_device_information(zms_http_session *hs)
+static void handle_get_device_information(zcs_http_session *hs)
 {
     char buf[2048];
     sb_t w;
     sb_init(&w, buf, sizeof(buf));
     env_open(&w);
     sb_puts(&w, "<tds:GetDeviceInformationResponse>");
-    sb_puts(&w, "<tds:Manufacturer>ZMS</tds:Manufacturer>");
-    sb_puts(&w, "<tds:Model>ZMS Media Server</tds:Model>");
-    sb_fmt(&w, "<tds:FirmwareVersion>%s</tds:FirmwareVersion>", ZMS_VERSION_STRING);
+    sb_puts(&w, "<tds:Manufacturer>ZCS</tds:Manufacturer>");
+    sb_puts(&w, "<tds:Model>ZCS Media Server</tds:Model>");
+    sb_fmt(&w, "<tds:FirmwareVersion>%s</tds:FirmwareVersion>", ZCS_VERSION_STRING);
     sb_puts(&w, "<tds:SerialNumber>");
     sb_esc(&w, g_srv.uuid);
-    sb_puts(&w, "</tds:SerialNumber><tds:HardwareId>ZMS</tds:HardwareId>");
+    sb_puts(&w, "</tds:SerialNumber><tds:HardwareId>ZCS</tds:HardwareId>");
     sb_puts(&w, "</tds:GetDeviceInformationResponse>");
     respond_soap(hs, &w);
 }
@@ -488,7 +488,7 @@ static void handle_get_device_information(zms_http_session *hs)
  * 设备核心声明了 PTZ 能力时才出现。漏掉这一层会让没有云台的部署也被客户端
  * 认为支持 PTZ，进而在界面上弹出无法响应的云台控件。
  */
-static void handle_get_capabilities(zms_http_session *hs)
+static void handle_get_capabilities(zcs_http_session *hs)
 {
     char buf[4096];
     char dev[256];
@@ -529,7 +529,7 @@ static void handle_get_capabilities(zms_http_session *hs)
     respond_soap(hs, &w);
 }
 
-static void handle_get_services(zms_http_session *hs)
+static void handle_get_services(zcs_http_session *hs)
 {
     char buf[4096];
     char dev[256];
@@ -571,7 +571,7 @@ static void handle_get_services(zms_http_session *hs)
     respond_soap(hs, &w);
 }
 
-static void handle_get_network_interfaces(zms_http_session *hs)
+static void handle_get_network_interfaces(zcs_http_session *hs)
 {
     char buf[2048];
     sb_t w;
@@ -588,31 +588,31 @@ static void handle_get_network_interfaces(zms_http_session *hs)
     respond_soap(hs, &w);
 }
 
-static void handle_get_profiles(zms_http_session *hs)
+static void handle_get_profiles(zcs_http_session *hs)
 {
     /*
      * 上限按"每路 profile 约 1~1.5KB × 并发直播源"估算：64KB 可容纳约 40 路。
      * 用堆分配避免大栈帧；超限由 sb_t.overflow 显式报错（不发残缺 XML）。
      */
-    char *buf = (char *)malloc(ZMS_ONVIF_BODY_MAX);
+    char *buf = (char *)malloc(ZCS_ONVIF_BODY_MAX);
     profiles_ctx ctx;
 
     if (!buf) {
         respond_fault(hs, "OutOfMemory", "GetProfiles buffer");
         return;
     }
-    sb_init(&ctx.w, buf, ZMS_ONVIF_BODY_MAX);
+    sb_init(&ctx.w, buf, ZCS_ONVIF_BODY_MAX);
     env_open(&ctx.w);
     sb_puts(&ctx.w, "<trt:GetProfilesResponse>");
     ctx.count = 0;
-    zms_device_core_sync_live();
-    zms_media_source_foreach(profiles_visit, &ctx, NULL);
+    zcs_device_core_sync_live();
+    zcs_media_source_foreach(profiles_visit, &ctx, NULL);
     sb_puts(&ctx.w, "</trt:GetProfilesResponse>");
     respond_soap(hs, &ctx.w);
     free(buf);
 }
 
-static void handle_get_video_sources(zms_http_session *hs)
+static void handle_get_video_sources(zcs_http_session *hs)
 {
     char buf[2048];
     sb_t w;
@@ -632,7 +632,7 @@ static void handle_get_video_sources(zms_http_session *hs)
  * 必须重新遍历源而不是在 profile token 里编码路径，是因为 token 经过 sanitize、
  * 不可逆；而源集合随时变化，只有现查才能保证返回的 URI 指向真实存在的流。
  */
-static void handle_get_stream_uri(zms_http_session *hs, const char *req_body)
+static void handle_get_stream_uri(zcs_http_session *hs, const char *req_body)
 {
     char token[128];
     char buf[2048];
@@ -641,12 +641,12 @@ static void handle_get_stream_uri(zms_http_session *hs, const char *req_body)
     uri_ctx ctx;
 
     memset(&ctx, 0, sizeof(ctx));
-    if (zms_xml_text(req_body, "ProfileToken", token, sizeof(token)) != 0) {
+    if (zcs_xml_text(req_body, "ProfileToken", token, sizeof(token)) != 0) {
         respond_fault(hs, "InvalidArgVal", "missing ProfileToken");
         return;
     }
     ctx.token = token;
-    zms_media_source_foreach(uri_visit, &ctx, NULL);
+    zcs_media_source_foreach(uri_visit, &ctx, NULL);
     if (!ctx.found) {
         respond_fault(hs, "NoProfile", "profile not found");
         return;
@@ -678,16 +678,16 @@ static void utc_iso_after(time_t t, char *out, size_t cap)
 
 static int ptz_advertised(void)
 {
-    return zms_device_core_any_cap(ZMS_DEV_CAP_PTZ) || zms_device_ptz_has_backend();
+    return zcs_device_core_any_cap(ZCS_DEV_CAP_PTZ) || zcs_device_ptz_has_backend();
 }
 
 typedef struct {
     const char *token;
-    char id[ZMS_DEVICE_ID_MAX];
+    char id[ZCS_DEVICE_ID_MAX];
     int found;
 } token_channel;
 
-static int token_channel_visit(const zms_device_channel_info *ch, void *user)
+static int token_channel_visit(const zcs_device_channel_info *ch, void *user)
 {
     token_channel *ctx = (token_channel *)user;
     char token[128];
@@ -716,8 +716,8 @@ static int resolve_profile_channel(const char *token, char *out, size_t cap)
     }
     memset(&ctx, 0, sizeof(ctx));
     ctx.token = token;
-    zms_device_core_sync_live();
-    zms_device_core_foreach(0, 0, token_channel_visit, &ctx);
+    zcs_device_core_sync_live();
+    zcs_device_core_foreach(0, 0, token_channel_visit, &ctx);
     if (!ctx.found) {
         return -1;
     }
@@ -742,17 +742,17 @@ static float clamp_unit(float v)
  * 这个约束（存在发 ±100% 的），所以逐个 clamp，绝不能把越界值直接透传给 PTZ
  * 后端（可能触发 backend 的断言或超大幅云台动作）。
  */
-static void ptz_parse_velocity(const char *body, zms_device_ptz_cmd *cmd)
+static void ptz_parse_velocity(const char *body, zcs_device_ptz_cmd *cmd)
 {
     char val[32];
 
-    if (zms_xml_attr(body, "PanTilt", "x", val, sizeof(val)) == 0) {
+    if (zcs_xml_attr(body, "PanTilt", "x", val, sizeof(val)) == 0) {
         cmd->pan = clamp_unit((float)atof(val));
     }
-    if (zms_xml_attr(body, "PanTilt", "y", val, sizeof(val)) == 0) {
+    if (zcs_xml_attr(body, "PanTilt", "y", val, sizeof(val)) == 0) {
         cmd->tilt = clamp_unit((float)atof(val));
     }
-    if (zms_xml_attr(body, "Zoom", "x", val, sizeof(val)) == 0) {
+    if (zcs_xml_attr(body, "Zoom", "x", val, sizeof(val)) == 0) {
         cmd->zoom = clamp_unit((float)atof(val));
     }
 }
@@ -773,7 +773,7 @@ static void ptz_spaces(sb_t *w, const char *wrapper)
     sb_fmt(w, "</tt:%s>", wrapper);
 }
 
-static void handle_ptz_get_nodes(zms_http_session *hs)
+static void handle_ptz_get_nodes(zcs_http_session *hs)
 {
     char buf[2048];
     sb_t w;
@@ -791,7 +791,7 @@ static void handle_ptz_get_nodes(zms_http_session *hs)
     respond_soap(hs, &w);
 }
 
-static void handle_ptz_get_configurations(zms_http_session *hs)
+static void handle_ptz_get_configurations(zcs_http_session *hs)
 {
     char buf[2048];
     sb_t w;
@@ -813,7 +813,7 @@ static void handle_ptz_get_configurations(zms_http_session *hs)
     respond_soap(hs, &w);
 }
 
-static void handle_ptz_configuration_options(zms_http_session *hs)
+static void handle_ptz_configuration_options(zcs_http_session *hs)
 {
     char buf[2048];
     sb_t w;
@@ -829,16 +829,16 @@ static void handle_ptz_configuration_options(zms_http_session *hs)
     respond_soap(hs, &w);
 }
 
-static void handle_ptz_continuous_move(zms_http_session *hs, const char *body)
+static void handle_ptz_continuous_move(zcs_http_session *hs, const char *body)
 {
     char token[128];
-    char channel[ZMS_DEVICE_ID_MAX];
+    char channel[ZCS_DEVICE_ID_MAX];
     char buf[1024];
-    zms_device_ptz_cmd cmd;
+    zcs_device_ptz_cmd cmd;
     sb_t w;
 
     memset(&cmd, 0, sizeof(cmd));
-    if (zms_xml_text(body, "ProfileToken", token, sizeof(token)) != 0) {
+    if (zcs_xml_text(body, "ProfileToken", token, sizeof(token)) != 0) {
         respond_fault(hs, "InvalidArgVal", "missing ProfileToken");
         return;
     }
@@ -850,7 +850,7 @@ static void handle_ptz_continuous_move(zms_http_session *hs, const char *body)
     }
     snprintf(cmd.channel_id, sizeof(cmd.channel_id), "%s", channel);
     ptz_parse_velocity(body, &cmd);
-    if (zms_device_ptz_dispatch(&cmd) != 0) {
+    if (zcs_device_ptz_dispatch(&cmd) != 0) {
         respond_fault(hs, "PTZError", "ptz backend failed");
         return;
     }
@@ -860,16 +860,16 @@ static void handle_ptz_continuous_move(zms_http_session *hs, const char *body)
     respond_soap(hs, &w);
 }
 
-static void handle_ptz_stop(zms_http_session *hs, const char *body)
+static void handle_ptz_stop(zcs_http_session *hs, const char *body)
 {
     char token[128];
-    char channel[ZMS_DEVICE_ID_MAX];
+    char channel[ZCS_DEVICE_ID_MAX];
     char buf[1024];
-    zms_device_ptz_cmd cmd;
+    zcs_device_ptz_cmd cmd;
     sb_t w;
 
     memset(&cmd, 0, sizeof(cmd));
-    if (zms_xml_text(body, "ProfileToken", token, sizeof(token)) != 0) {
+    if (zcs_xml_text(body, "ProfileToken", token, sizeof(token)) != 0) {
         respond_fault(hs, "InvalidArgVal", "missing ProfileToken");
         return;
     }
@@ -879,7 +879,7 @@ static void handle_ptz_stop(zms_http_session *hs, const char *body)
     }
     snprintf(cmd.channel_id, sizeof(cmd.channel_id), "%s", channel);
     cmd.stop = 1;
-    if (zms_device_ptz_dispatch(&cmd) != 0) {
+    if (zcs_device_ptz_dispatch(&cmd) != 0) {
         respond_fault(hs, "PTZError", "ptz backend failed");
         return;
     }
@@ -889,15 +889,15 @@ static void handle_ptz_stop(zms_http_session *hs, const char *body)
     respond_soap(hs, &w);
 }
 
-static void handle_ptz_get_status(zms_http_session *hs, const char *body)
+static void handle_ptz_get_status(zcs_http_session *hs, const char *body)
 {
     char token[128];
-    char channel[ZMS_DEVICE_ID_MAX];
+    char channel[ZCS_DEVICE_ID_MAX];
     char now[32];
     char buf[1024];
     sb_t w;
 
-    if (zms_xml_text(body, "ProfileToken", token, sizeof(token)) != 0 ||
+    if (zcs_xml_text(body, "ProfileToken", token, sizeof(token)) != 0 ||
         resolve_profile_channel(token, channel, sizeof(channel)) != 0) {
         respond_fault(hs, "NoProfile", "profile not found");
         return;
@@ -916,7 +916,7 @@ static void handle_ptz_get_status(zms_http_session *hs, const char *body)
 
 /* ── ONVIF Events：PullPoint ───────────────────────────────────────────── */
 
-static void handle_events_properties(zms_http_session *hs)
+static void handle_events_properties(zcs_http_session *hs)
 {
     char buf[4096];
     sb_t w;
@@ -941,7 +941,7 @@ static void handle_events_properties(zms_http_session *hs)
     respond_soap(hs, &w);
 }
 
-static void handle_create_pullpoint(zms_http_session *hs)
+static void handle_create_pullpoint(zcs_http_session *hs)
 {
     char addr[256];
     char now[32];
@@ -974,15 +974,15 @@ static void handle_create_pullpoint(zms_http_session *hs)
  * 报错一个不在 TopicSet 中的 topic 会让某些客户端丢弃整条通知。 */
 static const char *event_topic(int type)
 {
-    return type == ZMS_DEV_EVENT_MOTION ? "tns1:RuleEngine/CellMotionDetector/Motion"
+    return type == ZCS_DEV_EVENT_MOTION ? "tns1:RuleEngine/CellMotionDetector/Motion"
                                         : "tns1:Device/Trigger/Alarm";
 }
 
-static void handle_pull_messages(zms_http_session *hs)
+static void handle_pull_messages(zcs_http_session *hs)
 {
     /* 事件与响应体都放堆上：ONVIF 事件报文可达数 KB，poller 栈只留小缓冲。 */
-    zms_device_event *evs = (zms_device_event *)calloc(16, sizeof(*evs));
-    char *buf = (char *)malloc(ZMS_ONVIF_BODY_MAX);
+    zcs_device_event *evs = (zcs_device_event *)calloc(16, sizeof(*evs));
+    char *buf = (char *)malloc(ZCS_ONVIF_BODY_MAX);
     size_t n;
     size_t i;
     char now[32];
@@ -992,13 +992,13 @@ static void handle_pull_messages(zms_http_session *hs)
     if (!evs || !buf) {
         free(evs);
         free(buf);
-        zms_http_response_send_error(hs, 500, "Internal Server Error");
+        zcs_http_response_send_error(hs, 500, "Internal Server Error");
         return;
     }
-    n = zms_device_event_list(evs, 16);
+    n = zcs_device_event_list(evs, 16);
     utc_iso_after(time(NULL), now, sizeof(now));
     utc_iso_after(time(NULL) + 60, term, sizeof(term));
-    sb_init(&w, buf, ZMS_ONVIF_BODY_MAX);
+    sb_init(&w, buf, ZCS_ONVIF_BODY_MAX);
     env_open(&w);
     sb_puts(&w, "<tev:PullMessagesResponse><tev:CurrentTime>");
     sb_esc(&w, now);
@@ -1014,7 +1014,7 @@ static void handle_pull_messages(zms_http_session *hs)
          * 也让客户端能分批拉取、及时确认。next_cursor 只在一个事件真正入包后
          * 前移，最后统一提交，避免中途失败导致事件丢失。 */
         for (i = n; i > 0 && sent < 10; --i) {
-            const zms_device_event *ev = &evs[i - 1];
+            const zcs_device_event *ev = &evs[i - 1];
             char ts[32];
             if (ev->time_ms <= g_event_cursor_ms) {
                 break;
@@ -1031,7 +1031,7 @@ static void handle_pull_messages(zms_http_session *hs)
             sb_esc(&w, ev->channel_id);
             sb_puts(&w, "\"/></tt:Source><tt:Data>");
             sb_puts(&w, "<tt:SimpleItem Name=\"EventType\" Value=\"");
-            sb_esc(&w, zms_device_event_type_name(ev->type));
+            sb_esc(&w, zcs_device_event_type_name(ev->type));
             sb_puts(&w, "\"/><tt:SimpleItem Name=\"State\" Value=\"true\"/>");
             sb_puts(&w, "<tt:SimpleItem Name=\"Message\" Value=\"");
             sb_esc(&w, ev->message);
@@ -1049,7 +1049,7 @@ static void handle_pull_messages(zms_http_session *hs)
     free(evs);
 }
 
-static void handle_unsubscribe(zms_http_session *hs)
+static void handle_unsubscribe(zcs_http_session *hs)
 {
     char buf[512];
     sb_t w;
@@ -1060,7 +1060,7 @@ static void handle_unsubscribe(zms_http_session *hs)
     respond_soap(hs, &w);
 }
 
-static void handle_renew(zms_http_session *hs)
+static void handle_renew(zcs_http_session *hs)
 {
     char term[32];
     char buf[512];
@@ -1088,7 +1088,7 @@ static int path_is_service(const char *path, const char *service)
     return path[n] == '\0' || path[n] == '?';
 }
 
-static int onvif_route_match(const zms_http_request *req)
+static int onvif_route_match(const zcs_http_request *req)
 {
     if (!req) {
         return 0;
@@ -1102,13 +1102,13 @@ static int onvif_route_match(const zms_http_request *req)
 
 /* ── 命令表（能力门控 + 统一分发） ─────────────────────────────────────── */
 
-static int cmd_system_time(const zms_device_cmd_ctx *ctx)
+static int cmd_system_time(const zcs_device_cmd_ctx *ctx)
 {
-    handle_get_system_date_time((zms_http_session *)ctx->session);
+    handle_get_system_date_time((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_service_capabilities(const zms_device_cmd_ctx *ctx)
+static int cmd_service_capabilities(const zcs_device_cmd_ctx *ctx)
 {
     char buf[512];
     sb_t w;
@@ -1116,11 +1116,11 @@ static int cmd_service_capabilities(const zms_device_cmd_ctx *ctx)
     sb_init(&w, buf, sizeof(buf));
     env_open(&w);
     sb_puts(&w, "<tds:GetServiceCapabilitiesResponse/>");
-    respond_soap((zms_http_session *)ctx->session, &w);
+    respond_soap((zcs_http_session *)ctx->session, &w);
     return 0;
 }
 
-static int cmd_media_service_capabilities(const zms_device_cmd_ctx *ctx)
+static int cmd_media_service_capabilities(const zcs_device_cmd_ctx *ctx)
 {
     char buf[512];
     sb_t w;
@@ -1128,53 +1128,53 @@ static int cmd_media_service_capabilities(const zms_device_cmd_ctx *ctx)
     sb_init(&w, buf, sizeof(buf));
     env_open(&w);
     sb_puts(&w, "<trt:GetServiceCapabilitiesResponse/>");
-    respond_soap((zms_http_session *)ctx->session, &w);
+    respond_soap((zcs_http_session *)ctx->session, &w);
     return 0;
 }
 
-static int cmd_get_services(const zms_device_cmd_ctx *ctx)
+static int cmd_get_services(const zcs_device_cmd_ctx *ctx)
 {
-    handle_get_services((zms_http_session *)ctx->session);
+    handle_get_services((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_network_interfaces(const zms_device_cmd_ctx *ctx)
+static int cmd_network_interfaces(const zcs_device_cmd_ctx *ctx)
 {
-    handle_get_network_interfaces((zms_http_session *)ctx->session);
+    handle_get_network_interfaces((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_get_capabilities(const zms_device_cmd_ctx *ctx)
+static int cmd_get_capabilities(const zcs_device_cmd_ctx *ctx)
 {
-    handle_get_capabilities((zms_http_session *)ctx->session);
+    handle_get_capabilities((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_device_information(const zms_device_cmd_ctx *ctx)
+static int cmd_device_information(const zcs_device_cmd_ctx *ctx)
 {
-    handle_get_device_information((zms_http_session *)ctx->session);
+    handle_get_device_information((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_get_profiles(const zms_device_cmd_ctx *ctx)
+static int cmd_get_profiles(const zcs_device_cmd_ctx *ctx)
 {
-    handle_get_profiles((zms_http_session *)ctx->session);
+    handle_get_profiles((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_video_sources(const zms_device_cmd_ctx *ctx)
+static int cmd_video_sources(const zcs_device_cmd_ctx *ctx)
 {
-    handle_get_video_sources((zms_http_session *)ctx->session);
+    handle_get_video_sources((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_stream_uri(const zms_device_cmd_ctx *ctx)
+static int cmd_stream_uri(const zcs_device_cmd_ctx *ctx)
 {
-    handle_get_stream_uri((zms_http_session *)ctx->session, (const char *)ctx->message);
+    handle_get_stream_uri((zcs_http_session *)ctx->session, (const char *)ctx->message);
     return 0;
 }
 
-static int cmd_ptz_service_capabilities(const zms_device_cmd_ctx *ctx)
+static int cmd_ptz_service_capabilities(const zcs_device_cmd_ctx *ctx)
 {
     char buf[512];
     sb_t w;
@@ -1182,47 +1182,47 @@ static int cmd_ptz_service_capabilities(const zms_device_cmd_ctx *ctx)
     sb_init(&w, buf, sizeof(buf));
     env_open(&w);
     sb_puts(&w, "<tptz:GetServiceCapabilitiesResponse/>");
-    respond_soap((zms_http_session *)ctx->session, &w);
+    respond_soap((zcs_http_session *)ctx->session, &w);
     return 0;
 }
 
-static int cmd_ptz_get_nodes(const zms_device_cmd_ctx *ctx)
+static int cmd_ptz_get_nodes(const zcs_device_cmd_ctx *ctx)
 {
-    handle_ptz_get_nodes((zms_http_session *)ctx->session);
+    handle_ptz_get_nodes((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_ptz_get_configurations(const zms_device_cmd_ctx *ctx)
+static int cmd_ptz_get_configurations(const zcs_device_cmd_ctx *ctx)
 {
-    handle_ptz_get_configurations((zms_http_session *)ctx->session);
+    handle_ptz_get_configurations((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_ptz_configuration_options(const zms_device_cmd_ctx *ctx)
+static int cmd_ptz_configuration_options(const zcs_device_cmd_ctx *ctx)
 {
-    handle_ptz_configuration_options((zms_http_session *)ctx->session);
+    handle_ptz_configuration_options((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_ptz_continuous_move(const zms_device_cmd_ctx *ctx)
+static int cmd_ptz_continuous_move(const zcs_device_cmd_ctx *ctx)
 {
-    handle_ptz_continuous_move((zms_http_session *)ctx->session, (const char *)ctx->message);
+    handle_ptz_continuous_move((zcs_http_session *)ctx->session, (const char *)ctx->message);
     return 0;
 }
 
-static int cmd_ptz_stop(const zms_device_cmd_ctx *ctx)
+static int cmd_ptz_stop(const zcs_device_cmd_ctx *ctx)
 {
-    handle_ptz_stop((zms_http_session *)ctx->session, (const char *)ctx->message);
+    handle_ptz_stop((zcs_http_session *)ctx->session, (const char *)ctx->message);
     return 0;
 }
 
-static int cmd_ptz_get_status(const zms_device_cmd_ctx *ctx)
+static int cmd_ptz_get_status(const zcs_device_cmd_ctx *ctx)
 {
-    handle_ptz_get_status((zms_http_session *)ctx->session, (const char *)ctx->message);
+    handle_ptz_get_status((zcs_http_session *)ctx->session, (const char *)ctx->message);
     return 0;
 }
 
-static int cmd_events_service_capabilities(const zms_device_cmd_ctx *ctx)
+static int cmd_events_service_capabilities(const zcs_device_cmd_ctx *ctx)
 {
     char buf[512];
     sb_t w;
@@ -1230,41 +1230,41 @@ static int cmd_events_service_capabilities(const zms_device_cmd_ctx *ctx)
     sb_init(&w, buf, sizeof(buf));
     env_open(&w);
     sb_puts(&w, "<tev:GetServiceCapabilitiesResponse/>");
-    respond_soap((zms_http_session *)ctx->session, &w);
+    respond_soap((zcs_http_session *)ctx->session, &w);
     return 0;
 }
 
-static int cmd_events_properties(const zms_device_cmd_ctx *ctx)
+static int cmd_events_properties(const zcs_device_cmd_ctx *ctx)
 {
-    handle_events_properties((zms_http_session *)ctx->session);
+    handle_events_properties((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_create_pullpoint(const zms_device_cmd_ctx *ctx)
+static int cmd_create_pullpoint(const zcs_device_cmd_ctx *ctx)
 {
-    handle_create_pullpoint((zms_http_session *)ctx->session);
+    handle_create_pullpoint((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_pull_messages(const zms_device_cmd_ctx *ctx)
+static int cmd_pull_messages(const zcs_device_cmd_ctx *ctx)
 {
-    handle_pull_messages((zms_http_session *)ctx->session);
+    handle_pull_messages((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_unsubscribe(const zms_device_cmd_ctx *ctx)
+static int cmd_unsubscribe(const zcs_device_cmd_ctx *ctx)
 {
-    handle_unsubscribe((zms_http_session *)ctx->session);
+    handle_unsubscribe((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static int cmd_renew(const zms_device_cmd_ctx *ctx)
+static int cmd_renew(const zcs_device_cmd_ctx *ctx)
 {
-    handle_renew((zms_http_session *)ctx->session);
+    handle_renew((zcs_http_session *)ctx->session);
     return 0;
 }
 
-static const zms_device_cmd k_onvif_device_cmds[] = {
+static const zcs_device_cmd k_onvif_device_cmds[] = {
     {"GetSystemDateAndTime", "action", 0, cmd_system_time},
     {"GetDeviceInformation", "action", 0, cmd_device_information},
     {"GetServiceCapabilities", "action", 0, cmd_service_capabilities},
@@ -1273,14 +1273,14 @@ static const zms_device_cmd k_onvif_device_cmds[] = {
     {"GetCapabilities", "action", 0, cmd_get_capabilities},
 };
 
-static const zms_device_cmd k_onvif_media_cmds[] = {
+static const zcs_device_cmd k_onvif_media_cmds[] = {
     {"GetProfiles", "action", 0, cmd_get_profiles},
     {"GetVideoSources", "action", 0, cmd_video_sources},
     {"GetStreamUri", "action", 0, cmd_stream_uri},
     {"GetServiceCapabilities", "action", 0, cmd_media_service_capabilities},
 };
 
-static const zms_device_cmd k_onvif_ptz_cmds[] = {
+static const zcs_device_cmd k_onvif_ptz_cmds[] = {
     {"GetServiceCapabilities", "action", 0, cmd_ptz_service_capabilities},
     {"GetNodes", "action", 0, cmd_ptz_get_nodes},
     {"GetConfigurations", "action", 0, cmd_ptz_get_configurations},
@@ -1290,7 +1290,7 @@ static const zms_device_cmd k_onvif_ptz_cmds[] = {
     {"GetStatus", "action", 0, cmd_ptz_get_status},
 };
 
-static const zms_device_cmd k_onvif_events_cmds[] = {
+static const zcs_device_cmd k_onvif_events_cmds[] = {
     {"GetServiceCapabilities", "action", 0, cmd_events_service_capabilities},
     {"GetEventProperties", "action", 0, cmd_events_properties},
     {"CreatePullPointSubscription", "action", 0, cmd_create_pullpoint},
@@ -1306,18 +1306,18 @@ static const zms_device_cmd k_onvif_events_cmds[] = {
  * 表内的请求元素名。为什么需要第二步：不少 ONVIF 客户端（尤其部分国产 NVR）
  * 根本不发 SOAPAction 头或发得不准，只能靠 body 的根元素判断是哪个操作。
  */
-static const zms_device_cmd *onvif_find_cmd(const zms_device_cmd *table, size_t count,
+static const zcs_device_cmd *onvif_find_cmd(const zcs_device_cmd *table, size_t count,
                                             const char *action, const char *body)
 {
-    const zms_device_cmd *cmd = NULL;
+    const zcs_device_cmd *cmd = NULL;
     size_t i;
 
     if (action && action[0]) {
-        cmd = zms_device_cmd_find(table, count, action);
+        cmd = zcs_device_cmd_find(table, count, action);
     }
     if (!cmd) {
         for (i = 0; i < count; ++i) {
-            if (table[i].name && zms_xml_find_tag_start(body, NULL, table[i].name)) {
+            if (table[i].name && zcs_xml_find_tag_start(body, NULL, table[i].name)) {
                 cmd = &table[i];
                 break;
             }
@@ -1332,28 +1332,28 @@ static const zms_device_cmd *onvif_find_cmd(const zms_device_cmd *table, size_t 
  * 同一路径前缀下复用一堆命令名（比如 GetServiceCapabilities 在每个服务里
  * 都要有），所以必须“路径定表、元素名定命令”两段式匹配。
  */
-static void onvif_route_handle(zms_http_session *sess, const zms_http_request *req)
+static void onvif_route_handle(zcs_http_session *sess, const zcs_http_request *req)
 {
     const char *body = req && req->body ? req->body : "";
 
     if (!g_srv.enabled) {
-        zms_http_response_send_error(sess, 404, "Not Found");
+        zcs_http_response_send_error(sess, 404, "Not Found");
         return;
     }
     if (!req || strcmp(req->method, "POST") != 0) {
-        zms_http_response_send_error(sess, 405, "Method Not Allowed");
+        zcs_http_response_send_error(sess, 405, "Method Not Allowed");
         return;
     }
 
     {
         char action[80];
-        const zms_device_cmd *cmd;
-        const zms_device_cmd *table;
+        const zcs_device_cmd *cmd;
+        const zcs_device_cmd *table;
         size_t count;
         const char *svc;
-        zms_device_cmd_ctx ctx;
+        zcs_device_cmd_ctx ctx;
 
-        if (zms_xml_first_child_name(body, "Body", action, sizeof(action)) != 0) {
+        if (zcs_xml_first_child_name(body, "Body", action, sizeof(action)) != 0) {
             action[0] = '\0';
         }
         if (strstr(req->path, "media_service") != NULL) {
@@ -1374,7 +1374,7 @@ static void onvif_route_handle(zms_http_session *sess, const zms_http_request *r
             svc = "device";
         }
         cmd = onvif_find_cmd(table, count, action, body);
-        if (!cmd || !zms_device_cmd_allowed(cmd)) {
+        if (!cmd || !zcs_device_cmd_allowed(cmd)) {
             zn_info("onvif: unsupported %s action %s", svc, action[0] ? action : "?");
             respond_fault(sess, "ActionNotSupported", "unsupported action");
             return;
@@ -1386,19 +1386,19 @@ static void onvif_route_handle(zms_http_session *sess, const zms_http_request *r
     }
 }
 
-static const zms_http_route_ops k_onvif_route = {
+static const zcs_http_route_ops k_onvif_route = {
     .name = "onvif",
     .match = onvif_route_match,
     .handle = onvif_route_handle,
 };
 
-void zms_onvif_server_routes_register(void)
+void zcs_onvif_server_routes_register(void)
 {
     if (g_routes_registered) {
         return;
     }
     g_routes_registered = 1;
-    zms_http_route_register(&k_onvif_route);
+    zcs_http_route_register(&k_onvif_route);
 }
 
 /* ── WS-Discovery 应答 ──────────────────────────────────────────────────── */
@@ -1424,11 +1424,11 @@ static size_t wsd_build_match(char *out, size_t cap, const char *relates_to)
     char msgid[80];
 
     device_addr(dev, sizeof(dev), "device_service");
-    zms_onvif_make_msgid(msgid, sizeof(msgid));
+    zcs_onvif_make_msgid(msgid, sizeof(msgid));
     snprintf(scopes, sizeof(scopes),
-             "onvif://www.onvif.org/name/%s onvif://www.onvif.org/hardware/ZMS "
+             "onvif://www.onvif.org/name/%s onvif://www.onvif.org/hardware/ZCS "
              "onvif://www.onvif.org/type/NetworkVideoTransmitter",
-             g_srv.name[0] ? g_srv.name : "ZMS");
+             g_srv.name[0] ? g_srv.name : "ZCS");
 
     sb_init(&w, out, cap);
     sb_puts(&w,
@@ -1495,7 +1495,7 @@ static void wsd_handle_datagram(onvif_sock_t fd, char *buf, size_t len,
         return;
     }
     relates[0] = 0;
-    (void)zms_xml_text(buf, "MessageID", relates, sizeof(relates));
+    (void)zcs_xml_text(buf, "MessageID", relates, sizeof(relates));
     rlen = wsd_build_match(reply, sizeof(reply), relates[0] ? relates : NULL);
 #if defined(_WIN32)
     sendto(fd, reply, (int)rlen, 0, (const struct sockaddr *)peer, plen);
@@ -1618,7 +1618,7 @@ static void wsd_teardown(void)
  * 不支持多实例。WS-Discovery 的 socket 是在 poller 上异步建立的（zn_poller_async），
  * 这样 start 不必阻塞等待 bind/join 组播完成。
  */
-int zms_onvif_server_start(const zms_onvif_server_opts *opts)
+int zcs_onvif_server_start(const zcs_onvif_server_opts *opts)
 {
     if (!opts) {
         return -1;
@@ -1630,7 +1630,7 @@ int zms_onvif_server_start(const zms_onvif_server_opts *opts)
     g_srv.http_port = opts->http_port;
     g_srv.rtsp_port = opts->rtsp_port;
     snprintf(g_srv.name, sizeof(g_srv.name), "%s",
-             opts->name && opts->name[0] ? opts->name : "ZMS");
+             opts->name && opts->name[0] ? opts->name : "ZCS");
     g_srv.discovery = opts->discovery;
     if (opts->uuid && opts->uuid[0]) {
         snprintf(g_srv.uuid, sizeof(g_srv.uuid), "%s", opts->uuid);
@@ -1659,14 +1659,14 @@ int zms_onvif_server_start(const zms_onvif_server_opts *opts)
     return 0;
 }
 
-void zms_onvif_server_stop(void)
+void zcs_onvif_server_stop(void)
 {
     wsd_teardown();
     g_wsd_poller = NULL;
     g_srv.enabled = 0;
 }
 
-int zms_onvif_server_running(void)
+int zcs_onvif_server_running(void)
 {
     return g_srv.enabled;
 }

@@ -3,12 +3,12 @@
  * @brief GB28181 设备端：生命周期、SIP 传输、REGISTER/Keepalive、MANSCDP 查询/控制。
  */
 #include "device/gb28181/gb28181_internal.h"
-#include "zms/device/core/device_command.h"
-#include "zms/device/core/device_event.h"
-#include "zms/device/core/device_ptz.h"
+#include "zcs/device/core/device_command.h"
+#include "zcs/device/core/device_event.h"
+#include "zcs/device/core/device_ptz.h"
 
-#include "zms/egress/recorder/egress_mp4_recorder.h"
-#include "zms/util/md5.h"
+#include "zcs/egress/recorder/egress_mp4_recorder.h"
+#include "zcs/util/md5.h"
 #include "util/strtok_r.h"
 #include "zn/platform.h"
 #include "zn/util/log.h"
@@ -150,21 +150,21 @@ int gb_channels_load(const char *spec)
     if (!spec || !spec[0]) {
         return -1;
     }
-    zms_device_core_init();
+    zcs_device_core_init();
     buf = (char *)malloc(strlen(spec) + 1);
     if (!buf) {
         return -1;
     }
     strcpy(buf, spec);
 
-    for (tok = zms_strtok_r(buf, ";,", &save); tok; tok = zms_strtok_r(NULL, ";,", &save)) {
+    for (tok = zcs_strtok_r(buf, ";,", &save); tok; tok = zcs_strtok_r(NULL, ";,", &save)) {
         char *colon;
         char *rest;
         char *slash;
-        zms_device_channel_info ch;
+        zcs_device_channel_info ch;
 
         trim_inplace(tok);
-        if (!tok[0] || loaded >= ZMS_GB28181_CHANNEL_MAX) {
+        if (!tok[0] || loaded >= ZCS_GB28181_CHANNEL_MAX) {
             continue;
         }
         colon = strchr(tok, ':');
@@ -201,14 +201,14 @@ int gb_channels_load(const char *spec)
                 copy_str(ch.app, sizeof(ch.app), second);
                 copy_str(ch.stream, sizeof(ch.stream), third + 1);
             } else {
-                copy_str(ch.vhost, sizeof(ch.vhost), ZMS_DEFAULT_VHOST);
+                copy_str(ch.vhost, sizeof(ch.vhost), ZCS_DEFAULT_VHOST);
                 copy_str(ch.app, sizeof(ch.app), rest);
                 copy_str(ch.stream, sizeof(ch.stream), second);
             }
         }
-        ch.flags = ZMS_DEV_CH_GB;
-        ch.caps = ZMS_DEV_CAP_LIVE | ZMS_DEV_CAP_PLAYBACK | ZMS_DEV_CAP_RECORD_QUERY;
-        if (zms_device_core_register(&ch) != 0) {
+        ch.flags = ZCS_DEV_CH_GB;
+        ch.caps = ZCS_DEV_CAP_LIVE | ZCS_DEV_CAP_PLAYBACK | ZCS_DEV_CAP_RECORD_QUERY;
+        if (zcs_device_core_register(&ch) != 0) {
             zn_warn("gb28181: register channel %s failed", ch.id);
             continue;
         }
@@ -223,17 +223,17 @@ int gb_channel_get(const char *id, gb_channel *out)
     if (!id || !out) {
         return -1;
     }
-    return zms_device_core_get(id, out);
+    return zcs_device_core_get(id, out);
 }
 
 /* 通道对应的媒体源：GB28181 通道在内部映射为 rtsp schema 的 app/stream，
  * 拉流/录像都通过这条统一的源查找入口，屏蔽具体协议差异。 */
-zms_media_source *gb_channel_source(const gb_channel *ch)
+zcs_media_source *gb_channel_source(const gb_channel *ch)
 {
     if (!ch) {
         return NULL;
     }
-    return zms_media_source_find_for_play_ex("rtsp", ch->vhost, ch->app, ch->stream);
+    return zcs_media_source_find_for_play_ex("rtsp", ch->vhost, ch->app, ch->stream);
 }
 
 int gb_channel_online(const gb_channel *ch)
@@ -245,7 +245,7 @@ int gb_channel_online(const gb_channel *ch)
 
 static const char *gb_transport_name(void)
 {
-    return g_ctx.sip_transport_mode == ZMS_SIP_TRANSPORT_TCP ? "TCP" : "UDP";
+    return g_ctx.sip_transport_mode == ZCS_SIP_TRANSPORT_TCP ? "TCP" : "UDP";
 }
 
 int gb_transport_send(const char *ip, uint16_t port, const char *data, size_t len)
@@ -259,7 +259,7 @@ int gb_transport_send(const char *ip, uint16_t port, const char *data, size_t le
         ip = NULL;
         port = 0;
     }
-    if (zms_sip_transport_send(g_ctx.sip, ip, port, data, len) != 0) {
+    if (zcs_sip_transport_send(g_ctx.sip, ip, port, data, len) != 0) {
         zn_debug("gb28181: SIP send failed (%s:%u)", ip ? ip : "-", port);
         return -1;
     }
@@ -645,18 +645,18 @@ static void send_manscdp_to_peer(const gb_sip_msg *m, const char *body)
 }
 
 typedef struct {
-    gb_catalog_item items[ZMS_GB28181_CHANNEL_MAX];
-    char ids[ZMS_GB28181_CHANNEL_MAX][ZMS_DEVICE_ID_MAX];
-    char names[ZMS_GB28181_CHANNEL_MAX][ZMS_DEVICE_NAME_MAX];
+    gb_catalog_item items[ZCS_GB28181_CHANNEL_MAX];
+    char ids[ZCS_GB28181_CHANNEL_MAX][ZCS_DEVICE_ID_MAX];
+    char names[ZCS_GB28181_CHANNEL_MAX][ZCS_DEVICE_NAME_MAX];
     size_t count;
 } gb_catalog_ctx;
 
-static int catalog_visit(const zms_device_channel_info *ch, void *user)
+static int catalog_visit(const zcs_device_channel_info *ch, void *user)
 {
     gb_catalog_ctx *ctx = (gb_catalog_ctx *)user;
     size_t i;
 
-    if (!ch || ctx->count >= ZMS_GB28181_CHANNEL_MAX) {
+    if (!ch || ctx->count >= ZCS_GB28181_CHANNEL_MAX) {
         return 1;
     }
     i = ctx->count++;
@@ -668,17 +668,17 @@ static int catalog_visit(const zms_device_channel_info *ch, void *user)
     ctx->items[i].model = g_ctx.model;
     ctx->items[i].parent_id = g_ctx.device_id;
     ctx->items[i].online = ch->online;
-    ctx->items[i].ptz_type = (ch->caps & ZMS_DEV_CAP_PTZ) ? 1 : 0;
+    ctx->items[i].ptz_type = (ch->caps & ZCS_DEV_CAP_PTZ) ? 1 : 0;
     return 0;
 }
 
 typedef struct {
-    zms_gb28181_channel_info *out;
+    zcs_gb28181_channel_info *out;
     size_t cap;
     size_t count;
 } gb_chlist_ctx;
 
-static int chlist_visit(const zms_device_channel_info *ch, void *user)
+static int chlist_visit(const zcs_device_channel_info *ch, void *user)
 {
     gb_chlist_ctx *ctx = (gb_chlist_ctx *)user;
     size_t n;
@@ -696,7 +696,7 @@ static int chlist_visit(const zms_device_channel_info *ch, void *user)
     return 0;
 }
 
-static int gb_query_catalog(const zms_device_cmd_ctx *ctx)
+static int gb_query_catalog(const zcs_device_cmd_ctx *ctx)
 {
     const gb_sip_msg *m = (const gb_sip_msg *)ctx->session;
     const gb_manscdp_msg *q = (const gb_manscdp_msg *)ctx->message;
@@ -711,8 +711,8 @@ static int gb_query_catalog(const zms_device_cmd_ctx *ctx)
     }
     /* 查询前先同步实时在线状态：平台查目录时期望看到最新 online 标志，
      * 而不是上次刷新时的快照。 */
-    zms_device_core_sync_live();
-    zms_device_core_foreach(0, ZMS_DEV_CH_GB, catalog_visit, cat);
+    zcs_device_core_sync_live();
+    zcs_device_core_foreach(0, ZCS_DEV_CH_GB, catalog_visit, cat);
     gb_manscdp_build_catalog(body, GB_SIP_BODY_MAX, q->sn,
                              q->device_id[0] ? q->device_id : g_ctx.device_id, cat->items,
                              cat->count);
@@ -725,7 +725,7 @@ static int gb_query_catalog(const zms_device_cmd_ctx *ctx)
 
 /* 设备信息查询：上报设备基本参数与通道总数。通道数取 GB 类型实时统计，
  * 保证与目录查询一致。 */
-static int gb_query_device_info(const zms_device_cmd_ctx *ctx)
+static int gb_query_device_info(const zcs_device_cmd_ctx *ctx)
 {
     const gb_sip_msg *m = (const gb_sip_msg *)ctx->session;
     const gb_manscdp_msg *q = (const gb_manscdp_msg *)ctx->message;
@@ -733,13 +733,13 @@ static int gb_query_device_info(const zms_device_cmd_ctx *ctx)
 
     gb_manscdp_build_device_info(body, sizeof(body), q->sn, g_ctx.device_id, g_ctx.device_name,
                                  g_ctx.manufacturer, g_ctx.model, g_ctx.firmware,
-                                 (int)zms_device_core_count(0, ZMS_DEV_CH_GB));
+                                 (int)zcs_device_core_count(0, ZCS_DEV_CH_GB));
     send_manscdp_to_peer(m, body);
     return 0;
 }
 
 /* 设备状态查询：恒上报 online=1（能处理本查询就说明设备在线），SN 原样回填。 */
-static int gb_query_device_status(const zms_device_cmd_ctx *ctx)
+static int gb_query_device_status(const zcs_device_cmd_ctx *ctx)
 {
     const gb_sip_msg *m = (const gb_sip_msg *)ctx->session;
     const gb_manscdp_msg *q = (const gb_manscdp_msg *)ctx->message;
@@ -750,7 +750,7 @@ static int gb_query_device_status(const zms_device_cmd_ctx *ctx)
     return 0;
 }
 
-static int gb_query_config(const zms_device_cmd_ctx *ctx)
+static int gb_query_config(const zcs_device_cmd_ctx *ctx)
 {
     const gb_sip_msg *m = (const gb_sip_msg *)ctx->session;
     const gb_manscdp_msg *q = (const gb_manscdp_msg *)ctx->message;
@@ -771,7 +771,7 @@ static int gb_query_config(const zms_device_cmd_ctx *ctx)
     return 0;
 }
 
-static int gb_query_record_info(const zms_device_cmd_ctx *ctx)
+static int gb_query_record_info(const zcs_device_cmd_ctx *ctx)
 {
     const gb_sip_msg *m = (const gb_sip_msg *)ctx->session;
     const gb_manscdp_msg *q = (const gb_manscdp_msg *)ctx->message;
@@ -784,13 +784,13 @@ static int gb_query_record_info(const zms_device_cmd_ctx *ctx)
         return -1;
     }
     list = gb_record_query(q->device_id, q->start_time, q->end_time);
-    count = zms_device_record_list_count(list);
+    count = zcs_device_record_list_count(list);
     {
         gb_record_item *items = (gb_record_item *)calloc(count ? count : 1, sizeof(*items));
 
         if (items) {
             for (i = 0; i < count; ++i) {
-                const zms_device_record_entry *e = zms_device_record_list_at(list, i);
+                const zcs_device_record_entry *e = zcs_device_record_list_at(list, i);
 
                 items[i].device_id = e->channel_id;
                 items[i].name = e->name;
@@ -807,12 +807,12 @@ static int gb_query_record_info(const zms_device_cmd_ctx *ctx)
     }
     zn_info("gb28181: record query channel=%s records=%u", q->device_id, (unsigned)count);
     free(body);
-    zms_device_record_list_free(list);
+    zcs_device_record_list_free(list);
     return 0;
 }
 
 /* 预置位查询：本设备不实现预置位，固定回报 Num=0 的空列表。 */
-static int gb_query_preset(const zms_device_cmd_ctx *ctx)
+static int gb_query_preset(const zcs_device_cmd_ctx *ctx)
 {
     const gb_sip_msg *m = (const gb_sip_msg *)ctx->session;
     const gb_manscdp_msg *q = (const gb_manscdp_msg *)ctx->message;
@@ -829,12 +829,12 @@ static int gb_query_preset(const zms_device_cmd_ctx *ctx)
     return 0;
 }
 
-static const zms_device_cmd k_gb_queries[] = {
+static const zcs_device_cmd k_gb_queries[] = {
     {"Catalog", "query", 0, gb_query_catalog},
     {"DeviceInfo", "query", 0, gb_query_device_info},
     {"DeviceStatus", "query", 0, gb_query_device_status},
     {"ConfigDownload", "query", 0, gb_query_config},
-    {"RecordInfo", "query", ZMS_DEV_CAP_RECORD_QUERY, gb_query_record_info},
+    {"RecordInfo", "query", ZCS_DEV_CAP_RECORD_QUERY, gb_query_record_info},
     {"PresetQuery", "query", 0, gb_query_preset},
 };
 
@@ -848,16 +848,16 @@ static void handle_record_cmd(const char *channel_id, const char *cmd)
         return;
     }
     if (strcasecmp(cmd, "Record") == 0) {
-        zms_media_source *src = gb_channel_source(&ch);
+        zcs_media_source *src = gb_channel_source(&ch);
         if (src) {
             src->enable_mp4 = 1;
-            (void)zms_mp4_recorder_start(src, g_ctx.poller);
+            (void)zcs_mp4_recorder_start(src, g_ctx.poller);
             zn_info("gb28181: manual record start channel=%s", channel_id);
         }
     } else if (strcasecmp(cmd, "StopRecord") == 0) {
-        zms_media_source *src = gb_channel_source(&ch);
+        zcs_media_source *src = gb_channel_source(&ch);
         if (src) {
-            zms_mp4_recorder_stop(src);
+            zcs_mp4_recorder_stop(src);
             zn_info("gb28181: manual record stop channel=%s", channel_id);
         }
     }
@@ -888,7 +888,7 @@ static float clamp_unit(float v)
  * （除以 100 归一化后 clamp 到 [-1,1]）。方向码的符号约定（pan 右正左负、
  * tilt 上正下负）遵循国标；不认识的命令码返回 -1。
  */
-static int parse_ptz_cmd(const char *hex, zms_device_ptz_cmd *out)
+static int parse_ptz_cmd(const char *hex, zcs_device_ptz_cmd *out)
 {
     unsigned char b[8];
     size_t i;
@@ -964,17 +964,17 @@ static int parse_ptz_cmd(const char *hex, zms_device_ptz_cmd *out)
 /* 设备控制统一入口：PTZ、录像、报警布撤防各自解析后分发；不论各子命令是否
  * 被支持，都统一回一条 DeviceControl Response=OK（GB28181 的设备控制只要求
  * 一个总响应），具体不支持的命令在处理内部记日志。 */
-static int gb_control_device(const zms_device_cmd_ctx *ctx)
+static int gb_control_device(const zcs_device_cmd_ctx *ctx)
 {
     const gb_sip_msg *m = (const gb_sip_msg *)ctx->session;
     const gb_manscdp_msg *q = (const gb_manscdp_msg *)ctx->message;
     char body[1024];
 
     if (q->ptz_cmd[0]) {
-        zms_device_ptz_cmd cmd;
+        zcs_device_ptz_cmd cmd;
         if (parse_ptz_cmd(q->ptz_cmd, &cmd) == 0) {
             snprintf(cmd.channel_id, sizeof(cmd.channel_id), "%s", q->device_id);
-            (void)zms_device_ptz_dispatch(&cmd);
+            (void)zcs_device_ptz_dispatch(&cmd);
         } else {
             zn_info("gb28181: PTZ channel=%s unsupported cmd=%s", q->device_id, q->ptz_cmd);
         }
@@ -990,7 +990,7 @@ static int gb_control_device(const zms_device_cmd_ctx *ctx)
     return 0;
 }
 
-static int gb_control_config(const zms_device_cmd_ctx *ctx)
+static int gb_control_config(const zcs_device_cmd_ctx *ctx)
 {
     const gb_sip_msg *m = (const gb_sip_msg *)ctx->session;
     const gb_manscdp_msg *q = (const gb_manscdp_msg *)ctx->message;
@@ -1006,7 +1006,7 @@ static int gb_control_config(const zms_device_cmd_ctx *ctx)
     return 0;
 }
 
-static const zms_device_cmd k_gb_controls[] = {
+static const zcs_device_cmd k_gb_controls[] = {
     {"DeviceControl", "control", 0, gb_control_device},
     {"DeviceConfig", "control", 0, gb_control_config},
 };
@@ -1018,11 +1018,11 @@ static const zms_device_cmd k_gb_controls[] = {
  * 更符合平台预期（避免平台判定设备异常）。 */
 void gb_handle_query(const gb_sip_msg *m, const gb_manscdp_msg *q)
 {
-    const zms_device_cmd *cmd = zms_device_cmd_find(k_gb_queries, GB_CMD_COUNT(k_gb_queries),
+    const zcs_device_cmd *cmd = zcs_device_cmd_find(k_gb_queries, GB_CMD_COUNT(k_gb_queries),
                                                     q->cmd_type);
-    zms_device_cmd_ctx ctx;
+    zcs_device_cmd_ctx ctx;
 
-    if (!cmd || !zms_device_cmd_allowed(cmd)) {
+    if (!cmd || !zcs_device_cmd_allowed(cmd)) {
         zn_info("gb28181: unsupported query CmdType=%s", q->cmd_type);
         return;
     }
@@ -1034,11 +1034,11 @@ void gb_handle_query(const gb_sip_msg *m, const gb_manscdp_msg *q)
 
 void gb_handle_control(const gb_sip_msg *m, const gb_manscdp_msg *q)
 {
-    const zms_device_cmd *cmd = zms_device_cmd_find(k_gb_controls, GB_CMD_COUNT(k_gb_controls),
+    const zcs_device_cmd *cmd = zcs_device_cmd_find(k_gb_controls, GB_CMD_COUNT(k_gb_controls),
                                                     q->cmd_type);
-    zms_device_cmd_ctx ctx;
+    zcs_device_cmd_ctx ctx;
 
-    if (!cmd || !zms_device_cmd_allowed(cmd)) {
+    if (!cmd || !zcs_device_cmd_allowed(cmd)) {
         zn_info("gb28181: unsupported control CmdType=%s", q->cmd_type);
         return;
     }
@@ -1142,7 +1142,7 @@ static void on_sip_state(void *user, int connected)
     if (!connected) {
         return;
     }
-    port = zms_sip_transport_local_port(g_ctx.sip);
+    port = zcs_sip_transport_local_port(g_ctx.sip);
     if (port) {
         g_ctx.local_port = port;
     }
@@ -1161,10 +1161,10 @@ static void on_tick(void *user)
 
 /* ── 生命周期 ───────────────────────────────────────────────────────────── */
 
-int zms_gb28181_start(const zms_gb28181_opts *opts)
+int zcs_gb28181_start(const zcs_gb28181_opts *opts)
 {
     zn_poller_pool_opts_t popts;
-    zms_sip_transport_opts sopts;
+    zcs_sip_transport_opts sopts;
     const char *platform_ip;
     const char *mode;
 
@@ -1172,7 +1172,7 @@ int zms_gb28181_start(const zms_gb28181_opts *opts)
         return -1;
     }
     if (g_ctx.running) {
-        zms_gb28181_stop();
+        zcs_gb28181_stop();
     }
     memset(&g_ctx, 0, sizeof(g_ctx));
 
@@ -1187,7 +1187,7 @@ int zms_gb28181_start(const zms_gb28181_opts *opts)
              opts->device_name ? opts->device_name : opts->device_id);
     copy_str(g_ctx.manufacturer, sizeof(g_ctx.manufacturer),
              opts->manufacturer ? opts->manufacturer : "Zero");
-    copy_str(g_ctx.model, sizeof(g_ctx.model), opts->model ? opts->model : "ZMS");
+    copy_str(g_ctx.model, sizeof(g_ctx.model), opts->model ? opts->model : "ZCS");
     copy_str(g_ctx.firmware, sizeof(g_ctx.firmware),
              opts->firmware ? opts->firmware : "0.5.0");
     copy_str(g_ctx.username, sizeof(g_ctx.username), opts->username);
@@ -1197,8 +1197,8 @@ int zms_gb28181_start(const zms_gb28181_opts *opts)
     g_ctx.keepalive_interval = opts->keepalive_interval > 0 ? opts->keepalive_interval : 60;
     copy_str(g_ctx.record_root, sizeof(g_ctx.record_root),
              opts->record_root && opts->record_root[0] ? opts->record_root
-                                                       : zms_mp4_recorder_root());
-    zms_device_core_set_record_root(g_ctx.record_root);
+                                                       : zcs_mp4_recorder_root());
+    zcs_device_core_set_record_root(g_ctx.record_root);
 
     platform_ip = g_ctx.platform_ip;
     /* local_ip 未显式配置（或为 0.0.0.0）时动态探测出口地址，写入 Via/Contact/SDP。 */
@@ -1237,11 +1237,11 @@ int zms_gb28181_start(const zms_gb28181_opts *opts)
 
     mode = opts->sip_transport && opts->sip_transport[0] ? opts->sip_transport : "udp";
     if (strcasecmp(mode, "tcp") == 0) {
-        g_ctx.sip_transport_mode = ZMS_SIP_TRANSPORT_TCP;
+        g_ctx.sip_transport_mode = ZCS_SIP_TRANSPORT_TCP;
     } else if (strcasecmp(mode, "tls") == 0) {
-        g_ctx.sip_transport_mode = ZMS_SIP_TRANSPORT_TLS;
+        g_ctx.sip_transport_mode = ZCS_SIP_TRANSPORT_TLS;
     } else if (strcasecmp(mode, "udp") == 0) {
-        g_ctx.sip_transport_mode = ZMS_SIP_TRANSPORT_UDP;
+        g_ctx.sip_transport_mode = ZCS_SIP_TRANSPORT_UDP;
     } else {
         zn_error("gb28181: unsupported sip_transport=%s (udp/tcp/tls)", mode);
         goto fail;
@@ -1249,7 +1249,7 @@ int zms_gb28181_start(const zms_gb28181_opts *opts)
     {
         const char *smode = opts->sip_mode && opts->sip_mode[0] ? opts->sip_mode : "client";
         if (strcasecmp(smode, "server") == 0) {
-            if (g_ctx.sip_transport_mode == ZMS_SIP_TRANSPORT_UDP) {
+            if (g_ctx.sip_transport_mode == ZCS_SIP_TRANSPORT_UDP) {
                 zn_error("gb28181: sip_mode=server requires tcp/tls");
                 goto fail;
             }
@@ -1274,13 +1274,13 @@ int zms_gb28181_start(const zms_gb28181_opts *opts)
     sopts.tls_verify_peer = opts->tls_verify_peer;
     sopts.on_message = sip_on_message;
     sopts.on_state = on_sip_state;
-    g_ctx.sip = zms_sip_transport_create(&sopts);
-    if (!g_ctx.sip || zms_sip_transport_start(g_ctx.sip) != 0) {
+    g_ctx.sip = zcs_sip_transport_create(&sopts);
+    if (!g_ctx.sip || zcs_sip_transport_start(g_ctx.sip) != 0) {
         zn_error("gb28181: SIP %s transport start failed", mode);
         goto fail;
     }
-    if (g_ctx.sip_transport_mode == ZMS_SIP_TRANSPORT_UDP) {
-        g_ctx.local_port = zms_sip_transport_local_port(g_ctx.sip);
+    if (g_ctx.sip_transport_mode == ZCS_SIP_TRANSPORT_UDP) {
+        g_ctx.local_port = zcs_sip_transport_local_port(g_ctx.sip);
     }
 
     g_ctx.tick = zn_timer_start(g_ctx.poller, 200, 1, on_tick, NULL);
@@ -1290,11 +1290,11 @@ int zms_gb28181_start(const zms_gb28181_opts *opts)
 
     g_ctx.running = 1;
     gb_register_start();
-    zms_device_core_sync_live();
+    zcs_device_core_sync_live();
     zn_info("gb28181: device %s SIP/%s %s %s:%u -> platform %s:%u, channels=%u", g_ctx.device_id,
              gb_transport_name(), g_ctx.sip_server_mode ? "server" : "client", g_ctx.local_ip,
              g_ctx.local_port, g_ctx.platform_ip, g_ctx.platform_port,
-             (unsigned)zms_device_core_count(0, ZMS_DEV_CH_GB));
+             (unsigned)zcs_device_core_count(0, ZCS_DEV_CH_GB));
     return 0;
 
 fail:
@@ -1303,7 +1303,7 @@ fail:
         g_ctx.tick = NULL;
     }
     if (g_ctx.sip) {
-        zms_sip_transport_destroy(g_ctx.sip);
+        zcs_sip_transport_destroy(g_ctx.sip);
         g_ctx.sip = NULL;
     }
     if (g_ctx.pool) {
@@ -1321,7 +1321,7 @@ fail:
 /* 关闭顺序：先注销（尽力告知平台）→ 停所有媒体会话 → 停定时器 → 销毁 SIP
  * 传输 → 停 poller 池 → 销毁互斥量。media 先于传输停，保证收尾时还能发
  * BYE/RTP；poller 最后停，确保前面各步的定时器/回调都已完成。 */
-void zms_gb28181_stop(void)
+void zcs_gb28181_stop(void)
 {
     if (!g_ctx.running) {
         return;
@@ -1333,7 +1333,7 @@ void zms_gb28181_stop(void)
         g_ctx.tick = NULL;
     }
     if (g_ctx.sip) {
-        zms_sip_transport_destroy(g_ctx.sip);
+        zcs_sip_transport_destroy(g_ctx.sip);
         g_ctx.sip = NULL;
     }
     if (g_ctx.pool) {
@@ -1351,17 +1351,17 @@ void zms_gb28181_stop(void)
     zn_info("gb28181: stopped");
 }
 
-int zms_gb28181_running(void)
+int zcs_gb28181_running(void)
 {
     return g_ctx.running;
 }
 
-int zms_gb28181_registered(void)
+int zcs_gb28181_registered(void)
 {
     return g_ctx.registered;
 }
 
-size_t zms_gb28181_channels(zms_gb28181_channel_info *out, size_t cap)
+size_t zcs_gb28181_channels(zcs_gb28181_channel_info *out, size_t cap)
 {
     gb_chlist_ctx ctx;
 
@@ -1371,17 +1371,17 @@ size_t zms_gb28181_channels(zms_gb28181_channel_info *out, size_t cap)
     memset(&ctx, 0, sizeof(ctx));
     ctx.out = out;
     ctx.cap = cap;
-    zms_device_core_sync_live();
-    zms_device_core_foreach(0, ZMS_DEV_CH_GB, chlist_visit, &ctx);
+    zcs_device_core_sync_live();
+    zcs_device_core_foreach(0, ZCS_DEV_CH_GB, chlist_visit, &ctx);
     return ctx.count;
 }
 
-int zms_gb28181_session_count(void)
+int zcs_gb28181_session_count(void)
 {
     return gb_media_session_count();
 }
 
-int zms_gb28181_alarm(const char *channel_id, int priority, int method, const char *description)
+int zcs_gb28181_alarm(const char *channel_id, int priority, int method, const char *description)
 {
     char body[1024];
     char sn[24];
@@ -1404,15 +1404,15 @@ int zms_gb28181_alarm(const char *channel_id, int priority, int method, const ch
                            channel_id && channel_id[0] ? channel_id : g_ctx.device_id, priority,
                            method, description);
     {
-        zms_device_event ev;
+        zcs_device_event ev;
         memset(&ev, 0, sizeof(ev));
-        ev.type = ZMS_DEV_EVENT_ALARM;
+        ev.type = ZCS_DEV_EVENT_ALARM;
         snprintf(ev.device_id, sizeof(ev.device_id), "%s", g_ctx.device_id);
         snprintf(ev.channel_id, sizeof(ev.channel_id), "%s",
                  channel_id && channel_id[0] ? channel_id : g_ctx.device_id);
         ev.priority = priority;
         snprintf(ev.message, sizeof(ev.message), "%s", description ? description : "alarm");
-        zms_device_event_publish(&ev);
+        zcs_device_event_publish(&ev);
     }
     return gb_send_manscdp(NULL, 0, body);
 }

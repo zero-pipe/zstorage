@@ -5,14 +5,14 @@
 #include "session/webrtc/session_internal.h"
 #include "protocol/webrtc/media_internal.h"
 #include "protocol/webrtc/ice_internal.h"
-#include "zms/publish/ingest/common/stream_ingest.h"
-#include "zms/media/codec/codec_id.h"
-#include "zms/media/codec/h264/h264_es.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/core/gop/queue.h"
-#include "zms/core/stream/hub.h"
-#include "zms/session/webrtc/webrtc_server.h"
-#include "zms/protocol/rtsp/sdp.h"
+#include "zcs/publish/ingest/common/stream_ingest.h"
+#include "zcs/media/codec/codec_id.h"
+#include "zcs/media/codec/h264/h264_es.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/session/webrtc/webrtc_server.h"
+#include "zcs/protocol/rtsp/sdp.h"
 #include "sdp.h"
 #include "sdp_internal.h"
 #include "sdp-a-fmtp.h"
@@ -23,7 +23,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "zms/util/base64.h"
+#include "zcs/util/base64.h"
 #include <string.h>
 #include <time.h>
 
@@ -38,14 +38,14 @@
 static size_t encode_b64(const uint8_t *in, size_t in_len, char *out, size_t cap)
 {
     size_t n = 0;
-    (void)zms_base64_encode(in, in_len, out, cap, &n);
+    (void)zcs_base64_encode(in, in_len, out, cap, &n);
     return n;
 }
 
 static size_t decode_b64(const char *in, uint8_t *out, size_t cap)
 {
     size_t n = 0;
-    (void)zms_base64_decode(in, out, cap, &n);
+    (void)zcs_base64_decode(in, out, cap, &n);
     return n;
 }
 
@@ -160,50 +160,50 @@ static int webrtc_offer_has_media(sdp_t *sdp, const char *media_type)
  *   - 用 strstr 子串匹配而非精确相等，因为实时通信里 encoding 名可能有前后缀
  *     （如 "H264" 之外还有带 profile 的写法），子串更宽容。
  */
-zms_codec_id webrtc_codec_from_encoding(const char *encoding)
+zcs_codec_id webrtc_codec_from_encoding(const char *encoding)
 {
     char lower[32];
     size_t i;
 
     if (!encoding || !encoding[0]) {
-        return ZMS_CODEC_INVALID;
+        return ZCS_CODEC_INVALID;
     }
     for (i = 0; encoding[i] && i + 1 < sizeof(lower); ++i) {
         lower[i] = (char)tolower((unsigned char)encoding[i]);
     }
     lower[i] = '\0';
     if (strstr(lower, "h264") || strstr(lower, "avc")) {
-        return ZMS_CODEC_H264;
+        return ZCS_CODEC_H264;
     }
     if (strstr(lower, "h265") || strstr(lower, "hevc")) {
-        return ZMS_CODEC_H265;
+        return ZCS_CODEC_H265;
     }
     if (strstr(lower, "av1") || strstr(lower, "av01")) {
-        return ZMS_CODEC_AV1;
+        return ZCS_CODEC_AV1;
     }
     if (strstr(lower, "vp8")) {
-        return ZMS_CODEC_VP8;
+        return ZCS_CODEC_VP8;
     }
     if (strstr(lower, "vp9")) {
-        return ZMS_CODEC_VP9;
+        return ZCS_CODEC_VP9;
     }
     if (strstr(lower, "mpeg4-generic") || strstr(lower, "aac") || strstr(lower, "mp4a")) {
-        return ZMS_CODEC_AAC;
+        return ZCS_CODEC_AAC;
     }
     if (strstr(lower, "opus")) {
-        return ZMS_CODEC_OPUS;
+        return ZCS_CODEC_OPUS;
     }
     if (strstr(lower, "pcmu") || strstr(lower, "g711u")) {
-        return ZMS_CODEC_G711U;
+        return ZCS_CODEC_G711U;
     }
     if (strstr(lower, "pcma") || strstr(lower, "g711a")) {
-        return ZMS_CODEC_G711A;
+        return ZCS_CODEC_G711A;
     }
     if (strstr(lower, "rtx") || strstr(lower, "red") || strstr(lower, "ulpfec") ||
         strstr(lower, "flexfec")) {
-        return ZMS_CODEC_INVALID;
+        return ZCS_CODEC_INVALID;
     }
-    return ZMS_CODEC_INVALID;
+    return ZCS_CODEC_INVALID;
 }
 
 /*
@@ -212,20 +212,20 @@ zms_codec_id webrtc_codec_from_encoding(const char *encoding)
  *     因为浏览器做推流（WHIP）时基本不吃这两种，协商了也没用。
  *   - 音频：浏览器音轨只认 Opus（主）与 G711（直通）；AAC 浏览器不解，明确拒绝。
  */
-static int webrtc_codec_negotiable(zms_codec_id codec, int is_video, int for_play)
+static int webrtc_codec_negotiable(zcs_codec_id codec, int is_video, int for_play)
 {
     if (is_video) {
-        if (codec == ZMS_CODEC_H264 || codec == ZMS_CODEC_VP8 || codec == ZMS_CODEC_VP9) {
+        if (codec == ZCS_CODEC_H264 || codec == ZCS_CODEC_VP8 || codec == ZCS_CODEC_VP9) {
             return 1;
         }
-        if (for_play && (codec == ZMS_CODEC_H265 || codec == ZMS_CODEC_AV1)) {
+        if (for_play && (codec == ZCS_CODEC_H265 || codec == ZCS_CODEC_AV1)) {
             return 1;
         }
         return 0;
     }
     /* 浏览器 WebRTC 音轨：Opus 为主，G711 直通；AAC 不可协商 */
     (void)for_play;
-    return codec == ZMS_CODEC_OPUS || codec == ZMS_CODEC_G711A || codec == ZMS_CODEC_G711U;
+    return codec == ZCS_CODEC_OPUS || codec == ZCS_CODEC_G711A || codec == ZCS_CODEC_G711U;
 }
 
 static void webrtc_on_media_rtpmap_log(void *param, const char *name, const char *value)
@@ -259,7 +259,7 @@ static void webrtc_log_media_rtpmaps(sdp_t *sdp, int media_idx, const char *tag)
 typedef struct {
     int for_play;
     int is_video;
-    zms_codec_id prefer;
+    zcs_codec_id prefer;
     int want_pt;
     webrtc_neg_track *out;
     int done;
@@ -285,17 +285,17 @@ static void webrtc_pick_rtpmap_cb(void *param, const char *name, const char *val
         return;
     }
     cand.codec = webrtc_codec_from_encoding(enc);
-    if (cand.codec == ZMS_CODEC_INVALID) {
+    if (cand.codec == ZCS_CODEC_INVALID) {
         return;
     }
     if (!webrtc_codec_negotiable(cand.codec, pick->is_video, pick->for_play)) {
         return;
     }
-    if (pick->for_play && pick->prefer != ZMS_CODEC_INVALID && cand.codec != pick->prefer) {
+    if (pick->for_play && pick->prefer != ZCS_CODEC_INVALID && cand.codec != pick->prefer) {
         return;
     }
     cand.pt = (uint8_t)pt;
-    cand.rate = rate > 0 ? rate : (cand.codec == ZMS_CODEC_OPUS ? 48000 : 90000);
+    cand.rate = rate > 0 ? rate : (cand.codec == ZCS_CODEC_OPUS ? 48000 : 90000);
     cand.channels = 2;
     if (params[0]) {
         int ch = atoi(params);
@@ -402,7 +402,7 @@ static int webrtc_h264_profile_score(const char *offer_plid, const char *want_pl
 typedef struct {
     sdp_t *sdp;
     int media_idx;
-    const zms_webrtc_session *sess;
+    const zcs_webrtc_session *sess;
     char want_plid[16];
     webrtc_neg_track best;
     int best_score;
@@ -425,7 +425,7 @@ static void webrtc_negotiate_h264_cb(void *param, const char *name, const char *
     if (sdp_a_rtpmap(value, &pt, enc, &rate, params) != 0) {
         return;
     }
-    if (webrtc_codec_from_encoding(enc) != ZMS_CODEC_H264) {
+    if (webrtc_codec_from_encoding(enc) != ZCS_CODEC_H264) {
         return;
     }
     memset(&h264, 0, sizeof(h264));
@@ -447,7 +447,7 @@ static void webrtc_negotiate_h264_cb(void *param, const char *name, const char *
     if (ctx->have_best && score <= ctx->best_score) {
         return;
     }
-    cand.codec = ZMS_CODEC_H264;
+    cand.codec = ZCS_CODEC_H264;
     cand.pt = (uint8_t)pt;
     cand.rate = 90000;
     cand.channels = 1;
@@ -456,7 +456,7 @@ static void webrtc_negotiate_h264_cb(void *param, const char *name, const char *
     ctx->have_best = 1;
 }
 
-static int webrtc_negotiate_h264_track(sdp_t *sdp, const zms_webrtc_session *sess,
+static int webrtc_negotiate_h264_track(sdp_t *sdp, const zcs_webrtc_session *sess,
                                        webrtc_neg_track *out)
 {
     webrtc_h264_neg_ctx ctx;
@@ -499,7 +499,7 @@ static int webrtc_negotiate_h264_track(sdp_t *sdp, const zms_webrtc_session *ses
  * 再 attach_beginning 会多挂一个读者、读到相同数据并影响共享引用的生命周期，
  * 故检测到已有 reader 就直接放弃第 3 步。
  */
-static int webrtc_h264_extract_ps(const zms_webrtc_session *s, const uint8_t **sps, size_t *sps_len,
+static int webrtc_h264_extract_ps(const zcs_webrtc_session *s, const uint8_t **sps, size_t *sps_len,
                                   const uint8_t **pps, size_t *pps_len)
 {
     size_t vcfg_len = 0;
@@ -511,15 +511,15 @@ static int webrtc_h264_extract_ps(const zms_webrtc_session *s, const uint8_t **s
     *sps = *pps = NULL;
     *sps_len = *pps_len = 0;
     if (s->source) {
-        vcfg = zms_media_source_video_config(s->source, &vcfg_len);
+        vcfg = zcs_media_source_video_config(s->source, &vcfg_len);
         if (vcfg && vcfg_len &&
-            zms_rtmp_avc_extract_sps_pps(vcfg, vcfg_len, sps, sps_len, pps, pps_len)) {
+            zcs_rtmp_avc_extract_sps_pps(vcfg, vcfg_len, sps, sps_len, pps, pps_len)) {
             return 1;
         }
         if (s->source->gop_queue) {
-            vcfg = zms_gop_queue_video_config(s->source->gop_queue, &vcfg_len);
+            vcfg = zcs_gop_queue_video_config(s->source->gop_queue, &vcfg_len);
             if (vcfg && vcfg_len &&
-                zms_rtmp_avc_extract_sps_pps(vcfg, vcfg_len, sps, sps_len, pps, pps_len)) {
+                zcs_rtmp_avc_extract_sps_pps(vcfg, vcfg_len, sps, sps_len, pps, pps_len)) {
                 return 1;
             }
         }
@@ -528,31 +528,31 @@ static int webrtc_h264_extract_ps(const zms_webrtc_session *s, const uint8_t **s
             return 0;
         }
         if (s->source->gop_queue) {
-            zms_gop_reader *rd = zms_gop_reader_attach_beginning(s->source->gop_queue);
-            zms_gop_slot slot;
+            zcs_gop_reader *rd = zcs_gop_reader_attach_beginning(s->source->gop_queue);
+            zcs_gop_slot slot;
 
             if (rd) {
-                while (zms_gop_reader_read(rd, &slot) > 0) {
-                    if (slot.track != ZMS_TRACK_VIDEO || !slot.data || slot.len == 0) {
+                while (zcs_gop_reader_read(rd, &slot) > 0) {
+                    if (slot.track != ZCS_TRACK_VIDEO || !slot.data || slot.len == 0) {
                         continue;
                     }
-                    if (zms_h264_es_extract_sps_pps(slot.data, slot.len, sps, sps_len, pps,
+                    if (zcs_h264_es_extract_sps_pps(slot.data, slot.len, sps, sps_len, pps,
                                                     pps_len)) {
-                        zms_gop_reader_detach(rd);
+                        zcs_gop_reader_detach(rd);
                         return 1;
                     }
                     if (slot.keyframe) {
                         break;
                     }
                 }
-                zms_gop_reader_detach(rd);
+                zcs_gop_reader_detach(rd);
             }
         }
     }
     return 0;
 }
 
-void webrtc_h264_load_fmtp(const zms_webrtc_session *s, char *profile, size_t profile_cap,
+void webrtc_h264_load_fmtp(const zcs_webrtc_session *s, char *profile, size_t profile_cap,
                                   char *sprop, size_t sprop_cap)
 {
     const uint8_t *sps = NULL, *pps = NULL;
@@ -582,8 +582,8 @@ void webrtc_h264_load_fmtp(const zms_webrtc_session *s, char *profile, size_t pr
         }
     }
     if (profile && profile_cap && !profile[0] && s && s->source) {
-        vcfg = zms_media_source_video_config(s->source, &vcfg_len);
-        if (vcfg && vcfg_len && !zms_rtmp_avc_profile_level_id(vcfg, vcfg_len, profile)) {
+        vcfg = zcs_media_source_video_config(s->source, &vcfg_len);
+        if (vcfg && vcfg_len && !zcs_rtmp_avc_profile_level_id(vcfg, vcfg_len, profile)) {
             snprintf(profile, profile_cap, "42001f");
         }
     }
@@ -606,8 +606,8 @@ void webrtc_h264_load_fmtp(const zms_webrtc_session *s, char *profile, size_t pr
  * H264 播放走专用打分路径（webrtc_negotiate_h264_track），因为要在多个 H264 pt
  * 里按 profile/packetization 择优，不能取第一个。
  */
-static int webrtc_negotiate_track(sdp_t *sdp, const char *media_type, zms_codec_id prefer,
-                                  int for_play, const zms_webrtc_session *sess,
+static int webrtc_negotiate_track(sdp_t *sdp, const char *media_type, zcs_codec_id prefer,
+                                  int for_play, const zcs_webrtc_session *sess,
                                   webrtc_neg_track *out)
 {
     int media_idx, i, n, fmts[16];
@@ -616,7 +616,7 @@ static int webrtc_negotiate_track(sdp_t *sdp, const char *media_type, zms_codec_
     if (!sdp || !media_type || !out) {
         return -1;
     }
-    if (for_play && prefer == ZMS_CODEC_H264 && strcmp(media_type, "video") == 0) {
+    if (for_play && prefer == ZCS_CODEC_H264 && strcmp(media_type, "video") == 0) {
         return webrtc_negotiate_h264_track(sdp, sess, out);
     }
     media_idx = webrtc_media_index(sdp, media_type);
@@ -634,7 +634,7 @@ static int webrtc_negotiate_track(sdp_t *sdp, const char *media_type, zms_codec_
     pick.prefer = prefer;
     pick.out = out;
 
-    if (for_play && prefer != ZMS_CODEC_INVALID) {
+    if (for_play && prefer != ZCS_CODEC_INVALID) {
         for (i = 0; i < n; ++i) {
             pick.done = 0;
             pick.want_pt = fmts[i];
@@ -665,37 +665,37 @@ static int webrtc_negotiate_track(sdp_t *sdp, const char *media_type, zms_codec_
     return -1;
 }
 
-static zms_codec_id webrtc_prefer_video_codec(const zms_webrtc_session *s)
+static zcs_codec_id webrtc_prefer_video_codec(const zcs_webrtc_session *s)
 {
-    if (s && s->source && s->source->video.ready && s->source->video.codec != ZMS_CODEC_INVALID) {
+    if (s && s->source && s->source->video.ready && s->source->video.codec != ZCS_CODEC_INVALID) {
         return s->source->video.codec;
     }
-    return ZMS_CODEC_H264;
+    return ZCS_CODEC_H264;
 }
 
-static zms_codec_id webrtc_prefer_audio_codec(const zms_webrtc_session *s)
+static zcs_codec_id webrtc_prefer_audio_codec(const zcs_webrtc_session *s)
 {
-    if (s && s->source && s->source->audio.ready && s->source->audio.codec != ZMS_CODEC_INVALID) {
+    if (s && s->source && s->source->audio.ready && s->source->audio.codec != ZCS_CODEC_INVALID) {
         /* 仅当源流本身是 Opus/G711 时才协商播放音轨；AAC 等在 negotiate 前过滤 */
-        if (s->source->audio.codec == ZMS_CODEC_OPUS ||
-            s->source->audio.codec == ZMS_CODEC_G711A ||
-            s->source->audio.codec == ZMS_CODEC_G711U) {
+        if (s->source->audio.codec == ZCS_CODEC_OPUS ||
+            s->source->audio.codec == ZCS_CODEC_G711A ||
+            s->source->audio.codec == ZCS_CODEC_G711U) {
             return s->source->audio.codec;
         }
-        return ZMS_CODEC_INVALID;
+        return ZCS_CODEC_INVALID;
     }
-    return ZMS_CODEC_OPUS;
+    return ZCS_CODEC_OPUS;
 }
 
-static int webrtc_source_audio_playable(const zms_webrtc_session *s)
+static int webrtc_source_audio_playable(const zcs_webrtc_session *s)
 {
     if (!s || !s->source || !s->source->has_audio) {
         return 0;
     }
-    if (s->source->audio.ready && s->source->audio.codec != ZMS_CODEC_INVALID) {
-        return s->source->audio.codec == ZMS_CODEC_OPUS ||
-               s->source->audio.codec == ZMS_CODEC_G711A ||
-               s->source->audio.codec == ZMS_CODEC_G711U;
+    if (s->source->audio.ready && s->source->audio.codec != ZCS_CODEC_INVALID) {
+        return s->source->audio.codec == ZCS_CODEC_OPUS ||
+               s->source->audio.codec == ZCS_CODEC_G711A ||
+               s->source->audio.codec == ZCS_CODEC_G711U;
     }
     /* 音轨未就绪时不强行带音频，避免 AAC 源误协商 */
     return 0;
@@ -724,11 +724,11 @@ static void webrtc_pick_talk_rtpmap_cb(void *param, const char *name, const char
     if (sdp_a_rtpmap(value, &pt, enc, &rate, params) != 0) {
         return;
     }
-    if (webrtc_codec_from_encoding(enc) == ZMS_CODEC_G711U && ctx->pcmu_pt < 0) {
+    if (webrtc_codec_from_encoding(enc) == ZCS_CODEC_G711U && ctx->pcmu_pt < 0) {
         ctx->pcmu_pt = pt;
-    } else if (webrtc_codec_from_encoding(enc) == ZMS_CODEC_G711A && ctx->pcma_pt < 0) {
+    } else if (webrtc_codec_from_encoding(enc) == ZCS_CODEC_G711A && ctx->pcma_pt < 0) {
         ctx->pcma_pt = pt;
-    } else if (webrtc_codec_from_encoding(enc) == ZMS_CODEC_OPUS && ctx->opus_pt < 0) {
+    } else if (webrtc_codec_from_encoding(enc) == ZCS_CODEC_OPUS && ctx->opus_pt < 0) {
         ctx->opus_pt = pt;
         ctx->opus_rate = rate > 0 ? rate : 48000;
     }
@@ -739,7 +739,7 @@ static void webrtc_pick_talk_rtpmap_cb(void *param, const char *name, const char
  * 优先 G711 的理由：对讲链路要求极低延迟与低 CPU，G711 无需编码状态、逐样本
  * 直通最省；Opus 有帧级打包与状态，延迟更高。采样率固定 8000（G711 天然 8k）。
  */
-static int webrtc_pick_talk_codec(sdp_t *sdp, int *pt, zms_codec_id *codec, int *rate)
+static int webrtc_pick_talk_codec(sdp_t *sdp, int *pt, zcs_codec_id *codec, int *rate)
 {
     int media_idx;
     webrtc_talk_pick_ctx ctx;
@@ -756,19 +756,19 @@ static int webrtc_pick_talk_codec(sdp_t *sdp, int *pt, zms_codec_id *codec, int 
     (void)sdp_media_attribute_list(sdp, media_idx, "rtpmap", webrtc_pick_talk_rtpmap_cb, &ctx);
     if (ctx.pcmu_pt >= 0) {
         *pt = ctx.pcmu_pt;
-        *codec = ZMS_CODEC_G711U;
+        *codec = ZCS_CODEC_G711U;
         *rate = 8000;
         return 0;
     }
     if (ctx.pcma_pt >= 0) {
         *pt = ctx.pcma_pt;
-        *codec = ZMS_CODEC_G711A;
+        *codec = ZCS_CODEC_G711A;
         *rate = 8000;
         return 0;
     }
     if (ctx.opus_pt >= 0) {
         *pt = ctx.opus_pt;
-        *codec = ZMS_CODEC_OPUS;
+        *codec = ZCS_CODEC_OPUS;
         *rate = ctx.opus_rate;
         return 0;
     }
@@ -797,7 +797,7 @@ static void webrtc_scan_extmap(void *param, const char *name, const char *value)
     }
 }
 
-static void webrtc_session_save_layout(zms_webrtc_session *mut, sdp_t *sdp)
+static void webrtc_session_save_layout(zcs_webrtc_session *mut, sdp_t *sdp)
 {
     int ai, vi;
     int i;
@@ -863,7 +863,7 @@ static void webrtc_session_save_layout(zms_webrtc_session *mut, sdp_t *sdp)
  *      不允许降级（推流少了音频轨是实质性问题）。
  * 电视场景常见“只有视频没音频/音频不可用”，所以音频的容错力度明显大于视频。
  */
-int webrtc_session_negotiate(zms_webrtc_session *mut, sdp_t *sdp, int for_play)
+int webrtc_session_negotiate(zcs_webrtc_session *mut, sdp_t *sdp, int for_play)
 {
     webrtc_neg_track v, a;
 
@@ -871,19 +871,19 @@ int webrtc_session_negotiate(zms_webrtc_session *mut, sdp_t *sdp, int for_play)
     mut->offer_has_audio = webrtc_offer_has_media(sdp, "audio");
     mut->answer_has_video = mut->offer_has_video;
     mut->answer_has_audio = mut->offer_has_audio;
-    mut->video_codec = ZMS_CODEC_INVALID;
-    mut->audio_codec = ZMS_CODEC_INVALID;
+    mut->video_codec = ZCS_CODEC_INVALID;
+    mut->audio_codec = ZCS_CODEC_INVALID;
     mut->audio_rate = 48000;
     mut->audio_channels = 2;
     mut->talk_enabled = 0;
     mut->talk_pt = 0;
-    mut->talk_codec = ZMS_CODEC_INVALID;
+    mut->talk_codec = ZCS_CODEC_INVALID;
     mut->talk_rate = 8000;
 
     if (for_play && mut->offer_has_audio) {
         int talk_pt = 0;
         int talk_rate = 0;
-        zms_codec_id talk_codec = ZMS_CODEC_INVALID;
+        zcs_codec_id talk_codec = ZCS_CODEC_INVALID;
         int audio_idx = webrtc_media_index(sdp, "audio");
         int offer_can_send = 1;
 
@@ -899,13 +899,13 @@ int webrtc_session_negotiate(zms_webrtc_session *mut, sdp_t *sdp, int for_play)
             mut->talk_codec = talk_codec;
             mut->talk_rate = talk_rate;
             zn_info("[webrtc] talk ready codec=%s pt=%d rate=%d app=%s stream=%s",
-                     zms_codec_name(talk_codec), talk_pt, talk_rate, mut->app, mut->stream);
+                     zcs_codec_name(talk_codec), talk_pt, talk_rate, mut->app, mut->stream);
         }
     }
 
     if (mut->answer_has_video) {
         if (webrtc_negotiate_track(sdp, "video",
-                                   for_play ? webrtc_prefer_video_codec(mut) : ZMS_CODEC_INVALID,
+                                   for_play ? webrtc_prefer_video_codec(mut) : ZCS_CODEC_INVALID,
                                    for_play, mut, &v) != 0) {
             return -1;
         }
@@ -913,25 +913,25 @@ int webrtc_session_negotiate(zms_webrtc_session *mut, sdp_t *sdp, int for_play)
         mut->video_pt = v.pt;
     }
     if (mut->answer_has_audio && for_play && !webrtc_source_audio_playable(mut)) {
-        zms_codec_id src_ac = ZMS_CODEC_INVALID;
+        zcs_codec_id src_ac = ZCS_CODEC_INVALID;
         if (mut->source && mut->source->audio.ready) {
             src_ac = mut->source->audio.codec;
         }
         zn_info("[webrtc] filter unsupported audio=%s, video-only play app=%s stream=%s",
-                 zms_codec_name(src_ac), mut->app, mut->stream);
+                 zcs_codec_name(src_ac), mut->app, mut->stream);
         mut->answer_has_audio = 0;
-        mut->audio_codec = ZMS_CODEC_INVALID;
+        mut->audio_codec = ZCS_CODEC_INVALID;
         mut->audio_pt = 0;
     }
     if (mut->answer_has_audio) {
         if (webrtc_negotiate_track(sdp, "audio",
-                                   for_play ? webrtc_prefer_audio_codec(mut) : ZMS_CODEC_INVALID,
+                                   for_play ? webrtc_prefer_audio_codec(mut) : ZCS_CODEC_INVALID,
                                    for_play, mut, &a) != 0) {
             if (for_play) {
                 zn_info("[webrtc] audio negotiate failed, video-only play app=%s stream=%s",
                          mut->app, mut->stream);
                 mut->answer_has_audio = 0;
-                mut->audio_codec = ZMS_CODEC_INVALID;
+                mut->audio_codec = ZCS_CODEC_INVALID;
                 mut->audio_pt = 0;
             } else {
                 return -1;
@@ -947,7 +947,7 @@ int webrtc_session_negotiate(zms_webrtc_session *mut, sdp_t *sdp, int for_play)
     return 0;
 }
 
-int webrtc_publish_store_offer_h264_sprop(zms_webrtc_session *s, sdp_t *sdp)
+int webrtc_publish_store_offer_h264_sprop(zcs_webrtc_session *s, sdp_t *sdp)
 {
     int media_idx;
     const char *fmtp;
@@ -957,7 +957,7 @@ int webrtc_publish_store_offer_h264_sprop(zms_webrtc_session *s, sdp_t *sdp)
     char pps_b64[384];
     char *comma;
 
-    if (!s || !sdp || s->video_codec != ZMS_CODEC_H264) {
+    if (!s || !sdp || s->video_codec != ZCS_CODEC_H264) {
         return -1;
     }
     media_idx = webrtc_media_index(sdp, "video");
@@ -1002,12 +1002,12 @@ int webrtc_publish_store_offer_h264_sprop(zms_webrtc_session *s, sdp_t *sdp)
     return 0;
 }
 
-void zms_webrtc_publish_apply_offer_h264_sprop(zms_webrtc_session *s)
+void zcs_webrtc_publish_apply_offer_h264_sprop(zcs_webrtc_session *s)
 {
     if (!s || !s->ingest || !s->whip_h264_have_sprop) {
         return;
     }
-    if (zms_live_ingest_set_h264_sps_pps(s->ingest, s->whip_h264_sps, s->whip_h264_sps_len,
+    if (zcs_live_ingest_set_h264_sps_pps(s->ingest, s->whip_h264_sps, s->whip_h264_sps_len,
                                          s->whip_h264_pps, s->whip_h264_pps_len) == ZN_OK) {
         zn_info("[webrtc] WHIP applied offer sprop SPS=%zu PPS=%zu app=%s stream=%s",
                  s->whip_h264_sps_len, s->whip_h264_pps_len, s->app, s->stream);

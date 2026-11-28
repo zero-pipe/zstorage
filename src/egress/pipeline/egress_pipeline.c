@@ -3,7 +3,7 @@
  * @brief 出站管线：RTSP/RTP 与 FLV/RTMP 播放路径。
  *
  * 同一份管线服务两种线上格式，差异集中在“时间戳怎么出去”：
- *   - RTP（RTSP/WebRTC）：交给 zms_rtp_muxer，按 RTP 时钟换算 + pacing。
+ *   - RTP（RTSP/WebRTC）：交给 zcs_rtp_muxer，按 RTP 时钟换算 + pacing。
  *   - FLV（RTMP/HTTP-FLV）：自己把 ES 重新封成 FLV tag，经 outbox 排队发送。
  *
  * 为什么 FLV 需要额外一层 outbox（而不是像 RTP 那样直接回调）：
@@ -17,26 +17,26 @@
  *
  * Copyright (c) zero-media-server
  */
-#include "zms/egress/pipeline/egress_pipeline.h"
-#include "bridge/zm_zms_bridge.h"
+#include "zcs/egress/pipeline/egress_pipeline.h"
+#include "bridge/zm_zcs_bridge.h"
 #include "zm/format/flv.h"
 #include "flv-header.h"
 #include "flv-proto.h"
-#include "zms/egress/pacing/egress_live_policy.h"
-#include "zms/egress/vod_play_port.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/core/frame.h"
-#include "zms/core/gop/queue.h"
-#include "zms/media/clock.h"
-#include "zms/media/media_limits.h"
-#include "zms/core/stream/hub.h"
-#include "zms/egress/pacing/egress_pacing.h"
-#include "zms/core/stream/stats.h"
-#include "zms/media/container/flv/flv_types.h"
-#include "zms/egress/pacing/egress_clock.h"
-#include "zms/util/buf_pool.h"
-#include "zms/util/log_throttle.h"
-#include "zms/core/stream/buffer.h"
+#include "zcs/egress/pacing/egress_live_policy.h"
+#include "zcs/egress/vod_play_port.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/core/frame.h"
+#include "zcs/core/gop/queue.h"
+#include "zcs/media/clock.h"
+#include "zcs/media/media_limits.h"
+#include "zcs/core/stream/hub.h"
+#include "zcs/egress/pacing/egress_pacing.h"
+#include "zcs/core/stream/stats.h"
+#include "zcs/media/container/flv/flv_types.h"
+#include "zcs/egress/pacing/egress_clock.h"
+#include "zcs/util/buf_pool.h"
+#include "zcs/util/log_throttle.h"
+#include "zcs/core/stream/buffer.h"
 #include "zn/poller/poller.h"
 #include "zn/util/buf.h"
 #include "zn/util/log.h"
@@ -44,7 +44,7 @@
 #include <string.h>
 
 /* 点播 seek 后的追赶预算沿用 catchup 预算（一次性多发些，尽快追上目标位置）。 */
-#define PLAYBACK_FLV_BUDGET_VOD_SEEK ZMS_EGRESS_FRAME_BUDGET_CATCHUP
+#define PLAYBACK_FLV_BUDGET_VOD_SEEK ZCS_EGRESS_FRAME_BUDGET_CATCHUP
 /* outbox 深度：256 个 tag 约等于数秒媒体，足够吸收一次 IO 抖动；
  * 再大就只是在延长延迟，没有收益。 */
 #define PLAYBACK_FLV_OUTBOX_CAP 256u
@@ -55,28 +55,28 @@
  * outbox 单项：一个已封好的 FLV tag。
  * buf 用引用计数管理，出队发送后 unref；队列满时丢最旧的一项（见 push）。
  */
-typedef struct zms_egress_flv_out_slot {
+typedef struct zcs_egress_flv_out_slot {
     uint8_t msg_type;
     uint32_t tag_dts_ms;
     zn_buf *buf;
-} zms_egress_flv_out_slot;
+} zcs_egress_flv_out_slot;
 
-struct zms_egress_pipeline {
-    zms_wire_format_id wire;
-    zms_container_id container;
-    zms_egress_source *reader;
-    zms_egress_wire_cb on_wire;
+struct zcs_egress_pipeline {
+    zcs_wire_format_id wire;
+    zcs_container_id container;
+    zcs_egress_source *reader;
+    zcs_egress_wire_cb on_wire;
     void *wire_user;
-    zms_rtp_muxer *rtsp_mux;
+    zcs_rtp_muxer *rtsp_mux;
     int rtsp_mux_owned;
-    zms_egress_flv_bind flv;
+    zcs_egress_flv_bind flv;
     int has_flv;
     uint8_t *tag_buf;
     size_t tag_cap;
     uint8_t *es_buf;
     size_t es_cap;
     zn_poller *io_poller;
-    zms_egress_flv_out_slot *flv_out;
+    zcs_egress_flv_out_slot *flv_out;
     unsigned flv_out_cap;
     size_t flv_out_r;
     size_t flv_out_w;
@@ -84,42 +84,42 @@ struct zms_egress_pipeline {
     zm_writer *zm_flv;
     zm_track zm_tracks[2];
     size_t zm_track_count;
-    zms_egress_flv_tag *zm_out;
+    zcs_egress_flv_tag *zm_out;
     uint32_t zm_out_ts;
-    const zms_egress_flv_bind *zm_flv_bind;
+    const zcs_egress_flv_bind *zm_flv_bind;
     int zm_emitted;
     int zm_flv_failed;
 };
 
-static void *egress_slot_resize(zms_egress_pipeline *p, uint8_t **data, size_t *cap, size_t len)
+static void *egress_slot_resize(zcs_egress_pipeline *p, uint8_t **data, size_t *cap, size_t len)
 {
     if (!data || !cap || len == 0) {
         return NULL;
     }
     if (p && p->io_poller) {
-        return zms_buf_pool_slot_resize_poller(data, cap, len, p->io_poller);
+        return zcs_buf_pool_slot_resize_poller(data, cap, len, p->io_poller);
     }
-    return zms_buf_pool_slot_resize(data, cap, len);
+    return zcs_buf_pool_slot_resize(data, cap, len);
 }
 
-static void egress_slot_clear(zms_egress_pipeline *p, uint8_t **data, size_t *cap)
+static void egress_slot_clear(zcs_egress_pipeline *p, uint8_t **data, size_t *cap)
 {
     if (!data) {
         return;
     }
     if (p && p->io_poller) {
-        zms_buf_pool_slot_clear_poller(data, cap, p->io_poller);
+        zcs_buf_pool_slot_clear_poller(data, cap, p->io_poller);
     } else {
-        zms_buf_pool_slot_clear(data, cap);
+        zcs_buf_pool_slot_clear(data, cap);
     }
 }
 
-static int flv_video_armed(const zms_egress_flv_bind *flv)
+static int flv_video_armed(const zcs_egress_flv_bind *flv)
 {
     return flv && flv->video_armed && *flv->video_armed;
 }
 
-static void flv_set_video_armed(const zms_egress_flv_bind *flv, int v)
+static void flv_set_video_armed(const zcs_egress_flv_bind *flv, int v)
 {
     if (flv && flv->video_armed) {
         *flv->video_armed = v;
@@ -130,15 +130,15 @@ static void flv_set_video_armed(const zms_egress_flv_bind *flv, int v)
  * 首个视频关键帧时初始化时间线原点、时钟 epoch 并打日志。
  * 仅当 flv_video_armed 为 false 时每会话调用一次。
  */
-static void egress_flv_on_first_video(const zms_egress_flv_bind *flv, zms_egress_clock *clk,
+static void egress_flv_on_first_video(const zcs_egress_flv_bind *flv, zcs_egress_clock *clk,
                                       uint32_t dts_ms, unsigned session_no, size_t es_len)
 {
     flv_set_video_armed(flv, 1);
     if (flv->timeline) {
-        zms_mux_av_timeline_lock_origin(flv->timeline, dts_ms);
+        zcs_mux_av_timeline_lock_origin(flv->timeline, dts_ms);
     }
     if (clk) {
-        (void)zms_egress_clock_lock_epoch(clk, dts_ms);
+        (void)zcs_egress_clock_lock_epoch(clk, dts_ms);
     }
     if (session_no) {
         zn_debug("[egress] first_video session=%u ts=%u es=%u", session_no, (unsigned)dts_ms,
@@ -153,19 +153,19 @@ static void egress_flv_on_first_video(const zms_egress_flv_bind *flv, zms_egress
  * 顺序与各自时间基准可能不同，timeline 负责把它们对齐到同一条输出时间轴上，
  * 否则 FLV 播放端会出现音画不同步。timeline 为 NULL 时（单轨/测试）直接透传。
  */
-static uint32_t egress_flv_out_ts_ex(const zms_egress_flv_bind *flv, const zms_gop_slot *slot,
+static uint32_t egress_flv_out_ts_ex(const zcs_egress_flv_bind *flv, const zcs_gop_slot *slot,
                                      uint8_t type_id)
 {
-    zms_track_type track = (type_id == ZMS_FLV_TAG_VIDEO) ? ZMS_TRACK_VIDEO : ZMS_TRACK_AUDIO;
+    zcs_track_type track = (type_id == ZCS_FLV_TAG_VIDEO) ? ZCS_TRACK_VIDEO : ZCS_TRACK_AUDIO;
 
     if (flv && flv->timeline && slot) {
-        return zms_mux_av_timeline_pts(flv->timeline, track, slot->dts_ms);
+        return zcs_mux_av_timeline_pts(flv->timeline, track, slot->dts_ms);
     }
     return slot ? slot->dts_ms : 0;
 }
 
-static int egress_flv_store_tag(zms_egress_pipeline *p, uint8_t type_id, uint32_t ts,
-                                const uint8_t *body, size_t len, zms_egress_flv_tag *out)
+static int egress_flv_store_tag(zcs_egress_pipeline *p, uint8_t type_id, uint32_t ts,
+                                const uint8_t *body, size_t len, zcs_egress_flv_tag *out)
 {
     if (!p || !body || len == 0 || !out) {
         return 0;
@@ -181,7 +181,7 @@ static int egress_flv_store_tag(zms_egress_pipeline *p, uint8_t type_id, uint32_
     return 1;
 }
 
-static void egress_flv_outbox_clear(zms_egress_pipeline *p)
+static void egress_flv_outbox_clear(zcs_egress_pipeline *p)
 {
     size_t i;
 
@@ -197,13 +197,13 @@ static void egress_flv_outbox_clear(zms_egress_pipeline *p)
     p->flv_out_r = p->flv_out_w = p->flv_out_n = 0;
 }
 
-static int egress_flv_outbox_init(zms_egress_pipeline *p)
+static int egress_flv_outbox_init(zcs_egress_pipeline *p)
 {
     if (!p || p->flv_out) {
         return 0;
     }
     p->flv_out_cap = (unsigned)PLAYBACK_FLV_OUTBOX_CAP;
-    p->flv_out = (zms_egress_flv_out_slot *)calloc(p->flv_out_cap, sizeof(*p->flv_out));
+    p->flv_out = (zcs_egress_flv_out_slot *)calloc(p->flv_out_cap, sizeof(*p->flv_out));
     return p->flv_out ? 0 : -1;
 }
 
@@ -216,10 +216,10 @@ static int egress_flv_outbox_init(zms_egress_pipeline *p)
  *
  * 缓冲区优先从 io_poller 的本地池分配，避免在 poller 线程走全局 malloc。
  */
-static int egress_flv_outbox_push(zms_egress_pipeline *p, uint8_t type_id, uint32_t ts,
+static int egress_flv_outbox_push(zcs_egress_pipeline *p, uint8_t type_id, uint32_t ts,
                                   const uint8_t *body, size_t len)
 {
-    zms_egress_flv_out_slot *slot;
+    zcs_egress_flv_out_slot *slot;
     zn_buf *buf;
     void *dst;
 
@@ -260,9 +260,9 @@ static int egress_flv_outbox_push(zms_egress_pipeline *p, uint8_t type_id, uint3
  * tag_budget 限制单次 flush 的条数：一次 tick 内全部发出去会让一个慢消费者
  * 占满 IO 时间片，饿死同 poller 上的其它会话。返回实际发送条数。
  */
-int zms_egress_pipeline_flush_flv_outbox(zms_egress_pipeline *p, int tag_budget)
+int zcs_egress_pipeline_flush_flv_outbox(zcs_egress_pipeline *p, int tag_budget)
 {
-    const zms_egress_flv_bind *flv;
+    const zcs_egress_flv_bind *flv;
 
     if (!p || tag_budget <= 0 || !p->flv_out || p->flv_out_n == 0) {
         return 0;
@@ -275,13 +275,13 @@ int zms_egress_pipeline_flush_flv_outbox(zms_egress_pipeline *p, int tag_budget)
     {
         int sent = 0;
         while (tag_budget-- > 0 && p->flv_out_n > 0) {
-            zms_egress_flv_out_slot *slot = &p->flv_out[p->flv_out_r];
+            zcs_egress_flv_out_slot *slot = &p->flv_out[p->flv_out_r];
 
             if (slot->buf) {
                 size_t blen = zn_buf_len(slot->buf);
 
                 if (flv->source) {
-                    zms_media_stats_on_egress(flv->source, blen);
+                    zcs_media_stats_on_egress(flv->source, blen);
                 }
                 flv->on_tag(slot->msg_type, slot->tag_dts_ms,
                             (const uint8_t *)zn_buf_data(slot->buf), blen, flv->user);
@@ -296,7 +296,7 @@ int zms_egress_pipeline_flush_flv_outbox(zms_egress_pipeline *p, int tag_budget)
     }
 }
 
-size_t zms_egress_pipeline_flv_outbox_pending(const zms_egress_pipeline *p)
+size_t zcs_egress_pipeline_flv_outbox_pending(const zcs_egress_pipeline *p)
 {
     return p ? p->flv_out_n : 0;
 }
@@ -308,35 +308,35 @@ size_t zms_egress_pipeline_flv_outbox_pending(const zms_egress_pipeline *p)
  * send 都由该会话自己的读取循环驱动，天然自带背压；而 RTMP 是被动推送，
  * 没有背压信号，必须靠 outbox 限额兜底。
  */
-static void egress_flv_dispatch_tag(zms_egress_pipeline *p, const zms_egress_flv_bind *flv,
+static void egress_flv_dispatch_tag(zcs_egress_pipeline *p, const zcs_egress_flv_bind *flv,
                                     uint8_t type_id, uint32_t ts, const uint8_t *body, size_t len)
 {
     if (!flv || !body || len == 0) {
         return;
     }
-    if (p && p->wire == ZMS_WIRE_FORMAT_RTMP && p->flv_out) {
+    if (p && p->wire == ZCS_WIRE_FORMAT_RTMP && p->flv_out) {
         if (egress_flv_outbox_push(p, type_id, ts, body, len) == 0) {
             return;
         }
     }
     if (flv->source) {
-        zms_media_stats_on_egress(flv->source, len);
+        zcs_media_stats_on_egress(flv->source, len);
     }
     if (flv->on_tag) {
         flv->on_tag(type_id, ts, body, len, flv->user);
     }
 }
 
-zms_egress_pipeline *zms_egress_pipeline_create(const zms_egress_pipeline_opts *opts)
+zcs_egress_pipeline *zcs_egress_pipeline_create(const zcs_egress_pipeline_opts *opts)
 {
-    zms_egress_pipeline *p;
-    const zms_egress_rtsp_bind *rtsp;
+    zcs_egress_pipeline *p;
+    const zcs_egress_rtsp_bind *rtsp;
 
     if (!opts || !opts->reader) {
         return NULL;
     }
     rtsp = opts->rtsp;
-    if (opts->wire == ZMS_WIRE_FORMAT_RTP) {
+    if (opts->wire == ZCS_WIRE_FORMAT_RTP) {
         if (!rtsp) {
             return NULL;
         }
@@ -344,14 +344,14 @@ zms_egress_pipeline *zms_egress_pipeline_create(const zms_egress_pipeline_opts *
             return NULL;
         }
     }
-    if (opts->wire == ZMS_WIRE_FORMAT_RTMP && (!opts->flv || !opts->flv->on_tag)) {
+    if (opts->wire == ZCS_WIRE_FORMAT_RTMP && (!opts->flv || !opts->flv->on_tag)) {
         return NULL;
     }
-    if (opts->wire == ZMS_WIRE_FORMAT_HTTP_FLV && !opts->flv) {
+    if (opts->wire == ZCS_WIRE_FORMAT_HTTP_FLV && !opts->flv) {
         return NULL;
     }
 
-    p = (zms_egress_pipeline *)calloc(1, sizeof(*p));
+    p = (zcs_egress_pipeline *)calloc(1, sizeof(*p));
     if (!p) {
         return NULL;
     }
@@ -360,12 +360,12 @@ zms_egress_pipeline *zms_egress_pipeline_create(const zms_egress_pipeline_opts *
     p->reader = opts->reader;
     p->on_wire = opts->on_wire;
     p->wire_user = opts->user;
-    if (opts->wire == ZMS_WIRE_FORMAT_RTP && rtsp) {
+    if (opts->wire == ZCS_WIRE_FORMAT_RTP && rtsp) {
         if (rtsp->mux) {
             p->rtsp_mux = rtsp->mux;
             p->rtsp_mux_owned = 0;
         } else {
-            p->rtsp_mux = zms_rtp_muxer_create(rtsp->opts, rtsp->on_rtp, rtsp->user);
+            p->rtsp_mux = zcs_rtp_muxer_create(rtsp->opts, rtsp->on_rtp, rtsp->user);
             p->rtsp_mux_owned = p->rtsp_mux ? 1 : 0;
             if (!p->rtsp_mux) {
                 free(p);
@@ -376,15 +376,15 @@ zms_egress_pipeline *zms_egress_pipeline_create(const zms_egress_pipeline_opts *
     if (opts->flv) {
         p->flv = *opts->flv;
         p->has_flv = 1;
-        if (opts->wire == ZMS_WIRE_FORMAT_RTMP && egress_flv_outbox_init(p) != 0) {
-            zms_egress_pipeline_destroy(p);
+        if (opts->wire == ZCS_WIRE_FORMAT_RTMP && egress_flv_outbox_init(p) != 0) {
+            zcs_egress_pipeline_destroy(p);
             return NULL;
         }
     }
     return p;
 }
 
-void zms_egress_pipeline_destroy(zms_egress_pipeline *p)
+void zcs_egress_pipeline_destroy(zcs_egress_pipeline *p)
 {
     size_t i;
 
@@ -400,7 +400,7 @@ void zms_egress_pipeline_destroy(zms_egress_pipeline *p)
     }
     p->zm_track_count = 0;
     if (p->rtsp_mux_owned) {
-        zms_rtp_muxer_destroy(p->rtsp_mux);
+        zcs_rtp_muxer_destroy(p->rtsp_mux);
     }
     p->rtsp_mux = NULL;
     egress_flv_outbox_clear(p);
@@ -411,45 +411,45 @@ void zms_egress_pipeline_destroy(zms_egress_pipeline *p)
     free(p);
 }
 
-void zms_egress_pipeline_bind_poller(zms_egress_pipeline *p, zn_poller *pol)
+void zcs_egress_pipeline_bind_poller(zcs_egress_pipeline *p, zn_poller *pol)
 {
     if (p) {
         p->io_poller = pol;
     }
 }
 
-zms_rtp_muxer *zms_egress_pipeline_rtsp_mux(const zms_egress_pipeline *p)
+zcs_rtp_muxer *zcs_egress_pipeline_rtsp_mux(const zcs_egress_pipeline *p)
 {
     return p ? p->rtsp_mux : NULL;
 }
 
-size_t zms_egress_pipeline_gop_lag(const zms_egress_pipeline *p)
+size_t zcs_egress_pipeline_gop_lag(const zcs_egress_pipeline *p)
 {
-    zms_gop_reader *rd;
+    zcs_gop_reader *rd;
 
     if (!p || !p->reader) {
         return 0;
     }
     rd = p->reader->readers.gop;
-    return rd ? zms_gop_reader_lag(rd) : 0;
+    return rd ? zcs_gop_reader_lag(rd) : 0;
 }
 
-void zms_egress_pipeline_jump_live(zms_egress_pipeline *p)
+void zcs_egress_pipeline_jump_live(zcs_egress_pipeline *p)
 {
     if (p && p->rtsp_mux) {
-        zms_rtp_muxer_jump_live(p->rtsp_mux);
+        zcs_rtp_muxer_jump_live(p->rtsp_mux);
     }
 }
 
-void zms_egress_pipeline_snap_live(zms_egress_pipeline *p)
+void zcs_egress_pipeline_snap_live(zcs_egress_pipeline *p)
 {
-    zms_gop_reader *rd;
+    zcs_gop_reader *rd;
 
     if (!p || !p->reader) {
         return;
     }
     rd = p->reader->readers.gop;
-    zms_egress_live_snap_gop(rd, p->rtsp_mux);
+    zcs_egress_live_snap_gop(rd, p->rtsp_mux);
 }
 
 /** FLV 直播：tag 1.4 peek pacing + lag catchup（见 play_pacing.h）。 */
@@ -464,8 +464,8 @@ static int egress_zm_sink_dummy(void *ctx, const void *data, size_t len)
 
 static int egress_zm_tag_cb(void *user, int type, const void *data, size_t len, uint32_t dts)
 {
-    zms_egress_pipeline *p = (zms_egress_pipeline *)user;
-    const zms_egress_flv_bind *flv;
+    zcs_egress_pipeline *p = (zcs_egress_pipeline *)user;
+    const zcs_egress_flv_bind *flv;
     uint32_t ts;
 
     (void)dts;
@@ -475,12 +475,12 @@ static int egress_zm_tag_cb(void *user, int type, const void *data, size_t len, 
     flv = p->zm_flv_bind;
 
     /* 会话 bootstrap 已发送 sequence header；这里丢弃 muxer 的重复头。 */
-    if (type == ZMS_FLV_TAG_VIDEO) {
+    if (type == ZCS_FLV_TAG_VIDEO) {
         struct flv_video_tag_header_t vh;
         if (flv_video_tag_header_read(&vh, data, len) > 0 && vh.avpacket == FLV_SEQUENCE_HEADER) {
             return 0;
         }
-    } else if (type == ZMS_FLV_TAG_AUDIO) {
+    } else if (type == ZCS_FLV_TAG_AUDIO) {
         struct flv_audio_tag_header_t ah;
         if (flv_audio_tag_header_read(&ah, data, len) > 0 && ah.codecid == FLV_AUDIO_AAC &&
             ah.avpacket == FLV_SEQUENCE_HEADER) {
@@ -501,7 +501,7 @@ static int egress_zm_tag_cb(void *user, int type, const void *data, size_t len, 
     return 0;
 }
 
-static int egress_zm_flv_ensure(zms_egress_pipeline *p)
+static int egress_zm_flv_ensure(zcs_egress_pipeline *p)
 {
     zm_sink sink;
     zm_writer_cfg cfg;
@@ -516,7 +516,7 @@ static int egress_zm_flv_ensure(zms_egress_pipeline *p)
     if (p->zm_flv_failed) {
         return -1;
     }
-    if (zms_zm_tracks_from_source(p->flv.source, p->zm_tracks, 2, &p->zm_track_count) !=
+    if (zcs_zm_tracks_from_source(p->flv.source, p->zm_tracks, 2, &p->zm_track_count) !=
         ZM_OK) {
         p->zm_flv_failed = 1;
         return -1;
@@ -555,9 +555,9 @@ static int egress_zm_flv_ensure(zms_egress_pipeline *p)
     return 0;
 }
 
-static int egress_zm_flv_feed(zms_egress_pipeline *p, const zms_egress_flv_bind *flv,
-                               const zms_gop_slot *slot, uint32_t pts_ms,
-                               zms_egress_flv_tag *out)
+static int egress_zm_flv_feed(zcs_egress_pipeline *p, const zcs_egress_flv_bind *flv,
+                               const zcs_gop_slot *slot, uint32_t pts_ms,
+                               zcs_egress_flv_tag *out)
 {
     zm_packet pkt;
     uint8_t type;
@@ -566,8 +566,8 @@ static int egress_zm_flv_feed(zms_egress_pipeline *p, const zms_egress_flv_bind 
     if (!p || !p->zm_flv || !slot) {
         return 0;
     }
-    type = slot->track == ZMS_TRACK_VIDEO ? ZMS_FLV_TAG_VIDEO : ZMS_FLV_TAG_AUDIO;
-    zms_zm_packet_from_gop_slot(slot, &pkt);
+    type = slot->track == ZCS_TRACK_VIDEO ? ZCS_FLV_TAG_VIDEO : ZCS_FLV_TAG_AUDIO;
+    zcs_zm_packet_from_gop_slot(slot, &pkt);
     pkt.pts_ms = pts_ms;
     pkt.dts_ms = slot->dts_ms;
     p->zm_out = out;
@@ -593,15 +593,15 @@ static int egress_zm_flv_feed(zms_egress_pipeline *p, const zms_egress_flv_bind 
  * 三者缺一不启用——新人入会时还在追赶，此时 pacing 会拖慢首屏；
  * 而 low_latency 模式（RTSP lowLatency 对齐）本来就要求读到即发。
  */
-static int egress_flv_live_step(zms_egress_pipeline *p, zms_egress_flv_tag *out,
+static int egress_flv_live_step(zcs_egress_pipeline *p, zcs_egress_flv_tag *out,
                                 int read_timeout_ms, unsigned session_no,
-                                const zms_egress_live_state *live)
+                                const zcs_egress_live_state *live)
 {
-    zms_gop_reader *rd;
-    const zms_egress_flv_bind *flv;
-    zms_egress_clock *clk;
-    zms_gop_slot peek;
-    zms_gop_slot slot;
+    zcs_gop_reader *rd;
+    const zcs_egress_flv_bind *flv;
+    zcs_egress_clock *clk;
+    zcs_gop_slot peek;
+    zcs_gop_slot slot;
     size_t lag;
     int catchup;
     int catchup_done;
@@ -615,7 +615,7 @@ static int egress_flv_live_step(zms_egress_pipeline *p, zms_egress_flv_tag *out,
     if (!p || !p->reader || !p->has_flv) {
         return 0;
     }
-    if (p->wire != ZMS_WIRE_FORMAT_RTMP && p->wire != ZMS_WIRE_FORMAT_HTTP_FLV) {
+    if (p->wire != ZCS_WIRE_FORMAT_RTMP && p->wire != ZCS_WIRE_FORMAT_HTTP_FLV) {
         return 0;
     }
     flv = &p->flv;
@@ -628,31 +628,31 @@ static int egress_flv_live_step(zms_egress_pipeline *p, zms_egress_flv_tag *out,
     }
 
     clk = flv->play_clk;
-    if (clk && zms_egress_clock_is_paused(clk)) {
+    if (clk && zcs_egress_clock_is_paused(clk)) {
         return 0;
     }
 
-    lag = zms_gop_reader_lag(rd);
-    catchup = zms_egress_live_lag_catchup(lag);
+    lag = zcs_gop_reader_lag(rd);
+    catchup = zcs_egress_live_lag_catchup(lag);
     catchup_done = live && live->live_catchup_done && *live->live_catchup_done;
     /* GOP catchup 后 lag<=16 时启用 pacing。 */
     pace = catchup_done && !catchup && !(live && live->low_latency);
 
-    if (zms_egress_live_peek_paced(rd, &peek, clk, pace, read_timeout_ms) <= 0) {
+    if (zcs_egress_live_peek_paced(rd, &peek, clk, pace, read_timeout_ms) <= 0) {
         return 0;
     }
 
-    if (zms_gop_reader_read_muxed(rd, &slot, read_timeout_ms) <= 0) {
+    if (zcs_gop_reader_read_muxed(rd, &slot, read_timeout_ms) <= 0) {
         return 0;
     }
     if (slot.len == 0 || !slot.data) {
         return 0;
     }
 
-    if (slot.track == ZMS_TRACK_VIDEO) {
-        zms_gop_slot_refresh_play_key(&slot);
+    if (slot.track == ZCS_TRACK_VIDEO) {
+        zcs_gop_slot_refresh_play_key(&slot);
         if (!flv_video_armed(flv)) {
-            if (!zms_gop_slot_is_play_start(&slot)) {
+            if (!zcs_gop_slot_is_play_start(&slot)) {
                 return 2;
             }
             egress_flv_on_first_video(flv, clk, slot.dts_ms, session_no, slot.len);
@@ -661,17 +661,17 @@ static int egress_flv_live_step(zms_egress_pipeline *p, zms_egress_flv_tag *out,
         return 2;
     }
 
-    if (clk && !zms_egress_clock_epoch_locked(clk)) {
-        (void)zms_egress_clock_lock_epoch(clk, slot.dts_ms);
+    if (clk && !zcs_egress_clock_epoch_locked(clk)) {
+        (void)zcs_egress_clock_lock_epoch(clk, slot.dts_ms);
     }
 
     if (egress_zm_flv_ensure(p) != 0 ||
-        !egress_zm_flv_feed(p, flv, &slot, zms_gop_slot_pts_ms(&slot), out)) {
+        !egress_zm_flv_feed(p, flv, &slot, zcs_gop_slot_pts_ms(&slot), out)) {
         return 0;
     }
 
-    if (catchup && zms_gop_reader_lag(rd) <= ZMS_EGRESS_CATCHUP_LAG && clk) {
-        zms_egress_clock_sync_wall(clk, slot.dts_ms);
+    if (catchup && zcs_gop_reader_lag(rd) <= ZCS_EGRESS_CATCHUP_LAG && clk) {
+        zcs_egress_clock_sync_wall(clk, slot.dts_ms);
     }
     return 1;
 }
@@ -682,23 +682,23 @@ static int egress_flv_live_step(zms_egress_pipeline *p, zms_egress_flv_tag *out,
  * 流程顺序不能随意调整：
  *   1. should_pump 先做“是否值得动”的粗筛（无唤醒且无滞后时直接返回），
  *      避免每个 tick 都去碰 GOP 队列；
- *   2. 预算按 epoch/catchup/lag 三级计算（见 zms_egress_live_pump_budget）；
+ *   2. 预算按 epoch/catchup/lag 三级计算（见 zcs_egress_live_pump_budget）；
  *   3. flv_prep 负责滞后修正（snap/resync/慢消费者踢出）；
  *   4. 最后才进 step 循环。
  *
  * 末尾的 seek_gop_key：若整轮一帧都没产出且尚未 armed，说明读者可能停在
  * 非关键帧处，主动 seek 到 GOP 关键帧，避免会话一直空转。
  */
-int zms_egress_pipeline_pump_flv_live(zms_egress_pipeline *p, int frame_budget, int read_timeout_ms,
-                                      unsigned session_no, const zms_egress_live_state *live)
+int zcs_egress_pipeline_pump_flv_live(zcs_egress_pipeline *p, int frame_budget, int read_timeout_ms,
+                                      unsigned session_no, const zcs_egress_live_state *live)
 {
-    zms_gop_reader *rd;
-    const zms_egress_flv_bind *flv;
+    zcs_gop_reader *rd;
+    const zcs_egress_flv_bind *flv;
     size_t lag;
     int frames = 0;
     int pump_budget;
 
-    if (!p || !p->reader || !p->has_flv || p->wire != ZMS_WIRE_FORMAT_RTMP) {
+    if (!p || !p->reader || !p->has_flv || p->wire != ZCS_WIRE_FORMAT_RTMP) {
         return 0;
     }
     flv = &p->flv;
@@ -716,22 +716,22 @@ int zms_egress_pipeline_pump_flv_live(zms_egress_pipeline *p, int frame_budget, 
         int epoch0;
         int catchup0;
 
-        lag = zms_gop_reader_lag(rd);
-        woke = zms_gop_reader_drain_wake(rd);
-        epoch0 = flv->play_clk && zms_egress_clock_epoch_locked(flv->play_clk);
+        lag = zcs_gop_reader_lag(rd);
+        woke = zcs_gop_reader_drain_wake(rd);
+        epoch0 = flv->play_clk && zcs_egress_clock_epoch_locked(flv->play_clk);
         catchup0 = live && live->live_catchup_done && *live->live_catchup_done;
-        if (!zms_egress_live_should_pump(rd, woke, catchup0, epoch0)) {
-            (void)zms_egress_pipeline_flush_flv_outbox(p, (int)PLAYBACK_FLV_OUTBOX_FLUSH);
+        if (!zcs_egress_live_should_pump(rd, woke, catchup0, epoch0)) {
+            (void)zcs_egress_pipeline_flush_flv_outbox(p, (int)PLAYBACK_FLV_OUTBOX_FLUSH);
             return frames;
         }
         if (frame_budget <= 0) {
             frame_budget =
-                zms_egress_live_pump_budget(epoch0, catchup0, lag, (int)ZMS_EGRESS_FLV_BUDGET_LIVE);
+                zcs_egress_live_pump_budget(epoch0, catchup0, lag, (int)ZCS_EGRESS_FLV_BUDGET_LIVE);
         }
     }
     pump_budget = frame_budget;
-    if (live && zms_egress_live_flv_prep(rd, live, session_no, &pump_budget)) {
-        (void)zms_egress_pipeline_flush_flv_outbox(p, (int)PLAYBACK_FLV_OUTBOX_FLUSH);
+    if (live && zcs_egress_live_flv_prep(rd, live, session_no, &pump_budget)) {
+        (void)zcs_egress_pipeline_flush_flv_outbox(p, (int)PLAYBACK_FLV_OUTBOX_FLUSH);
         return frames;
     }
 
@@ -745,10 +745,10 @@ int zms_egress_pipeline_pump_flv_live(zms_egress_pipeline *p, int frame_budget, 
         }
     }
     if (!flv_video_armed(flv) && frames == 0) {
-        zms_gop_reader_seek_gop_key(rd);
+        zcs_gop_reader_seek_gop_key(rd);
     }
 
-    (void)zms_egress_pipeline_flush_flv_outbox(p, (int)PLAYBACK_FLV_OUTBOX_FLUSH);
+    (void)zcs_egress_pipeline_flush_flv_outbox(p, (int)PLAYBACK_FLV_OUTBOX_FLUSH);
     return frames;
 }
 
@@ -761,17 +761,17 @@ int zms_egress_pipeline_pump_flv_live(zms_egress_pipeline *p, int frame_budget, 
  *
  * 返回：1=取到一个 tag；0=暂无。
  */
-static int egress_flv_pull_one_live(zms_egress_pipeline *p, zms_egress_flv_tag *out,
+static int egress_flv_pull_one_live(zcs_egress_pipeline *p, zcs_egress_flv_tag *out,
                                     int read_timeout_ms, unsigned session_no,
-                                    const zms_egress_live_state *live)
+                                    const zcs_egress_live_state *live)
 {
-    zms_gop_reader *rd;
-    const zms_egress_flv_bind *flv;
+    zcs_gop_reader *rd;
+    const zcs_egress_flv_bind *flv;
 
     if (!p || !p->reader || !p->has_flv || !out) {
         return 0;
     }
-    if (p->wire != ZMS_WIRE_FORMAT_RTMP && p->wire != ZMS_WIRE_FORMAT_HTTP_FLV) {
+    if (p->wire != ZCS_WIRE_FORMAT_RTMP && p->wire != ZCS_WIRE_FORMAT_HTTP_FLV) {
         return 0;
     }
     flv = &p->flv;
@@ -783,13 +783,13 @@ static int egress_flv_pull_one_live(zms_egress_pipeline *p, zms_egress_flv_tag *
         read_timeout_ms = 500;
     }
 
-    if (live && zms_egress_live_flv_prep(rd, live, session_no, NULL)) {
+    if (live && zcs_egress_live_flv_prep(rd, live, session_no, NULL)) {
         return 0;
     }
 
     {
         int n;
-        int skip_budget = (int)ZMS_EGRESS_FRAME_BUDGET_CATCHUP;
+        int skip_budget = (int)ZCS_EGRESS_FRAME_BUDGET_CATCHUP;
 
         while (skip_budget-- > 0) {
             n = egress_flv_live_step(p, out, read_timeout_ms, session_no, live);
@@ -804,21 +804,21 @@ static int egress_flv_pull_one_live(zms_egress_pipeline *p, zms_egress_flv_tag *
     return 0;
 }
 
-int zms_egress_pipeline_pull_flv_live(zms_egress_pipeline *p, zms_egress_flv_tag *out,
+int zcs_egress_pipeline_pull_flv_live(zcs_egress_pipeline *p, zcs_egress_flv_tag *out,
                                       int read_timeout_ms, unsigned session_no,
-                                      const zms_egress_live_state *live)
+                                      const zcs_egress_live_state *live)
 {
     return egress_flv_pull_one_live(p, out, read_timeout_ms, session_no, live);
 }
 
-static int egress_flv_vod_step(zms_egress_pipeline *p, const zms_flv_vod_egress_bind *vcfg,
-                               zms_egress_flv_tag *out, int *catchup_io, unsigned session_no)
+static int egress_flv_vod_step(zcs_egress_pipeline *p, const zcs_flv_vod_egress_bind *vcfg,
+                               zcs_egress_flv_tag *out, int *catchup_io, unsigned session_no)
 {
-    const zms_egress_flv_bind *flv;
-    zms_vod_buffer_reader *vod_rd;
-    zms_egress_clock *clk;
+    const zcs_egress_flv_bind *flv;
+    zcs_vod_buffer_reader *vod_rd;
+    zcs_egress_clock *clk;
     int catchup;
-    zms_gop_slot slot;
+    zcs_gop_slot slot;
     size_t tag_len = 0;
     uint8_t type_id = 0;
     uint8_t *tag_buf;
@@ -828,7 +828,7 @@ static int egress_flv_vod_step(zms_egress_pipeline *p, const zms_flv_vod_egress_
     if (!p || !p->has_flv || !vcfg || !vcfg->vod_rd) {
         return 0;
     }
-    if (p->wire != ZMS_WIRE_FORMAT_RTMP && p->wire != ZMS_WIRE_FORMAT_HTTP_FLV) {
+    if (p->wire != ZCS_WIRE_FORMAT_RTMP && p->wire != ZCS_WIRE_FORMAT_HTTP_FLV) {
         return 0;
     }
     flv = &p->flv;
@@ -836,52 +836,52 @@ static int egress_flv_vod_step(zms_egress_pipeline *p, const zms_flv_vod_egress_
     clk = vcfg->play_clk ? vcfg->play_clk : flv->play_clk;
     catchup = catchup_io && *catchup_io > 0;
 
-    if (clk && zms_egress_clock_is_paused(clk)) {
+    if (clk && zcs_egress_clock_is_paused(clk)) {
         return 0;
     }
-    if (zms_vod_buffer_reader_peek_muxed_es(vod_rd, &slot, vcfg->es_buf, vcfg->es_cap,
+    if (zcs_vod_buffer_reader_peek_muxed_es(vod_rd, &slot, vcfg->es_buf, vcfg->es_cap,
                                             p->io_poller) <= 0) {
         return 0;
     }
     if (slot.len == 0 || !slot.data) {
-        zms_vod_buffer_reader_advance(vod_rd);
+        zcs_vod_buffer_reader_advance(vod_rd);
         return 0;
     }
-    if (slot.track == ZMS_TRACK_VIDEO) {
-        zms_gop_slot_refresh_sync_key(&slot);
+    if (slot.track == ZCS_TRACK_VIDEO) {
+        zcs_gop_slot_refresh_sync_key(&slot);
     }
-    if (slot.track == ZMS_TRACK_VIDEO) {
+    if (slot.track == ZCS_TRACK_VIDEO) {
         if (!flv_video_armed(flv)) {
             if (!slot.keyframe) {
-                zms_vod_buffer_reader_advance(vod_rd);
+                zcs_vod_buffer_reader_advance(vod_rd);
                 return 0;
             }
             flv_set_video_armed(flv, 1);
         }
     } else if (!flv_video_armed(flv)) {
-        zms_vod_buffer_reader_advance(vod_rd);
+        zcs_vod_buffer_reader_advance(vod_rd);
         return 0;
     }
-    if (!catchup && vcfg && vcfg->pace_when_locked && clk && zms_egress_clock_epoch_locked(clk) &&
-        !zms_egress_clock_media_due(clk, slot.dts_ms, ZMS_EGRESS_PACE_LEAD_MS)) {
+    if (!catchup && vcfg && vcfg->pace_when_locked && clk && zcs_egress_clock_epoch_locked(clk) &&
+        !zcs_egress_clock_media_due(clk, slot.dts_ms, ZCS_EGRESS_PACE_LEAD_MS)) {
         return 0;
     }
 
     if (egress_zm_flv_ensure(p) != 0) {
-        zms_vod_buffer_reader_advance(vod_rd);
+        zcs_vod_buffer_reader_advance(vod_rd);
         return 0;
     }
     {
-        int emitted = egress_zm_flv_feed(p, flv, &slot, zms_gop_slot_pts_ms(&slot), out);
-        zms_vod_buffer_reader_advance(vod_rd);
+        int emitted = egress_zm_flv_feed(p, flv, &slot, zcs_gop_slot_pts_ms(&slot), out);
+        zcs_vod_buffer_reader_advance(vod_rd);
         if (!emitted) {
             return 0;
         }
     }
 
     if (catchup && vcfg && vcfg->pace_when_locked &&
-        zms_vod_buffer_reader_lag(vod_rd) <= ZMS_EGRESS_CATCHUP_LAG) {
-        zms_egress_clock_rebase(clk, slot.dts_ms);
+        zcs_vod_buffer_reader_lag(vod_rd) <= ZCS_EGRESS_CATCHUP_LAG) {
+        zcs_egress_clock_rebase(clk, slot.dts_ms);
         catchup = 0;
         if (catchup_io) {
             *catchup_io = 0;
@@ -890,8 +890,8 @@ static int egress_flv_vod_step(zms_egress_pipeline *p, const zms_flv_vod_egress_
     return 1;
 }
 
-int zms_egress_pipeline_pull_flv_vod(zms_egress_pipeline *p, const zms_flv_vod_egress_bind *vcfg,
-                                     zms_egress_flv_tag *out, unsigned session_no)
+int zcs_egress_pipeline_pull_flv_vod(zcs_egress_pipeline *p, const zcs_flv_vod_egress_bind *vcfg,
+                                     zcs_egress_flv_tag *out, unsigned session_no)
 {
     if (!out) {
         return 0;
@@ -899,7 +899,7 @@ int zms_egress_pipeline_pull_flv_vod(zms_egress_pipeline *p, const zms_flv_vod_e
     return egress_flv_vod_step(p, vcfg, out, vcfg ? vcfg->catchup_left : NULL, session_no);
 }
 
-int zms_egress_pipeline_pump_flv_vod(zms_egress_pipeline *p, const zms_flv_vod_egress_bind *vcfg,
+int zcs_egress_pipeline_pump_flv_vod(zcs_egress_pipeline *p, const zcs_flv_vod_egress_bind *vcfg,
                                      int frame_budget, unsigned session_no)
 {
     int tags = 0;
@@ -908,14 +908,14 @@ int zms_egress_pipeline_pump_flv_vod(zms_egress_pipeline *p, const zms_flv_vod_e
     if (!p || !p->has_flv || !vcfg || !vcfg->vod_rd) {
         return 0;
     }
-    if (p->wire != ZMS_WIRE_FORMAT_RTMP && p->wire != ZMS_WIRE_FORMAT_HTTP_FLV) {
+    if (p->wire != ZCS_WIRE_FORMAT_RTMP && p->wire != ZCS_WIRE_FORMAT_HTTP_FLV) {
         return 0;
     }
 
     if (frame_budget <= 0) {
         int catchup = vcfg->catchup_left && *vcfg->catchup_left > 0;
         frame_budget =
-            catchup ? (int)ZMS_EGRESS_FRAME_BUDGET_CATCHUP : (int)ZMS_EGRESS_FLV_BUDGET_VOD;
+            catchup ? (int)ZCS_EGRESS_FRAME_BUDGET_CATCHUP : (int)ZCS_EGRESS_FLV_BUDGET_VOD;
     }
     pump_budget = frame_budget;
 
@@ -929,7 +929,7 @@ int zms_egress_pipeline_pump_flv_vod(zms_egress_pipeline *p, const zms_flv_vod_e
     if (vcfg->catchup_left && *vcfg->catchup_left > 0) {
         *vcfg->catchup_left = (pump_budget >= 0 ? pump_budget : 0);
     }
-    (void)zms_egress_pipeline_flush_flv_outbox(p, (int)PLAYBACK_FLV_OUTBOX_FLUSH);
+    (void)zcs_egress_pipeline_flush_flv_outbox(p, (int)PLAYBACK_FLV_OUTBOX_FLUSH);
     return tags;
 }
 
@@ -945,45 +945,45 @@ int zms_egress_pipeline_pump_flv_vod(zms_egress_pipeline *p, const zms_flv_vod_e
  * 追赶期间一次性发出大量帧会让墙钟与媒体时间脱节，追平后要对齐一次，
  * 否则后续 pacing 会以为一直超时、持续突发。
  */
-int zms_egress_pipeline_pump_vod(zms_egress_pipeline *p, zms_vod_buffer_reader *vod_rd,
-                                 zms_vod_reader *vod_demux, int frame_budget, unsigned session_no)
+int zcs_egress_pipeline_pump_vod(zcs_egress_pipeline *p, zcs_vod_buffer_reader *vod_rd,
+                                 zcs_vod_reader *vod_demux, int frame_budget, unsigned session_no)
 {
-    const zms_egress_clock *clk;
+    const zcs_egress_clock *clk;
     int catchup;
     int frames = 0;
     int pump_budget;
 
-    if (!p || !p->rtsp_mux || p->wire != ZMS_WIRE_FORMAT_RTP || !vod_rd) {
+    if (!p || !p->rtsp_mux || p->wire != ZCS_WIRE_FORMAT_RTP || !vod_rd) {
         return 0;
     }
 
     if (frame_budget <= 0) {
-        frame_budget = (int)ZMS_EGRESS_FRAME_BUDGET_LIVE;
+        frame_budget = (int)ZCS_EGRESS_FRAME_BUDGET_LIVE;
     }
     pump_budget = frame_budget;
-    catchup = zms_rtp_muxer_catchup_on(p->rtsp_mux);
-    if (catchup && pump_budget < (int)ZMS_EGRESS_FRAME_BUDGET_CATCHUP) {
-        pump_budget = (int)ZMS_EGRESS_FRAME_BUDGET_CATCHUP;
+    catchup = zcs_rtp_muxer_catchup_on(p->rtsp_mux);
+    if (catchup && pump_budget < (int)ZCS_EGRESS_FRAME_BUDGET_CATCHUP) {
+        pump_budget = (int)ZCS_EGRESS_FRAME_BUDGET_CATCHUP;
     }
 
     while (pump_budget-- > 0) {
-        zms_gop_slot slot;
+        zcs_gop_slot slot;
         uint8_t *es_buf;
         size_t es_cap;
         int muxed;
 
         es_buf = p->es_buf;
         es_cap = p->es_cap;
-        if (zms_vod_buffer_reader_peek_muxed_es(vod_rd, &slot, &es_buf, &es_cap, p->io_poller) <=
+        if (zcs_vod_buffer_reader_peek_muxed_es(vod_rd, &slot, &es_buf, &es_cap, p->io_poller) <=
             0) {
             int refilled = 0;
             if (vod_demux) {
                 int i;
                 for (i = 0; i < 8; ++i) {
-                    if (zms_vod_buffer_reader_lag(vod_rd) >= 48) {
+                    if (zcs_vod_buffer_reader_lag(vod_rd) >= 48) {
                         break;
                     }
-                    if (zms_vod_reader_pump(vod_demux) <= 0) {
+                    if (zcs_vod_reader_pump(vod_demux) <= 0) {
                         break;
                     }
                     ++refilled;
@@ -992,9 +992,9 @@ int zms_egress_pipeline_pump_vod(zms_egress_pipeline *p, zms_vod_buffer_reader *
             if (refilled > 0) {
                 continue;
             }
-            if (session_no && zms_vod_buffer_reader_lag(vod_rd) > 0) {
+            if (session_no && zcs_vod_buffer_reader_lag(vod_rd) > 0) {
                 zn_warn("[egress] vod_peek_fail session=%u lag=%zu need_cap=%zu", session_no,
-                         zms_vod_buffer_reader_lag(vod_rd), es_cap);
+                         zcs_vod_buffer_reader_lag(vod_rd), es_cap);
             }
             break;
         }
@@ -1002,34 +1002,34 @@ int zms_egress_pipeline_pump_vod(zms_egress_pipeline *p, zms_vod_buffer_reader *
         p->es_cap = es_cap;
 
         if (slot.len == 0 || !slot.data) {
-            zms_vod_buffer_reader_advance(vod_rd);
+            zcs_vod_buffer_reader_advance(vod_rd);
             continue;
         }
-        clk = zms_rtp_muxer_play_clock(p->rtsp_mux);
-        catchup = zms_rtp_muxer_catchup_on(p->rtsp_mux);
-        if (!catchup && clk && zms_egress_clock_epoch_locked(clk) &&
-            !zms_egress_clock_media_due(clk, slot.dts_ms, ZMS_EGRESS_PACE_LEAD_MS)) {
+        clk = zcs_rtp_muxer_play_clock(p->rtsp_mux);
+        catchup = zcs_rtp_muxer_catchup_on(p->rtsp_mux);
+        if (!catchup && clk && zcs_egress_clock_epoch_locked(clk) &&
+            !zcs_egress_clock_media_due(clk, slot.dts_ms, ZCS_EGRESS_PACE_LEAD_MS)) {
             break;
         }
-        if (slot.track == ZMS_TRACK_VIDEO) {
-            zms_gop_slot_refresh_sync_key(&slot);
+        if (slot.track == ZCS_TRACK_VIDEO) {
+            zcs_gop_slot_refresh_sync_key(&slot);
         }
         {
-            int log_first_v = session_no && slot.track == ZMS_TRACK_VIDEO &&
-                              zms_rtp_muxer_awaiting_video_key(p->rtsp_mux);
+            int log_first_v = session_no && slot.track == ZCS_TRACK_VIDEO &&
+                              zcs_rtp_muxer_awaiting_video_key(p->rtsp_mux);
 
-            muxed = zms_rtp_muxer_input_slot(p->rtsp_mux, &slot);
+            muxed = zcs_rtp_muxer_input_slot(p->rtsp_mux, &slot);
             if (muxed > 0) {
-                zms_vod_buffer_reader_advance(vod_rd);
+                zcs_vod_buffer_reader_advance(vod_rd);
                 ++frames;
                 if (catchup) {
-                    zms_rtp_muxer_catchup_frame(p->rtsp_mux);
-                    catchup = zms_rtp_muxer_catchup_on(p->rtsp_mux);
+                    zcs_rtp_muxer_catchup_frame(p->rtsp_mux);
+                    catchup = zcs_rtp_muxer_catchup_on(p->rtsp_mux);
                     if (!catchup) {
                         /* VOD RTP ts 跟文件 dts_ms；catchup 后按 seek_ms / RTCP SR 重基 epoch。 */
-                        zms_egress_clock *clk_mut = zms_rtp_muxer_play_clock_mut(p->rtsp_mux);
+                        zcs_egress_clock *clk_mut = zcs_rtp_muxer_play_clock_mut(p->rtsp_mux);
                         if (clk_mut) {
-                            zms_egress_clock_sync_wall(clk_mut, slot.dts_ms);
+                            zcs_egress_clock_sync_wall(clk_mut, slot.dts_ms);
                         }
                     }
                 }
@@ -1038,13 +1038,13 @@ int zms_egress_pipeline_pump_vod(zms_egress_pipeline *p, zms_vod_buffer_reader *
                               (unsigned)slot.len, (unsigned)slot.dts_ms, slot.keyframe);
                 }
             } else if (muxed == 0) {
-                if (session_no && slot.track == ZMS_TRACK_VIDEO && slot.keyframe) {
+                if (session_no && slot.track == ZCS_TRACK_VIDEO && slot.keyframe) {
                     zn_debug("[egress] vod_mux_skip session=%u es=%u ts=%u key=%d", session_no,
                               (unsigned)slot.len, (unsigned)slot.dts_ms, slot.keyframe);
                 }
-                zms_vod_buffer_reader_advance(vod_rd);
+                zcs_vod_buffer_reader_advance(vod_rd);
             } else {
-                if (session_no && slot.track == ZMS_TRACK_VIDEO) {
+                if (session_no && slot.track == ZCS_TRACK_VIDEO) {
                     zn_warn("[egress] vod_mux_fail session=%u codec=%d es=%u ts=%u key=%d",
                              session_no, (int)slot.codec, (unsigned)slot.len, (unsigned)slot.dts_ms,
                              slot.keyframe);
@@ -1073,19 +1073,19 @@ int zms_egress_pipeline_pump_vod(zms_egress_pipeline *p, zms_vod_buffer_reader *
  *
  * 返回本轮实际送入 muxer 的帧数（0 表示没有可发或未到期）。
  */
-int zms_egress_pipeline_pump_live(zms_egress_pipeline *p, int frame_budget, int read_timeout_ms,
-                                  unsigned session_no, const zms_egress_live_state *live)
+int zcs_egress_pipeline_pump_live(zcs_egress_pipeline *p, int frame_budget, int read_timeout_ms,
+                                  unsigned session_no, const zcs_egress_live_state *live)
 {
-    zms_gop_reader *rd;
-    zms_gop_slot slot;
-    zms_gop_slot peek;
-    const zms_rtp_muxer_stats *st0;
+    zcs_gop_reader *rd;
+    zcs_gop_slot slot;
+    zcs_gop_slot peek;
+    const zcs_rtp_muxer_stats *st0;
     uint32_t v_pkts0;
     size_t lag;
     int frames = 0;
     int pump_budget;
 
-    if (!p || !p->reader || !p->rtsp_mux || p->wire != ZMS_WIRE_FORMAT_RTP) {
+    if (!p || !p->reader || !p->rtsp_mux || p->wire != ZCS_WIRE_FORMAT_RTP) {
         return 0;
     }
 
@@ -1096,20 +1096,20 @@ int zms_egress_pipeline_pump_live(zms_egress_pipeline *p, int frame_budget, int 
 
     {
         int woke;
-        const zms_egress_clock *clk0;
+        const zcs_egress_clock *clk0;
         int epoch0;
         int catchup0;
 
-        lag = zms_gop_reader_lag(rd);
-        woke = zms_gop_reader_drain_wake(rd);
-        clk0 = zms_rtp_muxer_play_clock(p->rtsp_mux);
-        epoch0 = clk0 && zms_egress_clock_epoch_locked(clk0);
+        lag = zcs_gop_reader_lag(rd);
+        woke = zcs_gop_reader_drain_wake(rd);
+        clk0 = zcs_rtp_muxer_play_clock(p->rtsp_mux);
+        epoch0 = clk0 && zcs_egress_clock_epoch_locked(clk0);
         catchup0 = live && live->live_catchup_done && *live->live_catchup_done;
-        if (!zms_egress_live_should_pump(rd, woke, catchup0, epoch0)) {
+        if (!zcs_egress_live_should_pump(rd, woke, catchup0, epoch0)) {
             return frames;
         }
         if (frame_budget <= 0) {
-            frame_budget = zms_egress_live_pump_budget(epoch0, catchup0, lag, 0);
+            frame_budget = zcs_egress_live_pump_budget(epoch0, catchup0, lag, 0);
         }
     }
     if (read_timeout_ms <= 0) {
@@ -1117,58 +1117,58 @@ int zms_egress_pipeline_pump_live(zms_egress_pipeline *p, int frame_budget, int 
     }
 
     pump_budget = frame_budget;
-    st0 = zms_rtp_muxer_get_stats(p->rtsp_mux);
+    st0 = zcs_rtp_muxer_get_stats(p->rtsp_mux);
     v_pkts0 = st0 ? st0->video_pkt_count : 0;
 
-    if (zms_egress_live_rtsp_prep(rd, p->rtsp_mux, live, session_no, &pump_budget)) {
+    if (zcs_egress_live_rtsp_prep(rd, p->rtsp_mux, live, session_no, &pump_budget)) {
         return frames;
     }
 
     while (pump_budget-- > 0) {
-        const zms_egress_clock *clk;
+        const zcs_egress_clock *clk;
         int lag_catchup;
         int pace;
         int pk;
 
-        lag = zms_gop_reader_lag(rd);
-        lag_catchup = zms_egress_live_lag_catchup(lag);
+        lag = zcs_gop_reader_lag(rd);
+        lag_catchup = zcs_egress_live_lag_catchup(lag);
         pace = !lag_catchup && !(live && live->low_latency);
-        clk = zms_rtp_muxer_play_clock(p->rtsp_mux);
+        clk = zcs_rtp_muxer_play_clock(p->rtsp_mux);
 
-        pk = zms_egress_live_peek_paced(rd, &peek, clk, pace, read_timeout_ms);
+        pk = zcs_egress_live_peek_paced(rd, &peek, clk, pace, read_timeout_ms);
         if (pk <= 0) {
             break;
         }
 
-        if (zms_gop_reader_read_muxed(rd, &slot, read_timeout_ms) <= 0) {
+        if (zcs_gop_reader_read_muxed(rd, &slot, read_timeout_ms) <= 0) {
             break;
         }
         if (slot.len == 0 || !slot.data) {
             continue;
         }
 
-        if (slot.track == ZMS_TRACK_VIDEO) {
-            zms_gop_slot_refresh_play_key(&slot);
+        if (slot.track == ZCS_TRACK_VIDEO) {
+            zcs_gop_slot_refresh_play_key(&slot);
         }
 
-        lag = zms_gop_reader_lag(rd);
-        lag_catchup = zms_egress_live_lag_catchup(lag);
+        lag = zcs_gop_reader_lag(rd);
+        lag_catchup = zcs_egress_live_lag_catchup(lag);
 
-        if (zms_rtp_muxer_input_slot(p->rtsp_mux, &slot) > 0) {
+        if (zcs_rtp_muxer_input_slot(p->rtsp_mux, &slot) > 0) {
             ++frames;
-            if (lag_catchup && zms_gop_reader_lag(rd) <= ZMS_EGRESS_CATCHUP_LAG) {
-                zms_egress_clock *clk_mut = zms_rtp_muxer_play_clock_mut(p->rtsp_mux);
+            if (lag_catchup && zcs_gop_reader_lag(rd) <= ZCS_EGRESS_CATCHUP_LAG) {
+                zcs_egress_clock *clk_mut = zcs_rtp_muxer_play_clock_mut(p->rtsp_mux);
                 if (clk_mut) {
-                    zms_egress_clock_sync_wall(clk_mut, slot.dts_ms);
+                    zcs_egress_clock_sync_wall(clk_mut, slot.dts_ms);
                 }
             }
-            if (session_no && v_pkts0 + (uint32_t)frames <= 3 && slot.track == ZMS_TRACK_VIDEO) {
+            if (session_no && v_pkts0 + (uint32_t)frames <= 3 && slot.track == ZCS_TRACK_VIDEO) {
                 const char *kind = "VCL";
-                if (slot.codec == ZMS_CODEC_H265) {
+                if (slot.codec == ZCS_CODEC_H265) {
                     if (slot.data && slot.len >= 5) {
-                        if (zms_h265_annexb_is_idr(slot.data, slot.len)) {
+                        if (zcs_h265_annexb_is_idr(slot.data, slot.len)) {
                             kind = "IDR";
-                        } else if (zms_h265_annexb_is_sync_key(slot.data, slot.len)) {
+                        } else if (zcs_h265_annexb_is_sync_key(slot.data, slot.len)) {
                             kind = "CRA";
                         }
                     }
@@ -1183,10 +1183,10 @@ int zms_egress_pipeline_pump_live(zms_egress_pipeline *p, int frame_budget, int 
     }
 
     if (frames > 0 && session_no) {
-        const zms_rtp_muxer_stats *st = zms_rtp_muxer_get_stats(p->rtsp_mux);
-        size_t pending = zms_gop_reader_lag(rd);
+        const zcs_rtp_muxer_stats *st = zcs_rtp_muxer_get_stats(p->rtsp_mux);
+        size_t pending = zcs_gop_reader_lag(rd);
         if (st &&
-            (pending > ZMS_EGRESS_RING_MAX_LAG || frames >= (int)ZMS_EGRESS_FRAME_BUDGET_LIVE)) {
+            (pending > ZCS_EGRESS_RING_MAX_LAG || frames >= (int)ZCS_EGRESS_FRAME_BUDGET_LIVE)) {
             zn_debug("[egress] pump session=%u frames=%d lag=%zu v_pkts=%u a_pkts=%u", session_no,
                       frames, pending, st->video_pkt_count, st->audio_pkt_count);
         }
@@ -1195,28 +1195,28 @@ int zms_egress_pipeline_pump_live(zms_egress_pipeline *p, int frame_budget, int 
     return frames;
 }
 
-int zms_egress_pipeline_pump_rtsp(zms_egress_pipeline *p, zms_vod_buffer_reader *vod_rd,
-                                  zms_vod_reader *vod_demux, int frame_budget, int read_timeout_ms,
-                                  unsigned session_no, const zms_egress_live_state *live)
+int zcs_egress_pipeline_pump_rtsp(zcs_egress_pipeline *p, zcs_vod_buffer_reader *vod_rd,
+                                  zcs_vod_reader *vod_demux, int frame_budget, int read_timeout_ms,
+                                  unsigned session_no, const zcs_egress_live_state *live)
 {
     if (!p) {
         return 0;
     }
     if (vod_rd) {
-        return zms_egress_pipeline_pump_vod(p, vod_rd, vod_demux, frame_budget, session_no);
+        return zcs_egress_pipeline_pump_vod(p, vod_rd, vod_demux, frame_budget, session_no);
     }
-    return zms_egress_pipeline_pump_live(p, frame_budget, read_timeout_ms, session_no, live);
+    return zcs_egress_pipeline_pump_live(p, frame_budget, read_timeout_ms, session_no, live);
 }
 
-zn_err_t zms_egress_pipeline_pump(zms_egress_pipeline *p, int timeout_ms)
+zn_err_t zcs_egress_pipeline_pump(zcs_egress_pipeline *p, int timeout_ms)
 {
     if (!p) {
         return ZN_ERR_INVALID;
     }
-    if (p->wire == ZMS_WIRE_FORMAT_RTMP) {
-        (void)zms_egress_pipeline_pump_flv_live(p, ZMS_EGRESS_FLV_BUDGET_LIVE, timeout_ms, 0, NULL);
+    if (p->wire == ZCS_WIRE_FORMAT_RTMP) {
+        (void)zcs_egress_pipeline_pump_flv_live(p, ZCS_EGRESS_FLV_BUDGET_LIVE, timeout_ms, 0, NULL);
     } else {
-        (void)zms_egress_pipeline_pump_live(p, (int)ZMS_EGRESS_FRAME_BUDGET_LIVE, timeout_ms, 0,
+        (void)zcs_egress_pipeline_pump_live(p, (int)ZCS_EGRESS_FRAME_BUDGET_LIVE, timeout_ms, 0,
                                             NULL);
     }
     return ZN_OK;

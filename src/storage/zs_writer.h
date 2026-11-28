@@ -2,7 +2,7 @@
  * @file zs_writer.h
  * @brief 单通道写入器：PS pack 聚合写 + 关键帧索引 + 槽位切换。
  *
- * 用法（与 ZMS 的 PS muxer 对接）：
+ * 用法（与 ZCS 的 PS muxer 对接）：
  *
  *   每帧开始： zs_writer_begin_frame(w, keyframe, pts, utc, now);
  *   每包回调： zs_writer_push(w, ps_bytes, len, now);      // 来自 ps muxer 写回调
@@ -15,8 +15,8 @@
  *   - 槽位切换只在关键帧边界发生，保证每个槽位都从 IDR 起播；
  *   - 通道刚起来时如果不是关键帧，这些帧直接丢弃，等到第一个关键帧再开槽。
  */
-#ifndef ZMS_SRC_STORAGE_ZS_WRITER_H
-#define ZMS_SRC_STORAGE_ZS_WRITER_H
+#ifndef ZCS_SRC_STORAGE_ZS_WRITER_H
+#define ZCS_SRC_STORAGE_ZS_WRITER_H
 
 #include "storage/zs_pool.h"
 
@@ -71,4 +71,4 @@ int zs_writer_active(const zs_writer *w);
 }
 #endif
 
-#endif /* ZMS_SRC_STORAGE_ZS_WRITER_H */
+#endif /* ZCS_SRC_STORAGE_ZS_WRITER_H */

@@ -4,41 +4,41 @@
  */
 #include "bridge/zm_rtp_ingest.h"
 
-#include "bridge/zm_zms_bridge.h"
+#include "bridge/zm_zcs_bridge.h"
 #include "zm/transport/rtp.h"
 #include "zn/util/log.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct zms_zm_rtp_track {
+typedef struct zcs_zm_rtp_track {
     zm_reader *reader;
-    zms_codec_id codec;
+    zcs_codec_id codec;
     int payload_type;
     int clock_hz;
-} zms_zm_rtp_track;
+} zcs_zm_rtp_track;
 
-struct zms_zm_rtp_ingest {
-    zms_zm_rtp_track *tracks;
+struct zcs_zm_rtp_ingest {
+    zcs_zm_rtp_track *tracks;
     int max_tracks;
     int jitter_ms;
-    zms_zm_rtp_packet_sink sink;
+    zcs_zm_rtp_packet_sink sink;
     void *user;
 };
 
-zms_zm_rtp_ingest *zms_zm_rtp_ingest_create(int max_tracks, int jitter_ms,
-                                               zms_zm_rtp_packet_sink sink, void *user)
+zcs_zm_rtp_ingest *zcs_zm_rtp_ingest_create(int max_tracks, int jitter_ms,
+                                               zcs_zm_rtp_packet_sink sink, void *user)
 {
-    zms_zm_rtp_ingest *z;
+    zcs_zm_rtp_ingest *z;
 
     if (max_tracks <= 0 || !sink) {
         return NULL;
     }
-    z = (zms_zm_rtp_ingest *)calloc(1, sizeof(*z));
+    z = (zcs_zm_rtp_ingest *)calloc(1, sizeof(*z));
     if (!z) {
         return NULL;
     }
-    z->tracks = (zms_zm_rtp_track *)calloc((size_t)max_tracks, sizeof(*z->tracks));
+    z->tracks = (zcs_zm_rtp_track *)calloc((size_t)max_tracks, sizeof(*z->tracks));
     if (!z->tracks) {
         free(z);
         return NULL;
@@ -50,10 +50,10 @@ zms_zm_rtp_ingest *zms_zm_rtp_ingest_create(int max_tracks, int jitter_ms,
     return z;
 }
 
-int zms_zm_rtp_ingest_track(zms_zm_rtp_ingest *z, int track_idx, zms_codec_id codec,
+int zcs_zm_rtp_ingest_track(zcs_zm_rtp_ingest *z, int track_idx, zcs_codec_id codec,
                              int payload_type, int clock_hz, const char *encoding)
 {
-    zms_zm_rtp_track *t;
+    zcs_zm_rtp_track *t;
     zm_rtp_reader_cfg cfg;
 
     if (!z || track_idx < 0 || track_idx >= z->max_tracks) {
@@ -64,7 +64,7 @@ int zms_zm_rtp_ingest_track(zms_zm_rtp_ingest *z, int track_idx, zms_codec_id co
         return 0;
     }
     memset(&cfg, 0, sizeof(cfg));
-    cfg.codec = zms_zm_codec_from_zms(codec);
+    cfg.codec = zcs_zm_codec_from_zcs(codec);
     if (cfg.codec == ZM_CODEC_INVALID) {
         return -1;
     }
@@ -84,9 +84,9 @@ int zms_zm_rtp_ingest_track(zms_zm_rtp_ingest *z, int track_idx, zms_codec_id co
     return 0;
 }
 
-int zms_zm_rtp_ingest_input(zms_zm_rtp_ingest *z, int track_idx, const void *rtp, size_t len)
+int zcs_zm_rtp_ingest_input(zcs_zm_rtp_ingest *z, int track_idx, const void *rtp, size_t len)
 {
-    zms_zm_rtp_track *t;
+    zcs_zm_rtp_track *t;
     zm_packet pkt;
     int rc;
 
@@ -107,7 +107,7 @@ int zms_zm_rtp_ingest_input(zms_zm_rtp_ingest *z, int track_idx, const void *rtp
     return rc < 0 ? -1 : 0;
 }
 
-void zms_zm_rtp_ingest_destroy(zms_zm_rtp_ingest *z)
+void zcs_zm_rtp_ingest_destroy(zcs_zm_rtp_ingest *z)
 {
     int i;
 

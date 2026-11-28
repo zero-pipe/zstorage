@@ -2,36 +2,36 @@
  * @file session_common.c
  * @brief RTSP URL/轨道解析与 SETUP 匹配等公共辅助。
  */
-#include "zms/play/vod_play_port.h"
+#include "zcs/play/vod_play_port.h"
 #include "session/rtsp/session_internal.h"
-#include "zms/media/codec/aac/aac_over_rtmp.h"
-#include "zms/media/clock.h"
-#include "zms/media/codec/g711/g711_over_rtp.h"
-#include "zms/media/codec/h264/h264_over_rtmp.h"
-#include "zms/media/container/flv/flv_tag_probe.h"
-#include "zms/media/codec/h265/h265_es.h"
-#include "zms/media/codec/av1/av1_over_rtmp.h"
-#include "zms/media/codec/codec_id.h"
+#include "zcs/media/codec/aac/aac_over_rtmp.h"
+#include "zcs/media/clock.h"
+#include "zcs/media/codec/g711/g711_over_rtp.h"
+#include "zcs/media/codec/h264/h264_over_rtmp.h"
+#include "zcs/media/container/flv/flv_tag_probe.h"
+#include "zcs/media/codec/h265/h265_es.h"
+#include "zcs/media/codec/av1/av1_over_rtmp.h"
+#include "zcs/media/codec/codec_id.h"
 #include "aom-av1.h"
 #include "zn/net/tcp_server.h"
 #include "zn/util/log.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include "zms/util/base64.h"
+#include "zcs/util/base64.h"
 #include <string.h>
 
 /** SDP 侧只需要长度：失败时返回已处理部分。 */
 static size_t encode_b64(const uint8_t *in, size_t in_len, char *out, size_t cap)
 {
     size_t n = 0;
-    (void)zms_base64_encode(in, in_len, out, cap, &n);
+    (void)zcs_base64_encode(in, in_len, out, cap, &n);
     return n;
 }
 
 static size_t decode_b64(const char *in, uint8_t *out, size_t cap)
 {
     size_t n = 0;
-    (void)zms_base64_decode(in, out, cap, &n);
+    (void)zcs_base64_decode(in, out, cap, &n);
     return n;
 }
 
@@ -41,29 +41,29 @@ static size_t decode_b64(const char *in, uint8_t *out, size_t cap)
  *   2. 否则尝试从 config 字节里嗅探（推流早于媒体源就绪时走这条）；
  *   3. 都不行就默认 H264——绝大多数摄像机/推流端是 H264，默认它比报错更实用。
  */
-static zms_codec_id rtsp_sdp_video_codec(const zms_media_source *src, const uint8_t *vcfg,
+static zcs_codec_id rtsp_sdp_video_codec(const zcs_media_source *src, const uint8_t *vcfg,
                                          size_t vcfg_len)
 {
-    if (src && src->video.ready && src->video.codec != ZMS_CODEC_INVALID) {
+    if (src && src->video.ready && src->video.codec != ZCS_CODEC_INVALID) {
         return src->video.codec;
     }
     if (vcfg && vcfg_len > 0) {
-        zms_codec_id vc = zms_flv_video_config_codec(vcfg, vcfg_len);
-        if (vc != ZMS_CODEC_INVALID) {
+        zcs_codec_id vc = zcs_flv_video_config_codec(vcfg, vcfg_len);
+        if (vc != ZCS_CODEC_INVALID) {
             return vc;
         }
     }
-    return ZMS_CODEC_H264;
+    return ZCS_CODEC_H264;
 }
 
-static const char *rtsp_sdp_video_encoding(zms_codec_id vc)
+static const char *rtsp_sdp_video_encoding(zcs_codec_id vc)
 {
-    const zms_codec_meta *meta = zms_codec_meta_get(vc);
+    const zcs_codec_meta *meta = zcs_codec_meta_get(vc);
 
     return (meta && meta->sdp_mime[0]) ? meta->sdp_mime : "H264";
 }
 
-static void rtsp_sdp_load_video_sprop(zms_codec_id vc, const uint8_t *vcfg, size_t vcfg_len,
+static void rtsp_sdp_load_video_sprop(zcs_codec_id vc, const uint8_t *vcfg, size_t vcfg_len,
                                       char *profile, size_t profile_cap, char *vps_b64,
                                       size_t vps_cap, char *sps_b64, size_t sps_cap, char *pps_b64,
                                       size_t pps_cap)
@@ -81,11 +81,11 @@ static void rtsp_sdp_load_video_sprop(zms_codec_id vc, const uint8_t *vcfg, size
         pps_b64[0] = '\0';
     }
 
-    if (vc == ZMS_CODEC_H265 && vcfg && vcfg_len > 0) {
+    if (vc == ZCS_CODEC_H265 && vcfg && vcfg_len > 0) {
         const uint8_t *vps = NULL, *sps = NULL, *pps = NULL;
         size_t vps_len = 0, sps_len = 0, pps_len = 0;
 
-        if (zms_h265_video_config_param_sets(vcfg, vcfg_len, &vps, &vps_len, &sps, &sps_len, &pps,
+        if (zcs_h265_video_config_param_sets(vcfg, vcfg_len, &vps, &vps_len, &sps, &sps_len, &pps,
                                              &pps_len)) {
             if (vps && vps_len) {
                 encode_b64(vps, vps_len, vps_b64, vps_cap);
@@ -96,40 +96,40 @@ static void rtsp_sdp_load_video_sprop(zms_codec_id vc, const uint8_t *vcfg, size
         return;
     }
 
-    if (vcfg && vcfg_len > 0 && vc == ZMS_CODEC_H264) {
+    if (vcfg && vcfg_len > 0 && vc == ZCS_CODEC_H264) {
         const uint8_t *sps = NULL, *pps = NULL;
         size_t sps_len = 0, pps_len = 0;
 
-        if (zms_rtmp_avc_extract_sps_pps(vcfg, vcfg_len, &sps, &sps_len, &pps, &pps_len)) {
+        if (zcs_rtmp_avc_extract_sps_pps(vcfg, vcfg_len, &sps, &sps_len, &pps, &pps_len)) {
             encode_b64(sps, sps_len, sps_b64, sps_cap);
             encode_b64(pps, pps_len, pps_b64, pps_cap);
-            if (profile && profile_cap && !zms_rtmp_avc_profile_level_id(vcfg, vcfg_len, profile)) {
+            if (profile && profile_cap && !zcs_rtmp_avc_profile_level_id(vcfg, vcfg_len, profile)) {
                 snprintf(profile, profile_cap, "42001f");
             }
         }
     }
 }
 
-void zms_rtsp_url_vhost(const char *url, char *out, size_t cap)
+void zcs_rtsp_url_vhost(const char *url, char *out, size_t cap)
 {
-    zms_vhost_normalize(url, out, cap);
+    zcs_vhost_normalize(url, out, cap);
 }
 
-void zms_rtsp_session_parse_url(const char *url, char *app, char *stream)
+void zcs_rtsp_session_parse_url(const char *url, char *app, char *stream)
 {
-    zms_media_split_path(url, app, stream);
+    zcs_media_split_path(url, app, stream);
 }
 
-void zms_rtsp_session_capture_params(zms_rtsp_session *rs, const char *url)
+void zcs_rtsp_session_capture_params(zcs_rtsp_session *rs, const char *url)
 {
-    char params[ZMS_AUTH_PARAMS_MAX];
+    char params[ZCS_AUTH_PARAMS_MAX];
 
     if (!rs || !url) {
         return;
     }
-    zms_auth_split_query(url, NULL, 0, params, sizeof(params));
+    zcs_auth_split_query(url, NULL, 0, params, sizeof(params));
     if (params[0]) {
-        zms_auth_params_copy(params, rs->params, sizeof(rs->params));
+        zcs_auth_params_copy(params, rs->params, sizeof(rs->params));
     }
 }
 
@@ -140,7 +140,7 @@ void zms_rtsp_session_capture_params(zms_rtsp_session *rs, const char *url)
  * SETUP 后的 DESCRIBE 复用连接）；此时 rs->session_id 非空则拒绝。
  * 反之，已分配 ID 后必须严格相等，末尾的 ";timeout=xx" 等参数先剥离再比。
  */
-int zms_rtsp_session_match(zms_rtsp_session *rs, const char *session_hdr)
+int zcs_rtsp_session_match(zcs_rtsp_session *rs, const char *session_hdr)
 {
     if (!session_hdr || !session_hdr[0]) {
         return rs->session_id[0] == '\0';
@@ -180,7 +180,7 @@ static const char *find_track_id_param(const char *url)
  * 各用各的参数名，故逐个尝试。没有查询参数时回退到 SDP 的 a=control 值匹配
  * （如 "trackID=1" 这类整串子串命中），仍找不到就当 0 号轨。
  */
-int zms_rtsp_session_setup_track_id(const char *url, const zms_sdp_session *sdp)
+int zcs_rtsp_session_setup_track_id(const char *url, const zcs_sdp_session *sdp)
 {
     if (!url) {
         return 0;
@@ -200,7 +200,7 @@ int zms_rtsp_session_setup_track_id(const char *url, const zms_sdp_session *sdp)
     return 0;
 }
 
-int zms_rtsp_session_record_track_by_channel(const zms_rtsp_session *rs, uint8_t channel)
+int zcs_rtsp_session_record_track_by_channel(const zcs_rtsp_session *rs, uint8_t channel)
 {
     if (!rs) {
         return -1;
@@ -216,7 +216,7 @@ int zms_rtsp_session_record_track_by_channel(const zms_rtsp_session *rs, uint8_t
 /* 是否已就绪可 RECORD：任一轨道已 SETUP 即视为可推流。
  * 特例：SDP 里没有轨道（track_count==0）时也返回 1，因为无轨道的推流请求
  * 不应被卡在“还要再 SETUP”的状态里空等。 */
-int zms_rtsp_session_record_any_track_setup(const zms_rtsp_session *rs)
+int zcs_rtsp_session_record_any_track_setup(const zcs_rtsp_session *rs)
 {
     if (!rs) {
         return 0;
@@ -229,16 +229,16 @@ int zms_rtsp_session_record_any_track_setup(const zms_rtsp_session *rs)
     return rs->pb.publish_sdp.track_count == 0;
 }
 
-uint64_t zms_rtsp_session_vod_duration_ms(const zms_rtsp_session *rs)
+uint64_t zcs_rtsp_session_vod_duration_ms(const zcs_rtsp_session *rs)
 {
     uint64_t dur_ms = 0;
 
-    if (!rs || !rs->source || !zms_media_source_is_vod(rs->source)) {
+    if (!rs || !rs->source || !zcs_media_source_is_vod(rs->source)) {
         return 0;
     }
-    dur_ms = zms_vod_source_duration_ms(rs->source);
+    dur_ms = zcs_vod_source_duration_ms(rs->source);
     if (!dur_ms) {
-        dur_ms = zms_vod_probe_duration_ms(rs->app, rs->stream);
+        dur_ms = zcs_vod_probe_duration_ms(rs->app, rs->stream);
     }
     return dur_ms;
 }
@@ -250,30 +250,30 @@ uint64_t zms_rtsp_session_vod_duration_ms(const zms_rtsp_session *rs)
  * 因为它反映“已经发出去多少媒体时间”）；否则退回到本会话记录的 seek_ms。
  * 时钟频率缺省值：视频 90000（RTP 视频标准），音频取采样率、再退 48000。
  */
-uint64_t zms_rtsp_session_vod_play_position_ms(const zms_rtsp_session *rs)
+uint64_t zcs_rtsp_session_vod_play_position_ms(const zcs_rtsp_session *rs)
 {
-    const zms_rtp_muxer_stats *st;
+    const zcs_rtp_muxer_stats *st;
     uint32_t vhz;
     uint32_t ahz;
 
     if (!rs) {
         return 0;
     }
-    if (!rs->pl.rtp_muxer || !rs->source || !zms_media_source_is_vod(rs->source)) {
+    if (!rs->pl.rtp_muxer || !rs->source || !zcs_media_source_is_vod(rs->source)) {
         return rs->pl.seek_ms;
     }
-    st = zms_rtp_muxer_get_stats(rs->pl.rtp_muxer);
+    st = zcs_rtp_muxer_get_stats(rs->pl.rtp_muxer);
     if (!st) {
         return rs->pl.seek_ms;
     }
     vhz = rs->pb.video_clock_hz > 0 ? rs->pb.video_clock_hz : 90000u;
     if (rs->source->has_video && st->video_pkt_count > 0) {
-        return zms_rtp_clock_to_ms(st->video_last_rtp_ts, vhz);
+        return zcs_rtp_clock_to_ms(st->video_last_rtp_ts, vhz);
     }
     ahz = rs->pb.audio_clock_hz > 0 ? rs->pb.audio_clock_hz
                                  : (uint32_t)(rs->pb.audio_rate > 0 ? rs->pb.audio_rate : 48000);
     if (rs->source->has_audio && st->audio_pkt_count > 0) {
-        return zms_rtp_clock_to_ms(st->audio_last_rtp_ts, ahz);
+        return zcs_rtp_clock_to_ms(st->audio_last_rtp_ts, ahz);
     }
     return rs->pl.seek_ms;
 }
@@ -289,11 +289,11 @@ uint64_t zms_rtsp_session_vod_play_position_ms(const zms_rtsp_session *rs)
  *   3. 都没有：保留前面的默认值。
  * audio_clock_hz 取采样率本身——音频 RTP 时钟就是采样率，不是固定 90k。
  */
-void zms_rtsp_session_load_audio_params(zms_rtsp_session *rs)
+void zcs_rtsp_session_load_audio_params(zcs_rtsp_session *rs)
 {
     rs->pb.audio_rate = 44100;
     rs->pb.audio_channels = 2;
-    rs->pb.audio_codec = ZMS_CODEC_AAC;
+    rs->pb.audio_codec = ZCS_CODEC_AAC;
     if (!rs->source) {
         return;
     }
@@ -306,14 +306,14 @@ void zms_rtsp_session_load_audio_params(zms_rtsp_session *rs)
         return;
     }
     size_t clen = 0;
-    const uint8_t *acfg = zms_media_source_audio_config(rs->source, &clen);
+    const uint8_t *acfg = zcs_media_source_audio_config(rs->source, &clen);
     if (acfg && clen > 0) {
-        rs->pb.audio_codec = zms_flv_tag_audio_codec(acfg, clen);
+        rs->pb.audio_codec = zcs_flv_tag_audio_codec(acfg, clen);
     }
-    if (acfg && clen > 2 && rs->pb.audio_codec == ZMS_CODEC_AAC) {
-        zms_aac_parse_asc(acfg + 2, clen - 2, &rs->pb.audio_rate, &rs->pb.audio_channels);
+    if (acfg && clen > 2 && rs->pb.audio_codec == ZCS_CODEC_AAC) {
+        zcs_aac_parse_asc(acfg + 2, clen - 2, &rs->pb.audio_rate, &rs->pb.audio_channels);
     }
-    if (rs->pb.audio_codec == ZMS_CODEC_G711A || rs->pb.audio_codec == ZMS_CODEC_G711U) {
+    if (rs->pb.audio_codec == ZCS_CODEC_G711A || rs->pb.audio_codec == ZCS_CODEC_G711U) {
         rs->pb.audio_rate = rs->pb.audio_rate > 0 ? rs->pb.audio_rate : 8000;
         rs->pb.audio_channels = 1;
     }
@@ -321,9 +321,9 @@ void zms_rtsp_session_load_audio_params(zms_rtsp_session *rs)
     rs->pb.video_clock_hz = 90000;
 }
 
-void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
+void zcs_rtsp_session_build_sdp(zcs_rtsp_session *rs, char *out, size_t cap)
 {
-    zms_rtsp_session_load_audio_params(rs);
+    zcs_rtsp_session_load_audio_params(rs);
     size_t vcfg_len = 0, acfg_len = 0;
     const uint8_t *vcfg = NULL;
     const uint8_t *acfg = NULL;
@@ -331,15 +331,15 @@ void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
     char profile[16] = "42001f";
     char vfmtp[2048];
     char vfmtp_line[2200];
-    zms_codec_id video_codec = ZMS_CODEC_H264;
+    zcs_codec_id video_codec = ZCS_CODEC_H264;
     const char *venc = "H264";
     asc_hex[0] = '\0';
     vps_b64[0] = sps_b64[0] = pps_b64[0] = '\0';
     vfmtp[0] = '\0';
 
     if (rs->source) {
-        vcfg = zms_media_source_video_config(rs->source, &vcfg_len);
-        acfg = zms_media_source_audio_config(rs->source, &acfg_len);
+        vcfg = zcs_media_source_video_config(rs->source, &vcfg_len);
+        acfg = zcs_media_source_audio_config(rs->source, &acfg_len);
     }
 
     if (rs->source && rs->source->video.ready && rs->source->video.profile_level_id[0]) {
@@ -354,7 +354,7 @@ void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
     rtsp_sdp_load_video_sprop(video_codec, vcfg, vcfg_len, profile, sizeof(profile), vps_b64,
                               sizeof(vps_b64), sps_b64, sizeof(sps_b64), pps_b64, sizeof(pps_b64));
 
-    if (video_codec == ZMS_CODEC_H265) {
+    if (video_codec == ZCS_CODEC_H265) {
         snprintf(vfmtp, sizeof(vfmtp), "sprop-vps=%s;sprop-sps=%s;sprop-pps=%s", vps_b64, sps_b64,
                  pps_b64);
         if (!sps_b64[0] || !pps_b64[0]) {
@@ -363,7 +363,7 @@ void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
                          rs->stream, (unsigned)vcfg_len);
             }
         }
-    } else if (video_codec == ZMS_CODEC_H264) {
+    } else if (video_codec == ZCS_CODEC_H264) {
         snprintf(vfmtp, sizeof(vfmtp),
                  "packetization-mode=1;profile-level-id=%s;sprop-parameter-sets=%s,%s", profile,
                  sps_b64, pps_b64);
@@ -373,13 +373,13 @@ void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
                          rs->stream, (unsigned)vcfg_len);
             }
         }
-    } else if (video_codec == ZMS_CODEC_AV1 && vcfg && vcfg_len > 0) {
+    } else if (video_codec == ZCS_CODEC_AV1 && vcfg && vcfg_len > 0) {
         const uint8_t *av1c = NULL;
         size_t av1c_len = 0;
         struct aom_av1_t av1;
 
         memset(&av1, 0, sizeof(av1));
-        if (zms_av1_over_rtmp_config_extradata(vcfg, vcfg_len, &av1c, &av1c_len) && av1c &&
+        if (zcs_av1_over_rtmp_config_extradata(vcfg, vcfg_len, &av1c, &av1c_len) && av1c &&
             av1c_len >= 4 && aom_av1_codec_configuration_record_load(av1c, av1c_len, &av1) > 0) {
             snprintf(vfmtp, sizeof(vfmtp), "profile=%u;level-idx=%u;tier=%u",
                      (unsigned)av1.seq_profile, (unsigned)av1.seq_level_idx_0,
@@ -413,8 +413,8 @@ void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
          */
         double dur_sec = 0.0;
         char range_line[80];
-        if (rs->source && zms_media_source_is_vod(rs->source)) {
-            dur_sec = zms_rtsp_session_vod_duration_ms(rs) / 1000.0;
+        if (rs->source && zcs_media_source_is_vod(rs->source)) {
+            dur_sec = zcs_rtsp_session_vod_duration_ms(rs) / 1000.0;
             if (dur_sec > 0.0) {
                 snprintf(range_line, sizeof(range_line), "a=range:npt=0-%.3f\r\n", dur_sec);
             } else {
@@ -427,14 +427,14 @@ void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
         /* SDP o= 用对外公告地址（advertise_host）；无则回退 127.0.0.1 */
         const char *sdp_origin = (rs->advertise_host[0]) ? rs->advertise_host : "127.0.0.1";
 
-        if (rs->pb.audio_codec == ZMS_CODEC_G711A || rs->pb.audio_codec == ZMS_CODEC_G711U) {
-            const char *enc = rs->pb.audio_codec == ZMS_CODEC_G711U ? "PCMU" : "PCMA";
-            unsigned apt = zms_g711_over_rtp_default_pt(rs->pb.audio_codec);
+        if (rs->pb.audio_codec == ZCS_CODEC_G711A || rs->pb.audio_codec == ZCS_CODEC_G711U) {
+            const char *enc = rs->pb.audio_codec == ZCS_CODEC_G711U ? "PCMU" : "PCMA";
+            unsigned apt = zcs_g711_over_rtp_default_pt(rs->pb.audio_codec);
             int ar = rs->pb.audio_rate > 0 ? rs->pb.audio_rate : 8000;
             snprintf(out, cap,
                      "v=0\r\n"
                      "o=- 0 0 IN IP4 %s\r\n"
-                     "s=ZMS\r\n"
+                     "s=ZCS\r\n"
                      "c=IN IP4 0.0.0.0\r\n"
                      "t=0 0\r\n"
                      "%s"
@@ -447,11 +447,11 @@ void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
                      "a=rtpmap:%u %s/%d/1\r\n"
                      "a=control:trackID=1\r\n",
                      sdp_origin, range_line, venc, vfmtp_line, apt, apt, enc, ar);
-        } else if (acfg_len > 2 && asc_hex[0] && rs->pb.audio_codec == ZMS_CODEC_AAC) {
+        } else if (acfg_len > 2 && asc_hex[0] && rs->pb.audio_codec == ZCS_CODEC_AAC) {
             snprintf(out, cap,
                      "v=0\r\n"
                      "o=- 0 0 IN IP4 %s\r\n"
-                     "s=ZMS\r\n"
+                     "s=ZCS\r\n"
                      "c=IN IP4 0.0.0.0\r\n"
                      "t=0 0\r\n"
                      "%s"
@@ -468,13 +468,13 @@ void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
                      "a=control:trackID=1\r\n",
                      sdp_origin, range_line, venc, vfmtp_line, rs->pb.audio_rate, rs->pb.audio_channels,
                      asc_hex);
-        } else if (rs->source && rs->source->has_audio && rs->pb.audio_codec == ZMS_CODEC_OPUS) {
+        } else if (rs->source && rs->source->has_audio && rs->pb.audio_codec == ZCS_CODEC_OPUS) {
             int ar = rs->pb.audio_rate > 0 ? rs->pb.audio_rate : 48000;
             int ch = rs->pb.audio_channels > 0 ? rs->pb.audio_channels : 2;
             snprintf(out, cap,
                      "v=0\r\n"
                      "o=- 0 0 IN IP4 %s\r\n"
-                     "s=ZMS\r\n"
+                     "s=ZCS\r\n"
                      "c=IN IP4 0.0.0.0\r\n"
                      "t=0 0\r\n"
                      "%s"
@@ -492,7 +492,7 @@ void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
             snprintf(out, cap,
                      "v=0\r\n"
                      "o=- 0 0 IN IP4 %s\r\n"
-                     "s=ZMS\r\n"
+                     "s=ZCS\r\n"
                      "c=IN IP4 0.0.0.0\r\n"
                      "t=0 0\r\n"
                      "%s"
@@ -506,12 +506,12 @@ void zms_rtsp_session_build_sdp(zms_rtsp_session *rs, char *out, size_t cap)
     }
 }
 
-void zms_rtsp_session_send_resp(zms_rtsp_session *rs, int code, const char *reason,
+void zcs_rtsp_session_send_resp(zcs_rtsp_session *rs, int code, const char *reason,
                                 const char *extra, const char *body, size_t body_len)
 {
     size_t n = 0;
     const char *session = rs->session_id[0] ? rs->session_id : NULL;
-    size_t need = ZMS_MEDIA_IO_BUF_SIZE;
+    size_t need = ZCS_MEDIA_IO_BUF_SIZE;
 
     /* extra 已含 Session 头，跳过重复 */
     /* 否则响应里会出现两个 Session 头，部分客户端会因此拒绝整条响应。 */
@@ -522,13 +522,13 @@ void zms_rtsp_session_send_resp(zms_rtsp_session *rs, int code, const char *reas
         return;
     }
     if (rs->poller) {
-        if (!zms_buf_pool_slot_resize_poller(&rs->resp_buf, &rs->resp_cap, need, rs->poller)) {
+        if (!zcs_buf_pool_slot_resize_poller(&rs->resp_buf, &rs->resp_cap, need, rs->poller)) {
             return;
         }
-    } else if (!zms_buf_pool_slot_resize(&rs->resp_buf, &rs->resp_cap, need)) {
+    } else if (!zcs_buf_pool_slot_resize(&rs->resp_buf, &rs->resp_cap, need)) {
         return;
     }
-    if (zms_rtsp_message_build_response(rs->resp_buf, rs->resp_cap, code, reason, rs->cseq, session,
+    if (zcs_rtsp_message_build_response(rs->resp_buf, rs->resp_cap, code, reason, rs->cseq, session,
                                         extra, body, body_len, &n) == ZN_OK) {
         zn_tcp_session_send(rs->tcp, rs->resp_buf, n);
     }
@@ -542,7 +542,7 @@ void zms_rtsp_session_send_resp(zms_rtsp_session *rs, int code, const char *reas
  * 正在关闭/销毁途中不再写：socket 可能已被对端半关或即将释放，此时写会
  * 报错甚至踩到悬空指针；静默丢弃比制造噪音日志更合适。
  */
-void zms_rtsp_session_send_rtp_interleaved(zms_rtsp_session *rs, uint8_t channel,
+void zcs_rtsp_session_send_rtp_interleaved(zcs_rtsp_session *rs, uint8_t channel,
                                            const uint8_t *rtp, size_t rtp_len)
 {
     uint8_t hdr[4];
@@ -563,9 +563,9 @@ void zms_rtsp_session_send_rtp_interleaved(zms_rtsp_session *rs, uint8_t channel
     (void)zn_tcp_session_sendv(rs->tcp, parts, lens, 2);
 }
 
-void zms_rtsp_session_write_interleaved(void *user, uint8_t channel, const uint8_t *payload,
+void zcs_rtsp_session_write_interleaved(void *user, uint8_t channel, const uint8_t *payload,
                                         size_t len)
 {
-    zms_rtsp_session *rs = (zms_rtsp_session *)user;
-    zms_rtsp_session_send_media(rs, channel, payload, len);
+    zcs_rtsp_session *rs = (zcs_rtsp_session *)user;
+    zcs_rtsp_session_send_media(rs, channel, payload, len);
 }

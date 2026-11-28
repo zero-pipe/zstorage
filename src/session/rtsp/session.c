@@ -6,35 +6,35 @@
 #include "zn/util/log.h"
 #include <stdlib.h>
 
-static const zms_rtsp_method_fn k_rtsp_method_fns[ZMS_RTSP_UNKNOWN] = {
-    [ZMS_RTSP_OPTIONS] = zms_rtsp_session_handle_options,
-    [ZMS_RTSP_DESCRIBE] = zms_rtsp_session_handle_describe,
-    [ZMS_RTSP_SETUP] = zms_rtsp_session_handle_setup,
-    [ZMS_RTSP_PLAY] = zms_rtsp_session_handle_play,
-    [ZMS_RTSP_PAUSE] = zms_rtsp_session_handle_pause,
-    [ZMS_RTSP_TEARDOWN] = zms_rtsp_session_handle_teardown,
-    [ZMS_RTSP_GET_PARAMETER] = zms_rtsp_session_handle_get_parameter,
-    [ZMS_RTSP_ANNOUNCE] = zms_rtsp_session_handle_announce,
-    [ZMS_RTSP_RECORD] = zms_rtsp_session_handle_record,
+static const zcs_rtsp_method_fn k_rtsp_method_fns[ZCS_RTSP_UNKNOWN] = {
+    [ZCS_RTSP_OPTIONS] = zcs_rtsp_session_handle_options,
+    [ZCS_RTSP_DESCRIBE] = zcs_rtsp_session_handle_describe,
+    [ZCS_RTSP_SETUP] = zcs_rtsp_session_handle_setup,
+    [ZCS_RTSP_PLAY] = zcs_rtsp_session_handle_play,
+    [ZCS_RTSP_PAUSE] = zcs_rtsp_session_handle_pause,
+    [ZCS_RTSP_TEARDOWN] = zcs_rtsp_session_handle_teardown,
+    [ZCS_RTSP_GET_PARAMETER] = zcs_rtsp_session_handle_get_parameter,
+    [ZCS_RTSP_ANNOUNCE] = zcs_rtsp_session_handle_announce,
+    [ZCS_RTSP_RECORD] = zcs_rtsp_session_handle_record,
 };
 
-void zms_rtsp_session_on_message(const zms_rtsp_message *msg, void *user)
+void zcs_rtsp_session_on_message(const zcs_rtsp_message *msg, void *user)
 {
-    zms_rtsp_session *rs = (zms_rtsp_session *)user;
+    zcs_rtsp_session *rs = (zcs_rtsp_session *)user;
     if (!rs || !msg) {
         return;
     }
 
-    const char *cseq = zms_rtsp_message_get(msg, "CSeq");
+    const char *cseq = zcs_rtsp_message_get(msg, "CSeq");
     rs->cseq = cseq ? (unsigned)atoi(cseq) : 0;
 
-    if (zms_rtsp_message_is_response(msg)) {
+    if (zcs_rtsp_message_is_response(msg)) {
         return;
     }
 
-    if (msg->method >= 0 && msg->method < ZMS_RTSP_UNKNOWN && k_rtsp_method_fns[msg->method]) {
+    if (msg->method >= 0 && msg->method < ZCS_RTSP_UNKNOWN && k_rtsp_method_fns[msg->method]) {
         k_rtsp_method_fns[msg->method](rs, msg);
         return;
     }
-    zms_rtsp_session_send_resp(rs, 501, "Not Implemented", NULL, NULL, 0);
+    zcs_rtsp_session_send_resp(rs, 501, "Not Implemented", NULL, NULL, 0);
 }

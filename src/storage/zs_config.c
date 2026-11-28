@@ -6,7 +6,7 @@
 
 #include <string.h>
 
-void zs_pool_opts_from_config(zs_pool_opts *out, const zms_storage_config *cfg)
+void zs_pool_opts_from_config(zs_pool_opts *out, const zcs_storage_config *cfg)
 {
     zs_pool_opts def;
 
@@ -33,7 +33,7 @@ void zs_pool_opts_from_config(zs_pool_opts *out, const zms_storage_config *cfg)
                                   : def.free_watermark_pct;
 }
 
-void zs_writer_opts_from_config(zs_writer_opts *out, const zms_storage_config *cfg, zs_pool *pool,
+void zs_writer_opts_from_config(zs_writer_opts *out, const zcs_storage_config *cfg, zs_pool *pool,
                                 uint32_t channel_id, const char *stream)
 {
     if (!out) {

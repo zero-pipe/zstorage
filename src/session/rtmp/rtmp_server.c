@@ -2,16 +2,16 @@
  * @file rtmp_server.c
  * @brief RTMP 服务端监听：接受连接并创建 session。
  */
-#include "zms/session/rtmp/rtmp_server.h"
-#include "zms/session/rtmp/session.h"
-#include "zms/play/dispatch.h"
+#include "zcs/session/rtmp/rtmp_server.h"
+#include "zcs/session/rtmp/session.h"
+#include "zcs/play/dispatch.h"
 #include "session/rtmp/session_internal.h"
 #include "zn/net/tcp_server.h"
 #include "zn/poller/poller_pool.h"
 #include "zn/util/log.h"
 #include <stdlib.h>
 
-struct zms_rtmp_server {
+struct zcs_rtmp_server {
     zn_tcp_server *tcp;
     zn_tcp_server *tcp_tls;
     zn_poller *poller;
@@ -20,44 +20,44 @@ struct zms_rtmp_server {
 static void *session_create_user(zn_tcp_server *srv, zn_tcp_session *session)
 {
     (void)srv;
-    zms_rtmp_session_opts opts = {.tcp = session};
-    return zms_rtmp_session_create(&opts);
+    zcs_rtmp_session_opts opts = {.tcp = session};
+    return zcs_rtmp_session_create(&opts);
 }
 
 static void on_recv(zn_tcp_session *session, const void *data, size_t len, void *user)
 {
-    zms_rtmp_session *s = (zms_rtmp_session *)user;
+    zcs_rtmp_session *s = (zcs_rtmp_session *)user;
     if (!s || s->destroy_scheduled) {
         return;
     }
-    zms_rtmp_session_on_recv(s, data, len);
+    zcs_rtmp_session_on_recv(s, data, len);
 }
 
 static void on_error(zn_tcp_session *session, void *user)
 {
-    zms_rtmp_session *s = (zms_rtmp_session *)user;
+    zcs_rtmp_session *s = (zcs_rtmp_session *)user;
     if (s) {
-        zms_rtmp_session_schedule_destroy(s, session);
+        zcs_rtmp_session_schedule_destroy(s, session);
     }
 }
 
 static void on_manager(zn_tcp_session *session, void *user)
 {
     (void)session;
-    zms_rtmp_session *s = (zms_rtmp_session *)user;
+    zcs_rtmp_session *s = (zcs_rtmp_session *)user;
     if (!s || s->destroy_scheduled) {
         return;
     }
-    zms_rtmp_session_on_manager(s);
+    zcs_rtmp_session_on_manager(s);
 }
 
-zms_rtmp_server *zms_rtmp_server_create(const zms_rtmp_server_opts *opts)
+zcs_rtmp_server *zcs_rtmp_server_create(const zcs_rtmp_server_opts *opts)
 {
     if (!opts || !opts->poller_pool) {
         return NULL;
     }
-    zms_session_dispatch_register_all();
-    zms_rtmp_server *srv = (zms_rtmp_server *)calloc(1, sizeof(*srv));
+    zcs_session_dispatch_register_all();
+    zcs_rtmp_server *srv = (zcs_rtmp_server *)calloc(1, sizeof(*srv));
     if (!srv) {
         return NULL;
     }
@@ -97,7 +97,7 @@ zms_rtmp_server *zms_rtmp_server_create(const zms_rtmp_server_opts *opts)
     return srv;
 }
 
-void zms_rtmp_server_destroy(zms_rtmp_server *srv)
+void zcs_rtmp_server_destroy(zcs_rtmp_server *srv)
 {
     if (!srv) {
         return;
@@ -107,7 +107,7 @@ void zms_rtmp_server_destroy(zms_rtmp_server *srv)
     free(srv);
 }
 
-zn_err_t zms_rtmp_server_start(zms_rtmp_server *srv)
+zn_err_t zcs_rtmp_server_start(zcs_rtmp_server *srv)
 {
     zn_err_t err;
 
@@ -127,7 +127,7 @@ zn_err_t zms_rtmp_server_start(zms_rtmp_server *srv)
     return ZN_OK;
 }
 
-void zms_rtmp_server_stop(zms_rtmp_server *srv)
+void zcs_rtmp_server_stop(zcs_rtmp_server *srv)
 {
     if (srv && srv->tcp) {
         zn_tcp_server_stop(srv->tcp);
@@ -137,7 +137,7 @@ void zms_rtmp_server_stop(zms_rtmp_server *srv)
     }
 }
 
-uint16_t zms_rtmp_server_port(const zms_rtmp_server *srv)
+uint16_t zcs_rtmp_server_port(const zcs_rtmp_server *srv)
 {
     if (!srv || !srv->tcp) {
         return 0;

@@ -2,31 +2,31 @@
  * @file splitter.c
  * @brief RTSP 输入分流：区分 `$` interleaved 帧与 RTSP 文本消息。
  */
-#include "zms/protocol/rtsp/splitter.h"
-#include "zms/media/container/container_registry.h"
-#include "zms/media/wire/rtp_packet.h"
-#include "zms/protocol/http/message_framer.h"
+#include "zcs/protocol/rtsp/splitter.h"
+#include "zcs/media/container/container_registry.h"
+#include "zcs/media/wire/rtp_packet.h"
+#include "zcs/protocol/http/message_framer.h"
 #include <stdlib.h>
 #include <string.h>
 
-#define ZMS_RTSP_SPLITTER_MAX_CACHE (256U * 1024U)
+#define ZCS_RTSP_SPLITTER_MAX_CACHE (256U * 1024U)
 
-struct zms_rtsp_splitter {
-    zms_rtsp_splitter_opts opts;
-    zms_http_message_framer *inner;
-    zms_rtsp_message msg;
+struct zcs_rtsp_splitter {
+    zcs_rtsp_splitter_opts opts;
+    zcs_http_message_framer *inner;
+    zcs_rtsp_message msg;
     int enable_rtp;
     int is_rtp_packet;
 };
 
-static const char *search_rtsp_tail_l(zms_rtsp_splitter *s, const char *data, size_t len)
+static const char *search_rtsp_tail_l(zcs_rtsp_splitter *s, const char *data, size_t len)
 {
     if (s->enable_rtp && len > 0 && (uint8_t)data[0] == '$') {
-        if (len < ZMS_RTSP_INTERLEAVED_HDR) {
+        if (len < ZCS_RTSP_INTERLEAVED_HDR) {
             return NULL;
         }
         uint16_t plen = (uint16_t)(((uint8_t)data[2] << 8) | (uint8_t)data[3]);
-        size_t total = ZMS_RTSP_INTERLEAVED_HDR + plen;
+        size_t total = ZCS_RTSP_INTERLEAVED_HDR + plen;
         if (len < total) {
             return NULL;
         }
@@ -35,18 +35,18 @@ static const char *search_rtsp_tail_l(zms_rtsp_splitter *s, const char *data, si
     }
 
     s->is_rtp_packet = 0;
-    return zms_http_message_search_tail(data, len);
+    return zcs_http_message_search_tail(data, len);
 }
 
 static const char *on_search_tail(const char *data, size_t len, void *user)
 {
-    zms_rtsp_splitter *s = (zms_rtsp_splitter *)user;
+    zcs_rtsp_splitter *s = (zcs_rtsp_splitter *)user;
     const char *ret = search_rtsp_tail_l(s, data, len);
     if (ret) {
         return ret;
     }
 
-    if (len > ZMS_RTSP_SPLITTER_MAX_CACHE) {
+    if (len > ZCS_RTSP_SPLITTER_MAX_CACHE) {
         const char *mark = (const char *)memchr(data, '$', len);
         if (!mark) {
             return NULL;
@@ -56,10 +56,10 @@ static const char *on_search_tail(const char *data, size_t len, void *user)
     return NULL;
 }
 
-static void dispatch_interleaved(zms_rtsp_splitter *s, const uint8_t *data, size_t len)
+static void dispatch_interleaved(zcs_rtsp_splitter *s, const uint8_t *data, size_t len)
 {
-    zms_container_packet pkt;
-    if (zms_container_rtsp_interleaved_parse(data, len, &pkt) != ZN_OK) {
+    zcs_container_packet pkt;
+    if (zcs_container_rtsp_interleaved_parse(data, len, &pkt) != ZN_OK) {
         return;
     }
     if (s->opts.on_rtp) {
@@ -67,17 +67,17 @@ static void dispatch_interleaved(zms_rtsp_splitter *s, const uint8_t *data, size
     }
 }
 
-static void dispatch_rtsp_message(zms_rtsp_splitter *s)
+static void dispatch_rtsp_message(zcs_rtsp_splitter *s)
 {
     if (s->opts.on_message) {
         s->opts.on_message(&s->msg, s->opts.user);
     }
-    zms_rtsp_message_clear(&s->msg);
+    zcs_rtsp_message_clear(&s->msg);
 }
 
 static intptr_t on_rtsp_header(const char *header, size_t header_len, void *user)
 {
-    zms_rtsp_splitter *s = (zms_rtsp_splitter *)user;
+    zcs_rtsp_splitter *s = (zcs_rtsp_splitter *)user;
     if (!s) {
         return 0;
     }
@@ -91,15 +91,15 @@ static intptr_t on_rtsp_header(const char *header, size_t header_len, void *user
         return 0;
     }
 
-    zms_rtsp_message_clear(&s->msg);
-    if (zms_rtsp_message_parse_header(header, header_len, &s->msg) != ZN_OK) {
+    zcs_rtsp_message_clear(&s->msg);
+    if (zcs_rtsp_message_parse_header(header, header_len, &s->msg) != ZN_OK) {
         if (s->enable_rtp) {
             return 0;
         }
         return 0;
     }
 
-    int clen = zms_rtsp_message_content_length(&s->msg);
+    int clen = zcs_rtsp_message_content_length(&s->msg);
     if (clen <= 0) {
         dispatch_rtsp_message(s);
         return 0;
@@ -109,7 +109,7 @@ static intptr_t on_rtsp_header(const char *header, size_t header_len, void *user
 
 static void on_rtsp_content(const char *data, size_t len, void *user)
 {
-    zms_rtsp_splitter *s = (zms_rtsp_splitter *)user;
+    zcs_rtsp_splitter *s = (zcs_rtsp_splitter *)user;
     if (!s) {
         return;
     }
@@ -118,25 +118,25 @@ static void on_rtsp_content(const char *data, size_t len, void *user)
     dispatch_rtsp_message(s);
 }
 
-zms_rtsp_splitter *zms_rtsp_splitter_create(const zms_rtsp_splitter_opts *opts)
+zcs_rtsp_splitter *zcs_rtsp_splitter_create(const zcs_rtsp_splitter_opts *opts)
 {
     if (!opts) {
         return NULL;
     }
-    zms_rtsp_splitter *s = (zms_rtsp_splitter *)calloc(1, sizeof(*s));
+    zcs_rtsp_splitter *s = (zcs_rtsp_splitter *)calloc(1, sizeof(*s));
     if (!s) {
         return NULL;
     }
     s->opts = *opts;
 
-    zms_http_message_framer_opts iopts = {
+    zcs_http_message_framer_opts iopts = {
         .on_header = on_rtsp_header,
         .on_content = on_rtsp_content,
         .user = s,
-        .max_cache_size = ZMS_RTSP_SPLITTER_MAX_CACHE,
+        .max_cache_size = ZCS_RTSP_SPLITTER_MAX_CACHE,
         .on_search_tail = on_search_tail,
     };
-    s->inner = zms_http_message_framer_create(&iopts);
+    s->inner = zcs_http_message_framer_create(&iopts);
     if (!s->inner) {
         free(s);
         return NULL;
@@ -144,34 +144,34 @@ zms_rtsp_splitter *zms_rtsp_splitter_create(const zms_rtsp_splitter_opts *opts)
     return s;
 }
 
-void zms_rtsp_splitter_destroy(zms_rtsp_splitter *s)
+void zcs_rtsp_splitter_destroy(zcs_rtsp_splitter *s)
 {
     if (!s) {
         return;
     }
-    zms_http_message_framer_destroy(s->inner);
-    zms_rtsp_message_clear(&s->msg);
+    zcs_http_message_framer_destroy(s->inner);
+    zcs_rtsp_message_clear(&s->msg);
     free(s);
 }
 
-void zms_rtsp_splitter_enable_rtp(zms_rtsp_splitter *s, int on)
+void zcs_rtsp_splitter_enable_rtp(zcs_rtsp_splitter *s, int on)
 {
     if (s) {
         s->enable_rtp = on ? 1 : 0;
     }
 }
 
-void zms_rtsp_splitter_reset(zms_rtsp_splitter *s)
+void zcs_rtsp_splitter_reset(zcs_rtsp_splitter *s)
 {
     if (!s) {
         return;
     }
-    zms_http_message_framer_reset(s->inner);
-    zms_rtsp_message_clear(&s->msg);
+    zcs_http_message_framer_reset(s->inner);
+    zcs_rtsp_message_clear(&s->msg);
     s->is_rtp_packet = 0;
 }
 
-zn_err_t zms_rtsp_splitter_input(zms_rtsp_splitter *s, const void *data, size_t len)
+zn_err_t zcs_rtsp_splitter_input(zcs_rtsp_splitter *s, const void *data, size_t len)
 {
     if (!s || !s->inner) {
         return ZN_ERR_INVALID;
@@ -183,13 +183,13 @@ zn_err_t zms_rtsp_splitter_input(zms_rtsp_splitter *s, const void *data, size_t 
         return ZN_OK;
     }
 
-    zn_err_t err = zms_http_message_framer_input(s->inner, data, len);
+    zn_err_t err = zcs_http_message_framer_input(s->inner, data, len);
     if (err == ZN_ERR_BUFFER_TOO_SMALL && s->enable_rtp) {
-        zms_rtsp_splitter_reset(s);
+        zcs_rtsp_splitter_reset(s);
         const char *d = (const char *)data;
         const char *mark = (const char *)memchr(d, '$', len);
         if (mark && mark > d) {
-            return zms_http_message_framer_input(s->inner, mark, len - (size_t)(mark - d));
+            return zcs_http_message_framer_input(s->inner, mark, len - (size_t)(mark - d));
         }
         return ZN_ERR_IO;
     }

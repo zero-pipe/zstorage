@@ -2,8 +2,8 @@
  * @file mov_file_buffer.h
  * @brief MOV/MP4 文件读取缓冲。
  */
-#ifndef ZMS_SRC_MEDIA_CONTAINER_MP4_MOV_FILE_BUFFER_H
-#define ZMS_SRC_MEDIA_CONTAINER_MP4_MOV_FILE_BUFFER_H
+#ifndef ZCS_SRC_MEDIA_CONTAINER_MP4_MOV_FILE_BUFFER_H
+#define ZCS_SRC_MEDIA_CONTAINER_MP4_MOV_FILE_BUFFER_H
 
 #include "zm/format/mov.h"
 #include <stdio.h>
@@ -13,10 +13,10 @@
 extern "C" {
 #endif
 
-const struct mov_buffer_t *zms_mov_file_buffer(void);
+const struct mov_buffer_t *zcs_mov_file_buffer(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* ZMS_SRC_MEDIA_CONTAINER_MP4_MOV_FILE_BUFFER_H */
+#endif /* ZCS_SRC_MEDIA_CONTAINER_MP4_MOV_FILE_BUFFER_H */
