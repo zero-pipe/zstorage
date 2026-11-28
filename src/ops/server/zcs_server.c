@@ -310,6 +310,8 @@ static zn_err_t server_start_services(zcs_server *s)
     auth_opt.enable = cfg->auth.enable;
     strncpy(auth_opt.token_param, cfg->auth.token_param, sizeof(auth_opt.token_param) - 1);
 
+    zcs_media_events_set(s->main_poller, &events,
+                         cfg->general.stream_none_reader_delay_ms);
     zcs_media_events_set_continue_push_ms(cfg->protocol.continue_push_ms);
     /* 预解析配置里的固定远端地址：避免首次连接时在 poller 上做 DNS。 */
     if (cfg->proxy.pull[0]) {

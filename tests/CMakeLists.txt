@@ -74,6 +74,10 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE}
                      ${PROJECT_SOURCE_DIR}/tests/check_errno_style.py
                      ${PROJECT_SOURCE_DIR}/src)
+    add_test(NAME check_server_init
+             COMMAND ${Python3_EXECUTABLE}
+                     ${PROJECT_SOURCE_DIR}/tests/check_server_init.py
+                     ${PROJECT_SOURCE_DIR}/src/ops/server/zcs_server.c)
 endif()
 
 # 端到端冒烟：起真实服务 → 推流 → FLV/HLS/WebAPI。

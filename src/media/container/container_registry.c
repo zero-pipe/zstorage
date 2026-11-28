@@ -31,7 +31,7 @@ static const zcs_container_muxer_ops *g_mux[ZCS_CONTAINER_SLOT_MAX];
 
 /* 容器 ID 到可读名称（按枚举顺序） */
 static const char *k_names[] = {
-    "invalid", "rtsp-interleaved", "flv-tag", "mpegts", "mp4", "mkv", "flv-file",
+    "invalid", "rtsp-interleaved", "flv-tag", "mpegts", "mp4", "mkv", "flv-file", "zslot",
 };
 
 /** @return 容器格式的可读名称；id 越界返回 "invalid"。 */
