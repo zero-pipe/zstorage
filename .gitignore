@@ -52,6 +52,7 @@ Testing/
 # Runtime logs
 zcs.log
 zms_media_server.log
+zcs_media_server.log
 
 # Local config overrides
 config_a.ini
