@@ -13,7 +13,6 @@
 #include "zms/protocol/http/request_reader.h"
 #include "zms/play/play_binding.h"
 #include "zms/core/event.h"
-#include "zms/egress/mpegts/mpegts_egress.h"
 #if defined(ZMS_ENABLE_WEBRTC) && ZMS_ENABLE_WEBRTC
 #include "zms/session/webrtc/webrtc_server.h"
 #include "zms/ops/config/pull_ssl.h"
@@ -49,19 +48,7 @@ static void http_play_teardown(zms_http_session *hs)
     if (!hs) {
         return;
     }
-    /* Wire muxer 归协议所有；binding 仅关闭 readers/lane/记账。 */
-    zms_flv_live_muxer_destroy(hs->live_muxer);
-    zms_vod_flv_muxer_destroy(hs->vod_muxer);
-    hs->live_muxer = NULL;
-    hs->vod_muxer = NULL;
-    if (hs->ts_muxer) {
-        zms_mpegts_egress_destroy(hs->ts_muxer);
-        hs->ts_muxer = NULL;
-    }
-    if (hs->play.readers.gop) {
-        zms_session_dispatch_register_all();
-        zms_session_detach_play(ZMS_SESSION_HTTP_TS, &hs->play);
-    }
+    /* wire muxer 归协议所有；binding 仅关闭 readers/lane/记账。 */
     bind = http_play_binding(hs);
     zms_play_binding_close(&bind, 1);
     hs->play_event = NULL;

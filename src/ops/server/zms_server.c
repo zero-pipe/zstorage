@@ -10,7 +10,6 @@
 #include "zms/core/stream/hub.h"
 #include "zms/core/stream/url.h"
 #include "zms/egress/pacing/egress_pacing.h"
-#include "zms/play/hls/sidecar.h"
 #include "zms/publish/ingest/common/protocol_opts.h"
 #include "zms/pull/proxy.h"
 #include "zms/ops/api/webhook/webhook_client.h"
@@ -29,13 +28,6 @@
 #include "zms/ops/api/webapi/webapi.h"
 #include "zms/vod/io/source.h"
 #include "zms/util/thread_pool.h"
-#include "zms/device/onvif/onvif_registry.h"
-#include "zms/device/onvif/onvif_server.h"
-#include "zms/device/gb28181/gb28181.h"
-#include "zms/device/gb28181/gb28181_platform.h"
-#include "zms/device/core/device_core.h"
-#include "zms/device/core/device_event.h"
-#include "zms/device/core/device_ptz.h"
 #include "zn/poller/poller_pool.h"
 #include "zn/util/log.h"
 #include "zn/net/ssl.h"
@@ -169,11 +161,6 @@ static zn_err_t server_runtime_boot(zms_server *s, const char *log_override)
     /* 0 会让所有异步 IO 退化到 poller 线程上同步执行：强制至少 1 个线程。 */
     zms_vod_thread_pool_init(s->cfg.general.vod_work_threads > 0 ? s->cfg.general.vod_work_threads
                                                                  : 1);
-    zms_onvif_registry_init();
-    zms_device_core_init();
-    zms_device_event_init();
-    zms_device_ptz_init();
-    zms_device_core_set_record_root(s->cfg.record.root);
     gop_tg = s->cfg.general.gop_target_gops;
     if (gop_tg == 0) {
         gop_tg = ZMS_GOP_QUEUE_TARGET_GOPS;
@@ -216,10 +203,6 @@ static zn_err_t server_runtime_boot(zms_server *s, const char *log_override)
 
 static void server_runtime_shutdown(zms_server *s)
 {
-    zms_device_ptz_fini();
-    zms_device_event_fini();
-    zms_device_core_fini();
-    zms_onvif_registry_fini();
     if (s->poller_pool) {
         /*
          * 1) 线程仍在跑时排空 async（含无锁池跨线程 release 回投）
@@ -351,7 +334,6 @@ static zn_err_t server_start_services(zms_server *s)
     /* 大并发下 fd 是首要资源，尽量在监听前就抬高。 */
     raise_fd_limit();
     zms_media_events events;
-    zms_http_hls_opts hls;
     zms_rtmp_server_opts ropts;
     zms_http_server_opts fopts;
     zms_rtsp_server_opts sopts;
@@ -368,21 +350,6 @@ static zn_err_t server_start_services(zms_server *s)
     auth_opt.enable = cfg->auth.enable;
     strncpy(auth_opt.token_param, cfg->auth.token_param, sizeof(auth_opt.token_param) - 1);
 
-    hls = (zms_http_hls_opts){
-        .enable = cfg->protocol.enable_hls,
-        .segment_duration_sec =
-            cfg->hls.segment_duration_sec > 0.f ? cfg->hls.segment_duration_sec : 2.f,
-        .segment_count = cfg->hls.segment_count ? cfg->hls.segment_count : 3,
-        .enable_audio = cfg->protocol.enable_audio,
-        .force_fmp4 = cfg->protocol.enable_hls_fmp4,
-        .demand = cfg->protocol.hls_demand,
-        .dash_demand = cfg->protocol.dash_demand,
-    };
-    if (cfg->protocol.hls_save_path[0]) {
-        strncpy(hls.save_path, cfg->protocol.hls_save_path, sizeof(hls.save_path) - 1);
-    }
-
-    zms_http_hls_init(s->main_poller, &hls, &events, cfg->general.stream_none_reader_delay_ms);
     zms_media_events_set_continue_push_ms(cfg->protocol.continue_push_ms);
     /* 预解析配置里的固定远端地址：避免首次连接时在 poller 上做 DNS。 */
     if (cfg->proxy.pull[0]) {
@@ -505,79 +472,6 @@ static zn_err_t server_start_services(zms_server *s)
         return err;
     }
 
-    /* ONVIF 设备端：HTTP 端口就绪后启动（发现应答 + /onvif/* 服务） */
-    /* 依赖 HTTP 服务器已 start（需要复用其端口做发现/路由），故放在 HTTP 之后。 */
-    zms_onvif_server_routes_register();
-    if (cfg->onvif.server_enable) {
-        zms_onvif_server_opts oopts;
-        memset(&oopts, 0, sizeof(oopts));
-        oopts.poller = s->main_poller;
-        oopts.advertise_host = cfg->general.extern_ip;
-        oopts.http_port = zms_http_server_port(s->http);
-        oopts.rtsp_port = cfg->rtsp.port;
-        oopts.name = cfg->onvif.server_name;
-        oopts.uuid = cfg->onvif.server_uuid;
-        oopts.discovery = 1;
-        if (zms_onvif_server_start(&oopts) != 0) {
-            zn_warn("ONVIF device server start failed");
-        }
-    }
-
-    /* GB28181 平台端：接受下级设备注册（需先于设备端监听） */
-    if (cfg->gb28181_platform.enable) {
-        zms_gb28181_platform_opts popts;
-        memset(&popts, 0, sizeof(popts));
-        popts.id = cfg->gb28181_platform.id;
-        popts.domain = cfg->gb28181_platform.domain;
-        popts.password = cfg->gb28181_platform.password;
-        popts.advertise_ip = cfg->gb28181_platform.advertise_ip;
-        popts.listen_port = cfg->gb28181_platform.listen_port;
-        popts.transport = cfg->gb28181_platform.transport;
-        popts.tls_cert = cfg->gb28181_platform.tls_cert;
-        popts.tls_key = cfg->gb28181_platform.tls_key;
-        popts.tls_ca = cfg->gb28181_platform.tls_ca;
-        popts.tls_verify_peer = cfg->gb28181_platform.tls_verify_peer;
-        popts.keepalive_timeout_sec = cfg->gb28181_platform.keepalive_timeout_sec;
-        popts.media_vhost = cfg->gb28181_platform.media_vhost;
-        popts.media_app = cfg->gb28181_platform.media_app;
-        if (zms_gb28181_platform_start(&popts) != 0) {
-            zn_warn("GB28181 platform start failed");
-        }
-    }
-
-    /* GB28181 设备端：注册到上级平台（SIP + PS/RTP 发送） */
-    if (cfg->gb28181.enable) {
-        zms_gb28181_opts gopts;
-        memset(&gopts, 0, sizeof(gopts));
-        gopts.platform_id = cfg->gb28181.platform_id;
-        gopts.platform_domain = cfg->gb28181.platform_domain;
-        gopts.platform_ip = cfg->gb28181.platform_ip;
-        gopts.platform_port = cfg->gb28181.platform_port;
-        gopts.device_id = cfg->gb28181.device_id;
-        gopts.device_name = cfg->gb28181.device_name;
-        gopts.manufacturer = cfg->gb28181.manufacturer;
-        gopts.model = cfg->gb28181.model;
-        gopts.firmware = cfg->gb28181.firmware;
-        gopts.username = cfg->gb28181.username;
-        gopts.password = cfg->gb28181.password;
-        gopts.local_ip = cfg->gb28181.local_ip;
-        gopts.local_port = cfg->gb28181.local_port;
-        gopts.sip_transport = cfg->gb28181.sip_transport;
-        gopts.sip_mode = cfg->gb28181.sip_mode;
-        gopts.tls_ca = cfg->gb28181.tls_ca;
-        gopts.tls_cert = cfg->gb28181.tls_cert;
-        gopts.tls_key = cfg->gb28181.tls_key;
-        gopts.tls_verify_peer = cfg->gb28181.tls_verify_peer;
-        gopts.register_expires = cfg->gb28181.register_expires;
-        gopts.keepalive_interval = cfg->gb28181.keepalive_interval;
-        gopts.channels = cfg->gb28181.channels;
-        gopts.record_root = cfg->gb28181.record_root;
-        gopts.poller_pool = s->poller_pool;
-        if (zms_gb28181_start(&gopts) != 0) {
-            zn_warn("GB28181 device server start failed");
-        }
-    }
-
     if (s->rtsp) {
         if (cfg->rtsp.auth_user[0]) {
             zms_rtsp_auth_configure(cfg->rtsp.auth_user, cfg->rtsp.auth_pass);
@@ -667,13 +561,8 @@ static zn_err_t server_start_proxy(zms_server *s)
 
 static void server_stop_services(zms_server *s)
 {
-    /* 关闭顺序与启动大致相反：先停“上层客户端”（GB28181/ONVIF/wheel 拉流），
-     * 再停 HLS/webhook/auth 等中间层，最后才停底层监听（RTSP/SRT/HTTP/RTMP）与
-     * 事件系统。这样上层关闭时底层还能回包/收尾，避免半关状态。 */
-    zms_gb28181_stop();
-    zms_gb28181_platform_stop();
-    zms_onvif_server_stop();
-    zms_http_hls_fini();
+    /* 关闭顺序与启动大致相反：先停 webhook/auth 等中间层，最后才停底层监听
+     * （RTSP/HTTP/RTMP）与事件系统。 */
     zms_webhook_fini();
     zms_auth_fini();
     zms_live_pull_proxy_destroy(s->proxy);

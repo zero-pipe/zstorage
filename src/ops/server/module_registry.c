@@ -6,20 +6,16 @@
  * 进程启动时由业务层（如 demo_server_runtime）调用一次。
  * 按依赖顺序注册内建实现：
  *
- *   1. segment_recorder   直播分片格式（HLS/DASH）
- *   2. rtp_payload        RTP payload 类型（H.264/H.265/AAC/opus 等）
- *   3. frame_codec        帧 codec 策略（key/config/GOP 规则）
- *   4. container          容器 demuxer / muxer
- *   5. live_ingest_codec  直播推流 codec 适配器
- *   6. vod_format         VOD 文件格式探测
- *   7. session_dispatch   协议 dispatch（RTMP/RTSP/HTTP/SRT/WebRTC）
+ *   1. rtp_payload        RTP payload 类型（H.264/H.265/AAC/opus 等）
+ *   2. frame_codec        帧 codec 策略（key/config/GOP 规则）
+ *   3. container          容器 demuxer / muxer
+ *   4. live_ingest_codec  直播推流 codec 适配器
+ *   5. vod_format         VOD 文件格式探测
+ *   6. session_dispatch   协议 dispatch（RTSP/RTP PS 等）
  *
  * 各子系统 register_* 均幂等；此处无需额外守卫。
  */
 #include "zms/core/module_registry.h"
-#include "zms/egress/recorder/egress_segment_recorder.h"
-#include "zms/play/hls/segmenter.h"
-#include "zms/play/dash/segmenter.h"
 #include "zms/play/dispatch.h"
 #include "zms/vod/io/format.h"
 
@@ -27,18 +23,6 @@
 void zms_frame_codec_register_all(void);
 void zms_container_register_all(void);
 void zms_live_ingest_codec_register_all(void);
-
-void zms_segment_recorder_register_builtins(void)
-{
-    static int registered;
-
-    if (registered) {
-        return;
-    }
-    registered = 1;
-    zms_segment_recorder_register(zms_http_hls_segment_recorder_ops());
-    zms_segment_recorder_register(zms_http_dash_segment_recorder_ops());
-}
 
 /**
  * 注册所有内建模块。
@@ -52,10 +36,9 @@ void zms_modules_register_all(void)
         return;
     }
     registered = 1;
-    zms_segment_recorder_register_builtins(); /* HLS/DASH 录制器 */
-    zms_frame_codec_register_all();           /* 帧 codec 策略 */
-    zms_container_register_all();             /* 容器 demuxer / muxer */
-    zms_live_ingest_codec_register_all();     /* 直播 ingest codec 适配器 */
-    zms_vod_format_register_all();            /* VOD 格式探测 */
-    zms_session_dispatch_register_all();      /* 协议 dispatch */
+    zms_frame_codec_register_all();       /* 帧 codec 策略 */
+    zms_container_register_all();         /* 容器 demuxer / muxer */
+    zms_live_ingest_codec_register_all(); /* 直播 ingest codec 适配器 */
+    zms_vod_format_register_all();        /* VOD 格式探测 */
+    zms_session_dispatch_register_all();  /* 协议 dispatch */
 }

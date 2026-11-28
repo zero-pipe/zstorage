@@ -1,7 +1,5 @@
-# 默认 ON：平台的「超低延迟」播放档依赖 WebRTC，默认关掉会让配置里的
-# [webrtc] enable=1 变成空转（页面选中超低延迟后必然黑屏）。
-# 依赖全部内置（3rdpart/zice + OpenSSL），无外部包；不需要时显式 -DZMS_ENABLE_WEBRTC=OFF。
-option(ZMS_ENABLE_WEBRTC "Build WebRTC WHEP/WHIP (ICE-lite; DTLS when OpenSSL available)" ON)
+# zcs 是录像/回放组件，回放统一走 RTSP；不编译 WebRTC。
+option(ZMS_ENABLE_WEBRTC "Build WebRTC WHEP/WHIP" OFF)
 
 if(ZMS_ENABLE_WEBRTC)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/zice.cmake)

@@ -49,8 +49,6 @@ typedef enum zms_http_session_state {
 typedef struct zms_http_session zms_http_session;
 
 typedef struct zms_flv_live_muxer zms_flv_live_muxer;
-typedef struct zms_mpegts_egress zms_mpegts_egress;
-typedef struct zms_vod_flv_muxer zms_vod_flv_muxer;
 typedef struct zms_vod_play_lane zms_vod_play_lane;
 
 struct zms_http_session {
@@ -59,10 +57,7 @@ struct zms_http_session {
     zn_poller *poller;
     zms_http_server *server;
     zms_http_request_reader *splitter;
-    zms_flv_live_muxer *live_muxer;
-    zms_mpegts_egress *ts_muxer;
     zms_egress_source play;
-    zms_vod_flv_muxer *vod_muxer;
     zms_media_source *source;
     zms_vod_play_lane *vod_lane;
     zms_http_session_state state;
@@ -109,19 +104,7 @@ struct zms_http_server {
 extern struct zms_http_server *g_http_service_instance;
 
 void zms_http_session_stop_stream(zms_http_session *hs);
-void zms_http_session_stream_flush(zms_http_session *hs);
 void zms_http_session_flush(zms_http_session *hs);
-
-/** 写出 (live 或 vod) muxer start() 产生的 FLV 文件头。 */
-typedef zn_err_t (*zms_flv_start_hdr_fn)(void *muxer, int has_audio, int has_video, uint8_t *out,
-                                          size_t cap, size_t *out_len);
-
-/**
- * HTTP-FLV bootstrap 尾部共享：经 @p start 发出 FLV 头，进入
- * ZMS_HTTP_SESSION_STATE_STREAMING 并 kick 首块 flush。直播与点播共用。
- */
-void zms_http_flv_emit_header_and_stream(zms_http_session *hs, int has_audio, int has_video,
-                                         zms_flv_start_hdr_fn start, void *muxer);
 
 void zms_http_response_send_error(zms_http_session *hs, int code, const char *reason);
 void zms_http_response_send_json(zms_http_session *hs, int status, const char *body,

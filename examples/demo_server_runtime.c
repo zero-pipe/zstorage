@@ -1,7 +1,4 @@
 #include "demo_server_runtime.h"
-#include "zms/device/core/device_core.h"
-#include "zms/device/core/device_event.h"
-#include "zms/device/core/device_ptz.h"
 
 #include "zms/egress/pacing/egress_pacing.h"
 #include "zms/util/thread_pool.h"
@@ -169,10 +166,6 @@ zn_err_t zms_demo_server_runtime_init(zms_demo_server_runtime *rt,
 
     zn_platform_init();
     zms_modules_register_all();
-    zms_device_core_init();
-    zms_device_event_init();
-    zms_device_ptz_init();
-    zms_device_core_set_record_root(rt->cfg.record.root);
 
     if (demo_setup_logging(&rt->cfg, args ? args->log_file_override : NULL) != ZN_OK) {
         return ZN_ERR_IO;
@@ -213,9 +206,6 @@ void zms_demo_server_runtime_fini(zms_demo_server_runtime *rt)
         zn_poller_pool_destroy(rt->poller_pool);
         rt->poller_pool = NULL;
     }
-    zms_device_ptz_fini();
-    zms_device_event_fini();
-    zms_device_core_fini();
     zms_vod_thread_pool_fini();
     zms_buf_pool_fini();
     zms_egress_pacing_fini();

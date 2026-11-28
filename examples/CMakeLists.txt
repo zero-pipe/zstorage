@@ -18,9 +18,7 @@ function(zms_add_server_demo name)
     endif()
 endfunction()
 
-zms_add_demo(demo_onvif_probe)
 zms_add_server_demo(demo_media_server)
-zms_add_server_demo(demo_gb28181_device)
 
 if (ZMS_HAVE_SRT AND WIN32)
     zms_copy_srt_dll(demo_media_server)

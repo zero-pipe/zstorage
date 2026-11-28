@@ -181,7 +181,6 @@ zms_add_layer_target(zms_egress ${ZMS_EGRESS_SOURCES})
 zms_add_layer_target(zms_storage ${ZMS_STORAGE_SOURCES})
 zms_add_layer_target(zms_ops ${ZMS_OPS_SOURCES})
 zms_add_layer_target(zms_util ${ZMS_UTIL_SOURCES})
-zms_add_layer_target(zms_device ${ZMS_DEVICE_SOURCES})
 
 set(ZMS_OBJECTS
     $<TARGET_OBJECTS:zms_core>
@@ -193,8 +192,7 @@ set(ZMS_OBJECTS
     $<TARGET_OBJECTS:zms_egress>
     $<TARGET_OBJECTS:zms_storage>
     $<TARGET_OBJECTS:zms_ops>
-    $<TARGET_OBJECTS:zms_util>
-    $<TARGET_OBJECTS:zms_device>)
+    $<TARGET_OBJECTS:zms_util>)
 
 if (ZMS_BUILD_SHARED)
     add_library(zms SHARED ${ZMS_OBJECTS})

@@ -84,15 +84,6 @@ set(ZMS_SESSION_SOURCES
     src/session/rtmp/session_vod.c
     src/session/http/http_server.c
     src/session/http/response.c
-    src/session/http/dash_route.c
-    src/session/http/dash_handler.c
-    src/session/http/flv_route.c
-    src/session/http/flv_handler.c
-    src/session/http/hls_route.c
-    src/session/http/hls_handler.c
-    src/session/http/ts_route.c
-    src/session/http/ts_dispatch.c
-    src/session/http/vod_http_handler.c
     src/session/rtsp/announce.c
     src/session/rtsp/dispatch.c
     src/session/rtsp/record.c
@@ -147,15 +138,6 @@ set(ZMS_PROTOCOL_SOURCES
 )
 
 set(ZMS_ROLE_SOURCES
-    src/play/dash/sidecar.c
-    src/play/dash/playlist.c
-    src/play/dash/segmenter.c
-    src/play/hls/sidecar.c
-    src/play/hls/playlist.c
-    src/play/hls/segmenter.c
-    src/play/hls/hls_io.c
-    src/play/hls/fmp4_writer.c
-    src/play/hls/ts_writer.c
     src/publish/ingest/codec/aac_ingest.c
     src/publish/ingest/codec/g711_ingest.c
     src/publish/ingest/codec/h264_ingest.c
@@ -163,7 +145,6 @@ set(ZMS_ROLE_SOURCES
     src/publish/ingest/common/stream_ingest.c
     src/publish/ingest/common/codec_dispatch.c
     src/publish/ingest/common/protocol_opts.c
-    src/play/http_flv/muxer.c
     src/publish/rtp/ps_dispatch.c
     src/play/dispatch.c
     src/play/sink.c
@@ -171,22 +152,18 @@ set(ZMS_ROLE_SOURCES
     src/publish/rtmp/zm_ingest.c
     src/vod/io/format.c
     src/vod/io/reader.c
-    src/vod/io/file_reader.c
     src/vod/io/flv_metadata.c
-    src/vod/play/flv_muxer.c
-    src/vod/io/codec_ext.c
-    src/vod/io/flv_cache.c
-    src/vod/play/hls.c
+    src/vod/io/file_reader.c
     src/vod/play/play_lane.c
     src/vod/io/source.c
 )
 
 set(ZMS_EGRESS_SOURCES
+    src/egress/recorder/egress_segment_recorder.c
+    src/egress/recorder/egress_mp4_recorder.c
     src/egress/rtp/rtp_payload_muxer.c
     src/egress/pacing/egress_pacing.c
     src/egress/source/egress_source.c
-    src/egress/recorder/egress_segment_recorder.c
-    src/egress/recorder/egress_mp4_recorder.c
     src/egress/recorder/egress_zs_recorder.c
     src/egress/recorder/egress_zs_record_task.c
     src/egress/rtp/rtp_muxer.c
@@ -223,10 +200,6 @@ set(ZMS_OPS_SOURCES
     src/ops/api/webapi/webapi_record.c
     src/ops/api/webapi/webapi_zs_record.c
     src/ops/api/webapi/webapi_zs_playback.c
-    src/ops/api/webapi/webapi_webrtc.c
-    src/ops/api/webapi/onvif_api.c
-    src/ops/api/webapi/gb28181_api.c
-    src/ops/api/webapi/device_api.c
     src/ops/api/webapi/webapi_http_handler.c
     src/ops/api/webhook/webhook_client.c
 )
@@ -245,23 +218,3 @@ set(ZMS_UTIL_SOURCES
 )
 
 # 设备接入（控制面）：ONVIF 客户端 / 设备端；GB28181 设备端（信令 + PS/RTP 发送）
-set(ZMS_DEVICE_SOURCES
-    src/device/onvif/soap.c
-    src/device/onvif/wsd.c
-    src/device/onvif/onvif_client.c
-    src/device/onvif/onvif_registry.c
-    src/device/onvif/onvif_server.c
-    src/device/core/device_core.c
-    src/device/core/device_command.c
-    src/device/core/device_event.c
-    src/device/core/device_ptz.c
-    src/device/core/sip_transport.c
-    src/device/core/record_index.c
-    src/device/gb28181/gb_sip.c
-    src/device/gb28181/gb_manscdp.c
-    src/device/gb28181/gb_device.c
-    src/device/gb28181/gb_invite.c
-    src/device/gb28181/gb_media.c
-    src/device/gb28181/gb_playback.c
-    src/device/gb28181/gb_platform.c
-)

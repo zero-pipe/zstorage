@@ -1028,9 +1028,7 @@ void zms_http_session_flush(zms_http_session *hs)
     if (!hs) {
         return;
     }
-    if (hs->state == ZMS_HTTP_SESSION_STATE_STREAMING) {
-        zms_http_session_stream_flush(hs);
-    } else if (hs->state == ZMS_HTTP_SESSION_STATE_FILE_SENDING) {
+    if (hs->state == ZMS_HTTP_SESSION_STATE_FILE_SENDING) {
         flush_file(hs);
     } else if (hs->state == ZMS_HTTP_SESSION_STATE_HLS_SENDING) {
         flush_hls(hs);

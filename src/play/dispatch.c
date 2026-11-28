@@ -16,7 +16,6 @@ static int g_session_dispatch_all_registered;
 void zms_rtmp_register(void);
 void zms_rtsp_register(void);
 void zms_http_register(void);
-void zms_http_ts_register(void);
 #if defined(ZMS_ENABLE_WEBRTC)
 void zms_webrtc_register(void);
 #endif
@@ -53,7 +52,6 @@ void zms_session_dispatch_register_all(void)
     zms_rtmp_register();
     zms_rtsp_register();
     zms_http_register();
-    zms_http_ts_register();
 #if defined(ZMS_ENABLE_WEBRTC)
     zms_webrtc_register();
 #endif

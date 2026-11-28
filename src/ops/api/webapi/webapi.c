@@ -16,12 +16,7 @@
 #include "zms/ops/api/json/media_json.h"
 #include "zms/core/stream/hub.h"
 #include "zms/core/event.h"
-#include "zms/device/onvif/onvif.h"
 #include "zms/vod/io/source.h"
-#include "zms/egress/recorder/egress_mp4_recorder.h"
-#include "ops/api/webapi/onvif_api.h"
-#include "ops/api/webapi/device_api.h"
-#include "ops/api/webapi/gb28181_api.h"
 #include "zms/core/auth.h"
 #include "zn/net/socket.h"
 #include "zn/platform.h"
@@ -400,11 +395,6 @@ static size_t handle_get_api_list(char *body, size_t body_cap)
                             "\"/index/api/system/health\","
                             "\"/index/api/system/bufpool\","
                             "\"/index/api/system/statistic\","
-                            "\"/index/api/webrtc/stats\","
-                            "\"/index/api/webrtc/capabilities\","
-                            "\"/index/api/webrtc/client_start\","
-                            "\"/index/api/webrtc/client_list\","
-                            "\"/index/api/webrtc/client_stop\","
                             "\"/index/api/system/config\","
                             "\"/index/api/media/list\","
                             "\"/index/api/media/info\","
@@ -430,27 +420,7 @@ static size_t handle_get_api_list(char *body, size_t body_cap)
                             "\"/index/api/zstorage/record/delete\","
                             "\"/index/api/zstorage/node/status\","
                             "\"/index/api/zstorage/playback/start\","
-                            "\"/index/api/zstorage/playback/stop\","
-                            "\"/index/api/onvif/discover\","
-                            "\"/index/api/onvif/probe\","
-                            "\"/index/api/onvif/add\","
-                            "\"/index/api/onvif/del\","
-                            "\"/index/api/onvif/list\","
-                            "\"/index/api/onvif/ptz\","
-                            "\"/index/api/gb28181/status\","
-                            "\"/index/api/gb28181/channels\","
-                            "\"/index/api/gb28181/alarm\","
-                            "\"/index/api/device/capabilities\","
-                            "\"/index/api/gb28181/platform/devices\","
-                            "\"/index/api/gb28181/platform/channels\","
-                            "\"/index/api/gb28181/platform/query\","
-                            "\"/index/api/gb28181/platform/invite\","
-                            "\"/index/api/gb28181/platform/bye\","
-                            "\"/index/api/gb28181/platform/sessions\","
-                            "\"/index/api/gb28181/platform/ptz\","
-                            "\"/index/api/gb28181/platform/record_query\","
-                            "\"/index/api/gb28181/platform/records\","
-                            "\"/index/api/gb28181/platform/alarms\""
+                            "\"/index/api/zstorage/playback/stop\""
                             "]}");
 }
 static size_t handle_is_media_online(const zms_webapi_query_map *q, char *body, size_t body_cap,
@@ -523,83 +493,6 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
         *http_status = 200;
         zms_auth_set_tokens(q.tokens);
         return webapi_respond_json(0, "success", NULL, body, body_cap);
-    }
-
-    if (strcmp(path, "/index/api/device/capabilities") == 0) {
-        *http_status = 200;
-        return (size_t)zms_webapi_device_capabilities(body, body_cap);
-    }
-    if (strcmp(path, "/index/api/device/events") == 0) {
-        *http_status = 200;
-        return (size_t)zms_webapi_device_events(body, body_cap);
-    }
-    if (strcmp(path, "/index/api/device/ptz") == 0) {
-        *http_status = 200;
-        return (size_t)zms_webapi_device_ptz(q.channel, q.pan[0] ? (float)atof(q.pan) : 0.0f,
-                                             q.tilt[0] ? (float)atof(q.tilt) : 0.0f,
-                                             q.zoom[0] ? (float)atof(q.zoom) : 0.0f,
-                                             q.stop[0] && q.stop[0] != '0', body, body_cap);
-    }
-
-    /* GB28181 设备端：状态 / 通道 / 报警上报 */
-    if (strncmp(path, "/index/api/gb28181/", 19) == 0) {
-        zms_gb28181_api_req greq;
-        int rc;
-        memset(&greq, 0, sizeof(greq));
-        greq.endpoint = path + 19;
-        greq.channel = q.channel;
-        greq.device = q.device;
-        greq.cmd = q.cmd;
-        greq.call_id = q.call_id;
-        greq.app = q.app;
-        greq.stream = q.stream;
-        greq.start = q.start;
-        greq.end = q.end;
-        greq.pan = q.pan[0] ? (float)atof(q.pan) : 0.0f;
-        greq.tilt = q.tilt[0] ? (float)atof(q.tilt) : 0.0f;
-        greq.zoom = q.zoom[0] ? (float)atof(q.zoom) : 0.0f;
-        greq.stop = q.stop[0] && q.stop[0] != '0';
-        greq.tcp = q.tcp[0] ? atoi(q.tcp) : 0;
-        greq.priority = q.priority[0] ? atoi(q.priority) : 0;
-        greq.method = q.method[0] ? atoi(q.method) : 0;
-        greq.description = q.description;
-        rc = zms_webapi_gb28181_handle(&greq, http_status, body, body_cap);
-        if (rc > 0) {
-            return (size_t)rc;
-        }
-        *http_status = 404;
-        return webapi_respond_json(ZMS_API_OTHER_FAILED, "unknown gb28181 endpoint", NULL, body,
-                            body_cap);
-    }
-
-    /* 设备接入（ONVIF）：独立命名空间；网络调用异步执行，回包在 IO 线程完成 */
-    if (strncmp(path, "/index/api/onvif/", 17) == 0) {
-        zms_onvif_api_req oreq;
-        int rc;
-        memset(&oreq, 0, sizeof(oreq));
-        oreq.endpoint = path + 17;
-        oreq.addr = q.addr;
-        oreq.user = q.user;
-        oreq.pass = q.pass;
-        oreq.profile = q.profile;
-        oreq.vhost = q.vhost;
-        oreq.app = q.app;
-        oreq.stream = q.stream;
-        oreq.key = q.key;
-        oreq.timeout_ms = q.timeout[0] ? atoi(q.timeout) : 0;
-        oreq.x = q.x[0] ? (float)atof(q.x) : 0.0f;
-        oreq.y = q.y[0] ? (float)atof(q.y) : 0.0f;
-        oreq.z = q.z[0] ? (float)atof(q.z) : 0.0f;
-        oreq.stop = q.stop[0] && q.stop[0] != '0';
-        rc = zms_webapi_onvif_handle(tcp, opts, &oreq, http_status, body, body_cap);
-        if (rc == 0) {
-            return 0; /* 异步：on_io 已负责回包 */
-        }
-        if (rc > 0) {
-            return strlen(body);
-        }
-        *http_status = 404;
-        return webapi_respond_json(ZMS_API_OTHER_FAILED, "unknown onvif endpoint", NULL, body, body_cap);
     }
 
     if (strcmp(path, "/index/api/system/api_list") == 0 || strcmp(path, "/index/") == 0 ||
