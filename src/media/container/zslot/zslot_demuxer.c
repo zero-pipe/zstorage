@@ -123,19 +123,23 @@ static void zs_demux_try_video_config(zs_slot_ctx *c, const uint8_t *data, size_
     }
 }
 
-/* 时间基准：槽位里第一个关键帧的帧内时间。用绝对时间差换算成相对毫秒，
- * 保证与 zs_playback_relative_ms 的语义一致（回放从 0 起）。 */
-static uint32_t zs_demux_rel_ms(zs_slot_ctx *c, uint32_t pts_ms, uint32_t dts_ms)
+/* 时间基准统一为「槽位内相对毫秒，从 0 起」：
+ * PS 帧里是 UTC 绝对毫秒（uint32 取低 32 位），而 seek 参数、file_reader 的
+ * duration / drop_until_sync、RTP 锚点、播放器进度条全部用段内相对毫秒。
+ * 不在这里归一化，任何非 0 seek 都会把 reader 跳到约 1.6e7 ms 之外的位置，
+ * fifo 永远填不进目标帧，出站泵就一直 lag 满 + peek 失败刷日志。 */
+static uint32_t zs_demux_rel_ms(zs_slot_ctx *c, uint32_t ts_ms)
 {
-    (void)c;
-    return pts_ms >= dts_ms ? pts_ms : dts_ms;
+    if (!c || ts_ms == 0) {
+        return 0;
+    }
+    return ts_ms > c->first_kf_ms ? ts_ms - (uint32_t)c->first_kf_ms : 0;
 }
 
 static void zs_demux_on_frame(const zms_frame *frame, void *user)
 {
     zs_slot_ctx *c = (zs_slot_ctx *)user;
     zms_container_packet pkt;
-    uint32_t rel;
 
     if (!c || !frame || !c->cfg.on_packet || !frame->data || frame->size == 0) {
         return;
@@ -151,17 +155,15 @@ static void zs_demux_on_frame(const zms_frame *frame, void *user)
         zs_demux_try_video_config(c, frame->data, frame->size);
     }
 
-    rel = zs_demux_rel_ms(c, (uint32_t)frame->pts_ms, (uint32_t)frame->dts_ms);
     memset(&pkt, 0, sizeof(pkt));
     pkt.kind = ZMS_CONTAINER_PKT_MP4_SAMPLE;
     pkt.track_id = frame->track == ZMS_TRACK_AUDIO ? ZS_DEMUX_TRACK_AUDIO : ZS_DEMUX_TRACK_VIDEO;
     pkt.codec = frame->codec;
-    pkt.pts_ms = (uint32_t)frame->pts_ms;
-    pkt.dts_ms = frame->dts_ms ? (uint32_t)frame->dts_ms : (uint32_t)frame->pts_ms;
+    pkt.pts_ms = zs_demux_rel_ms(c, (uint32_t)frame->pts_ms);
+    pkt.dts_ms = zs_demux_rel_ms(c, frame->dts_ms ? (uint32_t)frame->dts_ms : (uint32_t)frame->pts_ms);
     pkt.key = frame->keyframe ? 1 : 0;
     pkt.data = frame->data;
     pkt.len = frame->size;
-    (void)rel;
     c->cfg.on_packet(&pkt, c->cfg.user);
 }
 

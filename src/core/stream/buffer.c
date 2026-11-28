@@ -42,6 +42,9 @@ struct zms_vod_buffer {
     size_t cap;
     uint64_t write_seq;
     uint64_t consumed_seq;
+    /* seek 会 reset 整个 fifo、seq 归零；用代次号让附着其上的 reader 发现自己
+     * 的 read_seq 已失效，下一次 peek 时自动对齐，避免 lag 满 + peek 失败刷屏。 */
+    uint64_t generation;
     /* config 与直播 gop_queue 一致，使用定长双缓冲：返回给读侧的指针始终落在
      * 缓冲体内，只会随 point-play 源一起释放；不会因重开/更新配置变成悬空指针
      * （点播解复用线程写、播放/egress 线程读是跨线程的）。 */
@@ -57,6 +60,7 @@ struct zms_vod_buffer {
 struct zms_vod_buffer_reader {
     zms_vod_buffer *fifo;
     uint64_t read_seq;
+    uint64_t generation;
 };
 
 /* 写 config 到非活动缓冲再切换（调用方持 mtx），与 gop_queue 的 set_blob 语义一致。 */
@@ -250,7 +254,21 @@ void zms_vod_buffer_reset(zms_vod_buffer *fifo)
     }
     fifo->write_seq = 0;
     fifo->consumed_seq = 0;
+    ++fifo->generation;
     zb_mutex_unlock(fifo->mtx);
+}
+
+/* 调用方持 fifo->mtx。seek 会 reset 整个 fifo（槽清空、seq 归零），附着其上的
+ * 会话 reader 仍指向旧 read_seq，后续 peek 全读空槽：出站表现为 lag 满 + peek_fail
+ * 刷屏且画面不动。发现代次变化时把游标重置到当前窗口最旧处。 */
+static void vod_buffer_reader_realign_locked(zms_vod_buffer_reader *rd)
+{
+    if (!rd || rd->generation == rd->fifo->generation) {
+        return;
+    }
+    rd->generation = rd->fifo->generation;
+    rd->read_seq =
+        (rd->fifo->write_seq > rd->fifo->cap) ? (rd->fifo->write_seq - rd->fifo->cap) : 0;
 }
 
 void zms_vod_buffer_reader_seek_beginning(zms_vod_buffer_reader *rd)
@@ -261,6 +279,7 @@ void zms_vod_buffer_reader_seek_beginning(zms_vod_buffer_reader *rd)
     zb_mutex_lock(rd->fifo->mtx);
     rd->read_seq =
         (rd->fifo->write_seq > rd->fifo->cap) ? (rd->fifo->write_seq - rd->fifo->cap) : 0;
+    rd->generation = rd->fifo->generation;
     zb_mutex_unlock(rd->fifo->mtx);
 }
 
@@ -354,6 +373,7 @@ zms_vod_buffer_reader *zms_vod_buffer_reader_attach(zms_vod_buffer *fifo, int fr
     }
     rd->fifo = fifo;
     zb_mutex_lock(fifo->mtx);
+    rd->generation = fifo->generation;
     if (from_beginning) {
         rd->read_seq = (fifo->write_seq > fifo->cap) ? (fifo->write_seq - fifo->cap) : 0;
     } else {
@@ -403,6 +423,7 @@ static int vod_buffer_reader_slot_at(zms_vod_buffer_reader *rd, zms_gop_slot *sl
     }
 
     zb_mutex_lock(rd->fifo->mtx);
+    vod_buffer_reader_realign_locked(rd);
     if (rd->read_seq >= rd->fifo->write_seq) {
         zb_mutex_unlock(rd->fifo->mtx);
         return 0;
@@ -440,6 +461,11 @@ int zms_vod_buffer_reader_peek_muxed_es(zms_vod_buffer_reader *rd, zms_gop_slot 
     }
 
     zb_mutex_lock(rd->fifo->mtx);
+    vod_buffer_reader_realign_locked(rd);
+    /* 重定位（start 带 offset / reader seek）会 reset fifo：seq 归零、旧槽全清。
+     * 附着其上的会话 reader 仍指向旧 read_seq，后续 peek 全读到空槽，出站就会
+     * 一直 lag=256 + peek_fail 刷日志且画面不动。代次变化时游标已由
+     * vod_buffer_reader_realign_locked() 重置到当前窗口最旧处。 */
     if (rd->read_seq >= rd->fifo->write_seq) {
         zb_mutex_unlock(rd->fifo->mtx);
         return 0;
@@ -483,6 +509,7 @@ void zms_vod_buffer_reader_advance(zms_vod_buffer_reader *rd)
         return;
     }
     zb_mutex_lock(rd->fifo->mtx);
+    vod_buffer_reader_realign_locked(rd);
     if (rd->read_seq < rd->fifo->write_seq) {
         rd->read_seq++;
         if (rd->read_seq > rd->fifo->consumed_seq) {
@@ -503,6 +530,7 @@ void zms_vod_buffer_reader_seek_video_key(zms_vod_buffer_reader *rd)
         return;
     }
     zb_mutex_lock(rd->fifo->mtx);
+    vod_buffer_reader_realign_locked(rd);
     for (seq = rd->read_seq; seq < rd->fifo->write_seq; ++seq) {
         const vod_slot *s = &rd->fifo->slots[seq % rd->fifo->cap];
         int sync = 0;
@@ -543,6 +571,7 @@ int zms_vod_buffer_reader_seek_ms(zms_vod_buffer_reader *rd, uint64_t ms, uint64
         return 0;
     }
     zb_mutex_lock(rd->fifo->mtx);
+    vod_buffer_reader_realign_locked(rd);
     if (rd->fifo->write_seq == 0) {
         zb_mutex_unlock(rd->fifo->mtx);
         return 0;
@@ -573,11 +602,13 @@ int zms_vod_buffer_reader_seek_ms(zms_vod_buffer_reader *rd, uint64_t ms, uint64
     return 0;
 }
 
-size_t zms_vod_buffer_reader_lag(const zms_vod_buffer_reader *rd)
+size_t zms_vod_buffer_reader_lag(zms_vod_buffer_reader *rd)
 {
     if (!rd || !rd->fifo) {
         return 0;
     }
+    zb_mutex_lock(rd->fifo->mtx);
+    vod_buffer_reader_realign_locked(rd);
     if (rd->fifo->write_seq <= rd->read_seq) {
         return 0;
     }

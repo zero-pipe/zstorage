@@ -145,8 +145,6 @@ size_t webapi_handle_zs_node_status(char *body, size_t body_cap, int *http_statu
 
 size_t webapi_handle_zs_playback_start(const zms_webapi_query_map *q, char *body, size_t body_cap,
                                        int *http_status);
-size_t webapi_handle_zs_playback_seek(const zms_webapi_query_map *q, char *body, size_t body_cap,
-                                      int *http_status);
 size_t webapi_handle_zs_playback_stop(const zms_webapi_query_map *q, char *body, size_t body_cap,
                                       int *http_status);
 

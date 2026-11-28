@@ -430,7 +430,6 @@ static size_t handle_get_api_list(char *body, size_t body_cap)
                             "\"/index/api/zstorage/record/delete\","
                             "\"/index/api/zstorage/node/status\","
                             "\"/index/api/zstorage/playback/start\","
-                            "\"/index/api/zstorage/playback/seek\","
                             "\"/index/api/zstorage/playback/stop\","
                             "\"/index/api/onvif/discover\","
                             "\"/index/api/onvif/probe\","
@@ -790,10 +789,6 @@ size_t zms_web_api_handle(zn_tcp_session *tcp, const char *method, const char *p
 
     if (strcmp(path, "/index/api/zstorage/playback/start") == 0) {
         return webapi_handle_zs_playback_start(&q, body, body_cap, http_status);
-    }
-
-    if (strcmp(path, "/index/api/zstorage/playback/seek") == 0) {
-        return webapi_handle_zs_playback_seek(&q, body, body_cap, http_status);
     }
 
     if (strcmp(path, "/index/api/zstorage/playback/stop") == 0) {

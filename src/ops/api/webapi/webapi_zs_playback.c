@@ -1,15 +1,17 @@
 /**
  * @file webapi_zs_playback.c
- * @brief 云存储槽位回放：start / seek / stop。
+ * @brief 云存储槽位回放：start / stop。
  *
  * 槽位数据区是标准 MPEG-PS，file_reader 已按 .zslot 容器解析（含关键帧索引 seek）。
  * 这里只是把它注册成一个 VOD 媒体源，出流交给既有 egress（FLV/RTSP/WebRTC 等），
- * 平台/播放器按返回的 app/stream 拉流即可，拖动进度条调 seek 重定位。
+ * 平台/播放器按返回的 app/stream 拉流即可。
  *
  * 路径（A 族控制面，分组前缀 zstorage/）：
  *   /index/api/zstorage/playback/start  slot=<id> [channel=<key>] [start=<ms>] [app=] [stream=]
- *   /index/api/zstorage/playback/seek   app= stream= stamp=<ms>
  *   /index/api/zstorage/playback/stop   app= stream=
+ *
+ * 拖动进度条由客户端 stop + start(start=<段内偏移>) 重建会话，不提供运行中 seek：
+ * 正在出流的会话 reader 由各自 poller 驱动，跨线程改其 demux/fifo 不安全。
  */
 #include "ops/api/webapi/webapi_internal.h"
 #include "zms/vod/io/source.h"
@@ -87,31 +89,6 @@ size_t webapi_handle_zs_playback_start(const zms_webapi_query_map *q, char *body
                             "\"stream\":\"%s\",\"slot\":%u,\"start\":%llu,\"duration\":%llu}}",
                             app, stream, slot, (unsigned long long)start_ms,
                             (unsigned long long)dur);
-}
-
-size_t webapi_handle_zs_playback_seek(const zms_webapi_query_map *q, char *body, size_t body_cap,
-                                      int *http_status)
-{
-    zms_media_source *src;
-    const char *app;
-    uint64_t stamp_ms;
-    uint64_t actual;
-
-    *http_status = 200;
-    app = q->app[0] ? q->app : "playback";
-    if (!q->stream[0] || !q->stamp[0]) {
-        return webapi_respond_json(ZMS_API_INVALID_ARGS, "missing stream/stamp", NULL, body,
-                                   body_cap);
-    }
-    src = zs_find_playback_src(q, app);
-    if (!src || !zms_media_source_is_vod(src)) {
-        return webapi_respond_json(ZMS_API_NOT_FOUND, "can not find playback stream", NULL, body,
-                                   body_cap);
-    }
-    stamp_ms = (uint64_t)strtod(q->stamp, NULL);
-    actual = zms_vod_source_seek_ms(src, stamp_ms);
-    return (size_t)snprintf(body, body_cap, "{\"code\":0,\"msg\":\"success\",\"data\":%llu}",
-                            (unsigned long long)actual);
 }
 
 size_t webapi_handle_zs_playback_stop(const zms_webapi_query_map *q, char *body, size_t body_cap,

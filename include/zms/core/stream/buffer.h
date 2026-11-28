@@ -106,7 +106,7 @@ ZMS_API void zms_vod_buffer_reader_seek_video_key(zms_vod_buffer_reader *rd);
  */
 ZMS_API int zms_vod_buffer_reader_seek_ms(zms_vod_buffer_reader *rd, uint64_t ms, uint64_t *out_ms);
 /** 该 reader 尚未消费的帧数（缓冲积压量，用于背压判断）。 */
-ZMS_API size_t zms_vod_buffer_reader_lag(const zms_vod_buffer_reader *rd);
+ZMS_API size_t zms_vod_buffer_reader_lag(zms_vod_buffer_reader *rd);
 
 #ifdef __cplusplus
 }
