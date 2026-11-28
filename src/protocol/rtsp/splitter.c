@@ -10,6 +10,8 @@
 #include <string.h>
 
 #define ZCS_RTSP_SPLITTER_MAX_CACHE (256U * 1024U)
+/** RTP 模式下残留缓存超过该上限仍找不到帧界，则主动重新对齐到下一个 '$'。 */
+#define ZCS_RTSP_RESYNC_BYTES (64U * 1024U)
 
 struct zcs_rtsp_splitter {
     zcs_rtsp_splitter_opts opts;
@@ -35,7 +37,23 @@ static const char *search_rtsp_tail_l(zcs_rtsp_splitter *s, const char *data, si
     }
 
     s->is_rtp_packet = 0;
-    return zcs_http_message_search_tail(data, len);
+    {
+        const char *t = zcs_http_message_search_tail(data, len);
+
+        /*
+         * 安全网：RTP 模式下正常不会出现超过 64KB 的“RTSP 文本”积压。
+         * 一旦积到这个量级仍没找到头部结束符，说明已经错位：
+         * 直接跳到下个 '$' 重新对齐，避免一直等到缓存溢出（最多 256KB）才恢复。
+         */
+        if (!t && s->enable_rtp && len > ZCS_RTSP_RESYNC_BYTES) {
+            const char *mark = (const char *)memchr(data, '$', len);
+
+            if (mark && mark > data) {
+                return mark;
+            }
+        }
+        return t;
+    }
 }
 
 static const char *on_search_tail(const char *data, size_t len, void *user)

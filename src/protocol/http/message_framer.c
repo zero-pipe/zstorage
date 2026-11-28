@@ -78,6 +78,27 @@ size_t zcs_http_message_framer_remain_size(const zcs_http_message_framer *s)
     return s ? s->remain_data_size : 0;
 }
 
+/**
+ * 保留 [ptr, ptr+n) 作为下一轮的残留字节。
+ *
+ * ptr 可能指向调用方的输入 chunk，也可能就在 remain 自身里（回拼路径）。
+ * 后者不能用 clear+append：因为 zn_byte_buf_clear() 会把 data[0] 写成 '\0'，
+ * 而紧接着要从同一块内存把剩余字节拷回开头，首字节就被抹成 0。
+ * RTSP interleaved 的 '$'(0x24) 一旦被抹成 0，分帧就永远找不到帧头，
+ * 直到缓存满溢才重新对齐——表现为录像中间断流几秒到十几秒。
+ */
+static zn_err_t framer_keep_tail(zcs_http_message_framer *s, const char *ptr, size_t n,
+                                 int in_remain)
+{
+    if (in_remain) {
+        size_t off = (size_t)(ptr - zn_byte_buf_data(s->remain));
+
+        return zn_byte_buf_erase_front(s->remain, off);
+    }
+    zn_byte_buf_clear(s->remain);
+    return zn_byte_buf_append(s->remain, ptr, n);
+}
+
 zn_err_t zcs_http_message_framer_input(zcs_http_message_framer *s, const void *data, size_t len)
 {
     if (!s || !data || len == 0) {
@@ -91,12 +112,14 @@ zn_err_t zcs_http_message_framer_input(zcs_http_message_framer *s, const void *d
     }
 
     const char *ptr = (const char *)data;
+    int in_remain = 0;
     if (cached > 0) {
         if (zn_byte_buf_append(s->remain, data, len) != ZN_OK) {
             return ZN_ERR_NOMEM;
         }
         ptr = zn_byte_buf_data(s->remain);
         len = zn_byte_buf_size(s->remain);
+        in_remain = 1;
     }
 
 split_packet:
@@ -131,8 +154,7 @@ split_packet:
     }
 
     if (s->content_len == 0) {
-        zn_byte_buf_clear(s->remain);
-        if (zn_byte_buf_append(s->remain, ptr, s->remain_data_size) != ZN_OK) {
+        if (framer_keep_tail(s, ptr, s->remain_data_size, in_remain) != ZN_OK) {
             return ZN_ERR_NOMEM;
         }
         return ZN_OK;
@@ -140,8 +162,7 @@ split_packet:
 
     if (s->content_len > 0) {
         if (s->remain_data_size < (size_t)s->content_len) {
-            zn_byte_buf_clear(s->remain);
-            if (zn_byte_buf_append(s->remain, ptr, s->remain_data_size) != ZN_OK) {
+            if (framer_keep_tail(s, ptr, s->remain_data_size, in_remain) != ZN_OK) {
                 return ZN_ERR_NOMEM;
             }
             return ZN_OK;
@@ -154,12 +175,12 @@ split_packet:
         s->content_len = 0;
 
         if (s->remain_data_size > 0) {
-            zn_byte_buf_clear(s->remain);
-            if (zn_byte_buf_append(s->remain, ptr, s->remain_data_size) != ZN_OK) {
+            if (framer_keep_tail(s, ptr, s->remain_data_size, in_remain) != ZN_OK) {
                 return ZN_ERR_NOMEM;
             }
             ptr = zn_byte_buf_data(s->remain);
             len = zn_byte_buf_size(s->remain);
+            in_remain = 1;
             goto split_packet;
         }
         zn_byte_buf_clear(s->remain);

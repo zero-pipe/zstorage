@@ -121,6 +121,23 @@ void zs_clock_input(zs_clock *c, int64_t raw_pts_90k, int64_t wall_ms, uint32_t 
         goto emit;
     }
 
+    /*
+     * 媒体时间超前墙钟：按墙钟上限限速，而不是整帧冻结。
+     * 源端 PTS 抖动/重发/短时回退被当成正常增量时，时间轴只会越推越快；
+     * 旧实现只纠"媒体落后"，一旦跑快偏差就永久保留（录像时长、索引时间成倍膨胀）。
+     * 这里把本帧增量裁到"墙钟 + resync_ms"以内：偏差不再累积，out_pts 仍然单调，
+     * 后续帧会跟着墙钟继续前进，不会卡死。
+     */
+    if (wall_ms > 0) {
+        int64_t cap = (wall_ms + (int64_t)c->resync_ms) * ZS_CLOCK_TS_HZ;
+
+        if (c->out_pts + delta > cap) {
+            int64_t allowed = cap - c->out_pts;
+
+            delta = allowed > 0 ? allowed : 0;
+        }
+    }
+
     c->out_pts += delta;
     c->utc_ms = c->out_pts / ZS_CLOCK_TS_HZ;
     c->last_raw = raw;

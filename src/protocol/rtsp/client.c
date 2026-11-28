@@ -411,6 +411,12 @@ static void send_setup(zcs_rtsp_client *c)
 {
     if (c->setup_index >= c->session.track_count) {
         /* 所有轨都 SETUP 完毕 → 发 PLAY。Range: npt=0 表示从直播最旧处起播。 */
+        /* 务必在发 PLAY 之前打开 RTP 分流：相机可能在 PLAY 响应同一个 TCP
+         * 包里就跟着发 RTP，若此时还把 '$' 帧当 RTSP 文本解析，
+         * 会把二进制当成头部而丢弃数据、甚至错位。 */
+        if (c->rtp_mode == ZCS_RTSP_RTP_TCP && c->splitter) {
+            zcs_rtsp_splitter_enable_rtp(c->splitter, 1);
+        }
         c->state = ST_PLAY;
         zn_debug("RTSP client -> PLAY %s", c->url.full);
         client_send(c, ZCS_RTSP_PLAY, c->url.full, "Range: npt=0.000-\r\n", NULL, 0);

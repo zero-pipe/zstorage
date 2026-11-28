@@ -41,7 +41,8 @@ typedef struct zs_recorder {
     int closing;
 
     zs_writer *writer;
-    zs_clock *clock;
+    zs_clock *clock;       /* 视频时钟：槽位索引/封口上报的唯一时间来源 */
+    zs_clock *clock_audio; /* 音频独立时钟，避免与视频 dts 交织互相污染 */
     zcs_zm_ps_muxer *ps_mux;
     int video_stream;
     int audio_stream;
@@ -278,7 +279,18 @@ static void rec_feed(zs_recorder *r, const zcs_gop_slot *slot)
 
     dts = slot->dts_ms;
     pts = slot->pts_ms ? slot->pts_ms : dts;
-    zs_clock_input(r->clock, (int64_t)dts * 90, (int64_t)zcs_wall_ms(), 0, &co);
+    /*
+     * 视频与音频的 dts_ms 是两条各自从 0 起算、彼此独立的时基。共用一个归一化
+     * 时钟时，交织输入的相邻两次差值会变成"跨轨差"，被判成断流并强行推进，
+     * 录像时间轴（索引 utc、片段时长、上报时间）会成倍膨胀。
+     * 因此按轨各持一个时钟。两个时钟都在首帧锚定到墙钟（绝对 utc_ms），
+     * 天然共处同一时基，无需任何跨轨偏移。
+     */
+    if (slot->track == ZCS_TRACK_AUDIO) {
+        zs_clock_input(r->clock_audio, (int64_t)dts * 90, (int64_t)zcs_wall_ms(), 0, &co);
+    } else {
+        zs_clock_input(r->clock, (int64_t)dts * 90, (int64_t)zcs_wall_ms(), 0, &co);
+    }
     if (!co.valid) {
         return;
     }
@@ -457,6 +469,7 @@ zn_err_t zcs_zs_recorder_start(zcs_media_source *src, const char *channel_key)
     r->poller = pol;
     r->mu = zb_mutex_create(0);
     r->clock = zs_clock_create(NULL);
+    r->clock_audio = zs_clock_create(NULL);
     zcs_codec_param_sets_init(&r->params);
     /* 槽位头里存 channel_key（业务主键）作为回放检索键；缺省回落到 app/stream。 */
     key = (channel_key && channel_key[0]) ? channel_key : NULL;
@@ -467,7 +480,7 @@ zn_err_t zcs_zs_recorder_start(zcs_media_source *src, const char *channel_key)
                  src->stream);
     }
 
-    if (!r->mu || !r->clock) {
+    if (!r->mu || !r->clock || !r->clock_audio) {
         goto fail;
     }
 
@@ -510,6 +523,9 @@ fail:
     }
     if (r->clock) {
         zs_clock_destroy(r->clock);
+    }
+    if (r->clock_audio) {
+        zs_clock_destroy(r->clock_audio);
     }
     zcs_codec_param_sets_clear(&r->params);
     if (r->mu) {
@@ -567,6 +583,10 @@ void zcs_zs_recorder_stop(zcs_media_source *src)
     if (r->clock) {
         zs_clock_destroy(r->clock);
         r->clock = NULL;
+    }
+    if (r->clock_audio) {
+        zs_clock_destroy(r->clock_audio);
+        r->clock_audio = NULL;
     }
     zcs_codec_param_sets_clear(&r->params);
     free(r->au);
