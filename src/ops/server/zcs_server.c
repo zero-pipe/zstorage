@@ -237,15 +237,6 @@ static void print_play_urls(const zcs_media_server_ports *ports, const zcs_media
         return;
     }
     zcs_media_urls_build(&u, src, ports);
-    if (u.http_flv[0]) {
-        printf("      HTTP-FLV : %s\r\n", u.http_flv);
-    }
-    if (u.hls[0]) {
-        printf("      HTTP-HLS : %s\r\n", u.hls);
-    }
-    if (u.dash[0]) {
-        printf("      HTTP-DASH: %s\r\n", u.dash);
-    }
     if (u.rtsp_play[0]) {
         printf("      RTSP     : %s\r\n", u.rtsp_play);
     }
@@ -256,15 +247,13 @@ static void print_play_urls(const zcs_media_server_ports *ports, const zcs_media
 
 static void print_generic_play_urls(const zcs_media_server_ports *ports, const zcs_config *cfg)
 {
-    printf("      HTTP-FLV : http://127.0.0.1:%u/live/{stream}.flv\r\n", ports->http);
-    printf("      HTTP-HLS : http://127.0.0.1:%u/live/{stream}.m3u8\r\n", ports->http);
-    printf("      HTTP-DASH: http://127.0.0.1:%u/live/{stream}.mpd\r\n", ports->http);
+    (void)cfg;
     printf("      RTSP     : rtsp://127.0.0.1:%u/live/{stream}\r\n", ports->rtsp);
     printf("      RTMP     : rtmp://127.0.0.1:%u/live/{stream}\r\n", ports->rtmp);
 }
 
 /**
- * 大并发（千路级推/拉）下每连接至少 1 个 fd，WebRTC 还要额外 UDP 端口。
+ * 大并发（千路级推/拉）下每连接至少 1 个 fd。
  * 启动时把软限制抬到硬限制，失败只告警不阻断。
  */
 static void raise_fd_limit(void)
@@ -293,11 +282,9 @@ static void raise_fd_limit(void)
 
 /*
  * 启动所有监听服务。装配顺序体现依赖关系：
- *   1. 先初始化 HLS/events/webhook/auth 等“被动服务”（协议回调会引用它们）；
+ *   1. 先初始化 webhook/auth 等“被动服务”（协议回调会引用它们）；
  *   2. 建 TLS 上下文（HTTP/RTMP/RTSP 共享）；
- *   3. 依次 create+start RTMP/HTTP/RTSP/SRT；
- *   4. HTTP 起来后才启 ONVIF（复用其端口）；GB28181 平台先于设备端（设备端要
- *      注册到平台，平台监听须已就绪）。
+ *   3. 依次 create+start RTMP/HTTP/RTSP。
  * 任何一个监听启动失败都返回错误，由调用方 server_stop_services 整体回滚。
  */
 static zn_err_t server_start_services(zcs_server *s)
@@ -765,7 +752,6 @@ void zcs_server_print_endpoints(const zcs_server *s)
         }
     } else {
         print_generic_play_urls(&ports, cfg);
-        printf("      HTTP-HLS VOD: http://127.0.0.1:%u/vod/{file}.m3u8\r\n", ports.http);
     }
     printf("Press Ctrl+C to exit.\r\n");
 }

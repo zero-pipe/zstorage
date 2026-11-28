@@ -10,6 +10,19 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
+static void setup_console_utf8(void)
+{
+#if defined(_WIN32)
+    /* 日志与提示含中文（UTF-8），Windows 控制台默认 GBK 会显示乱码。 */
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+}
+
 static void on_publish(const zcs_media_tuple *t, zcs_media_origin origin, void *user)
 {
     (void)user;
@@ -53,6 +66,8 @@ int main(int argc, char **argv)
     zcs_demo_server_args args;
     zcs_server *srv;
     zcs_server_hooks hooks;
+
+    setup_console_utf8();
 
     zcs_demo_server_args_default(&args);
     if (zcs_demo_server_parse_args(argc, argv, &args) != 0) {
