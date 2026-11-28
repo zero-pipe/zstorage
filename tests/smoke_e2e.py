@@ -32,8 +32,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def find_server_binary():
-    """在常见构建目录里找 demo_media_server 可执行文件。"""
-    names = ["demo_media_server.exe", "demo_media_server"]
+    """在常见构建目录里找 zcs 可执行文件。"""
+    names = ["zcs.exe", "zcs"]
     roots = [
         os.path.join(REPO, "build", "examples", "Release"),
         os.path.join(REPO, "build", "examples"),
@@ -202,7 +202,7 @@ def main():
 
     binary = find_server_binary()
     if not binary:
-        print("FAIL: 找不到 demo_media_server，请先构建 examples")
+        print("FAIL: 找不到 zcs，请先构建 examples")
         return 1
 
     workdir = tempfile.mkdtemp(prefix="zcs_smoke_")

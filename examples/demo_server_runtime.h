@@ -3,7 +3,7 @@
 
 /**
  * 示例程序公共运行时：配置加载、日志、poller_pool、缓冲池等。
- * demo_media_server / demo_gb28181_device 共用同一套初始化语义。
+ * zcs / demo_gb28181_device 共用同一套初始化语义。
  *
  * 信号处理（仅 POSIX）：
  *   SIGTERM / SIGINT  → 设置 g_zcs_stop = 1，wait() 返回，进程优雅退出

@@ -1,6 +1,6 @@
 /**
  * @file zcs_server.c
- * @brief 媒体服务器接口：配置 / poller / 协议装配（自 demo_media_server 上收）。
+ * @brief 媒体服务器接口：配置 / poller / 协议装配（自 zcs 上收）。
  */
 #include "zcs/server.h"
 
@@ -629,7 +629,7 @@ zn_err_t zcs_server_start(zcs_server *s)
         zcs_media_server_ports ports;
         server_fill_ports(s, &ports);
         zcs_web_api_note_boot();
-        zn_info("ZCS media server started (poller_pool=%u)", s->poller_count);
+        zn_info("Zero Cloud Storage (ZCS) started (poller_pool=%u)", s->poller_count);
 #ifdef _WIN32
         zn_info("process pid=%lu", (unsigned long)GetCurrentProcessId());
 #endif
@@ -730,7 +730,7 @@ void zcs_server_print_endpoints(const zcs_server *s)
     cfg = &s->cfg;
     server_fill_ports(s, &ports);
 
-    printf("ZCS media server running (log: %s)\r\n", cfg->general.log_file);
+    printf("Zero Cloud Storage (ZCS) running (log: %s)\r\n", cfg->general.log_file);
     if (s->proxy) {
         printf("  [proxy] %s -> %s/%s\r\n", cfg->proxy.pull, zcs_live_pull_proxy_app(s->proxy),
                zcs_live_pull_proxy_stream(s->proxy));

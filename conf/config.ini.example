@@ -22,7 +22,7 @@
 [general]
 # ── 进程与日志 ─────────────────────────────────────────────────────────────
 # 日志文件（相对进程工作目录）；路径含目录时需目录已存在
-log_file=zcs_media_server.log
+log_file=zcs.log
 # 日志级别：trace / debug / info / warn / error（数字 0-3 亦可）。
 #   生产用 info；排查问题临时调 debug，量很大不要长期开
 log_level=info

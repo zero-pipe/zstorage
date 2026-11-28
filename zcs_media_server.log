@@ -1,0 +1,57 @@
+[I][63900327][zms_server.c:130] logging to stderr and zcs_media_server.log (rotate every 128 MB, keep 5)
+[I][63900332][auth.c:147] [auth] token verify disabled (param=token)
+[I][63900333][webhook_client.c:1236] webhook init enable=1 on_stream_changed=(none) mediaServerId=zstorage play_base=http://192.168.1.2:8180
+[W][63900333][zms_server.c:457] enable_srt=1 but binary built without ZMS_ENABLE_SRT
+[I][63900334][webhook_client.c:769] [hook] on_storage_started -> http://127.0.0.1:18080/index/hook/on_storage_started (http=8180 rtsp=8654)
+[I][63900334][webhook_client.c:830] [hook] storage keepalive started -> http://127.0.0.1:18080/index/hook/on_storage_keepalive interval=30s
+[I][63900334][zms_server.c:716] ZMS media server started (poller_pool=8)
+[I][63900335][zms_server.c:718] process pid=16648
+[I][63900335][zms_server.c:720] Listen RTMP=2035 RTSP=8654 HTTP=8180
+[W][63932381][webhook_client.c:395] webhook HTTP retry (0 left): connection error url=http://127.0.0.1:18080/index/hook/on_storage_keepalive
+[W][63937423][webhook_client.c:348] webhook POST failed: http://127.0.0.1:18080/index/hook/on_storage_keepalive
+[W][63962374][webhook_client.c:395] webhook HTTP retry (0 left): connection error url=http://127.0.0.1:18080/index/hook/on_storage_keepalive
+[W][63967411][webhook_client.c:348] webhook POST failed: http://127.0.0.1:18080/index/hook/on_storage_keepalive
+[I][64371361][zcs_server.c:124] logging to stderr and zcs_media_server.log (rotate every 128 MB, keep 5)
+[I][64371368][auth.c:147] [auth] token verify disabled (param=token)
+[I][64371368][webhook_client.c:1236] webhook init enable=1 on_stream_changed=(none) mediaServerId=zstorage play_base=http://192.168.1.2:8180
+[I][64371370][webhook_client.c:769] [hook] on_storage_started -> http://127.0.0.1:18080/index/hook/on_storage_started (http=8180 rtsp=8654)
+[I][64371370][webhook_client.c:830] [hook] storage keepalive started -> http://127.0.0.1:18080/index/hook/on_storage_keepalive interval=30s
+[I][64371370][zcs_server.c:643] ZCS media server started (poller_pool=8)
+[I][64371370][zcs_server.c:645] process pid=14640
+[I][64371370][zcs_server.c:647] Listen RTMP=2035 RTSP=8654 HTTP=8180
+[I][64372391][zcs_server.c:661] shutting down...
+[I][64372628][buf_pool.c:61] buf pool fini stats: hit=0 miss=0 oversize=0 cached=0 dropped=0
+[I][64413189][zms_server.c:789] signal received, shutting down...
+[I][64413189][zms_server.c:739] shutting down...
+[I][64413426][buf_pool.c:61] buf pool fini stats: hit=0 miss=0 oversize=0 cached=0 dropped=0
+[I][64519150][zcs_server.c:124] logging to stderr and zcs_media_server.log (rotate every 128 MB, keep 5)
+[I][64519159][auth.c:147] [auth] token verify disabled (param=token)
+[I][64519159][webhook_client.c:1236] webhook init enable=1 on_stream_changed=(none) mediaServerId=zstorage play_base=http://192.168.1.2:8180
+[I][64519162][webhook_client.c:769] [hook] on_storage_started -> http://127.0.0.1:18080/index/hook/on_storage_started (http=8180 rtsp=8654)
+[I][64519162][webhook_client.c:830] [hook] storage keepalive started -> http://127.0.0.1:18080/index/hook/on_storage_keepalive interval=30s
+[I][64519162][zcs_server.c:632] ZCS media server started (poller_pool=8)
+[I][64519162][zcs_server.c:634] process pid=16248
+[I][64519162][zcs_server.c:636] Listen RTMP=2035 RTSP=8654 HTTP=8180
+[I][64520181][zcs_server.c:650] shutting down...
+[I][64520419][buf_pool.c:61] buf pool fini stats: hit=0 miss=0 oversize=0 cached=0 dropped=0
+[I][64626097][zcs_server.c:124] logging to stderr and zcs_media_server.log (rotate every 128 MB, keep 5)
+[I][64626102][auth.c:147] [auth] token verify disabled (param=token)
+[I][64626102][webhook_client.c:1236] webhook init enable=1 on_stream_changed=(none) mediaServerId=zstorage play_base=http://192.168.1.2:8180
+[I][64626104][webhook_client.c:769] [hook] on_storage_started -> http://127.0.0.1:18080/index/hook/on_storage_started (http=8180 rtsp=8654)
+[I][64626104][webhook_client.c:830] [hook] storage keepalive started -> http://127.0.0.1:18080/index/hook/on_storage_keepalive interval=30s
+[I][64626105][zcs_server.c:632] ZCS media server started (poller_pool=8)
+[I][64626105][zcs_server.c:634] process pid=1468
+[I][64626105][zcs_server.c:636] Listen RTMP=2035 RTSP=8654 HTTP=8180
+[I][65797450][zcs_server.c:700] signal received, shutting down...
+[I][65797450][zcs_server.c:650] shutting down...
+[I][65797672][buf_pool.c:61] buf pool fini stats: hit=0 miss=0 oversize=0 cached=0 dropped=0
+[I][66453236][zcs_server.c:124] logging to stderr and zcs_media_server.log (rotate every 128 MB, keep 5)
+[I][66453242][auth.c:147] [auth] token verify disabled (param=token)
+[I][66453242][webhook_client.c:1236] webhook init enable=1 on_stream_changed=(none) mediaServerId=zstorage play_base=http://192.168.1.2:8180
+[I][66453243][webhook_client.c:769] [hook] on_storage_started -> http://127.0.0.1:18080/index/hook/on_storage_started (http=8180 rtsp=8654)
+[I][66453243][webhook_client.c:830] [hook] storage keepalive started -> http://127.0.0.1:18080/index/hook/on_storage_keepalive interval=30s
+[I][66453243][zcs_server.c:632] Zero Cloud Storage (ZCS) started (poller_pool=8)
+[I][66453243][zcs_server.c:634] process pid=2768
+[I][66453243][zcs_server.c:636] Listen RTMP=2035 RTSP=8654 HTTP=8180
+[I][66454275][zcs_server.c:650] shutting down...
+[I][66454510][buf_pool.c:61] buf pool fini stats: hit=0 miss=0 oversize=0 cached=0 dropped=0

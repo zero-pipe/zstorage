@@ -3,7 +3,7 @@
 
 /**
  * @file zcs.h
- * @brief Zero Media Server 全量聚合头（demo / 内部方便用）。
+ * @brief Zero Cloud Storage 全量聚合头（demo / 内部方便用）。
  *
  * 嵌入与插件宿主请用 zcs/sdk.h（Stable），不要依赖本头的「全家桶」包含。
  * 进阶场景可优先使用领域聚合头：zcs/live.h、zcs/vod.h、zcs/player.h、zcs/protocol.h。

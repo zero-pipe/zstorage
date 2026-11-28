@@ -394,7 +394,7 @@ void zcs_config_default(zcs_config *cfg)
     memset(cfg, 0, sizeof(*cfg));
 
     /* [general] */
-    strncpy(cfg->general.log_file, "zcs_media_server.log", sizeof(cfg->general.log_file) - 1);
+    strncpy(cfg->general.log_file, "zcs.log", sizeof(cfg->general.log_file) - 1);
     cfg->general.log_level = ZN_LOG_INFO;
     cfg->general.log_max_mb = 128; /* 默认开启轮转，防止磁盘被日志写满 */
     cfg->general.log_keep_count = 5;

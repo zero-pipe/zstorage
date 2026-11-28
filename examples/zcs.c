@@ -1,7 +1,7 @@
 /**
  * ZCS 综合媒体服务（薄封装，逻辑在 zcs_server 接口）。
  *
- *   demo_media_server [--config config.ini] [--log file] [--seconds N]
+ *   zcs [--config config.ini] [--log file] [--seconds N]
  */
 #include "demo_server_runtime.h"
 #include "zcs/server.h"
